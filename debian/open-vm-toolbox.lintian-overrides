@@ -1,0 +1,2 @@
+open-vm-toolbox: desktop-command-not-in-package /usr/share/applications/vmware-user.desktop vmware-user-suid-wrapper
+open-vm-toolbox: setuid-binary usr/sbin/vmware-user-suid-wrapper 4755 root/root
