@@ -1,3 +1,9 @@
+open-vm-tools (2011.12.20-562307-0ubuntu1pexip1) precise; urgency=low
+
+  * Package for Pexip.
+
+ -- Alan Ford <alan@pexip.com>  Tue, 20 Aug 2013 08:52:36 +0100
+
 open-vm-tools (2011.12.20-562307-0ubuntu1) precise; urgency=high
 
   * Merge latest upstream git tag. Fixes building on Precise

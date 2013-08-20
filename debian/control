@@ -1,7 +1,7 @@
 Source: open-vm-tools
 Section: admin
 Priority: extra
-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Maintainer: Pexip AS <packaging@pexip.com>
 XSBC-Original-Maintainer: Daniel Baumann <daniel.baumann@progress-technologies.net>
 Build-Depends:
  debhelper (>= 8), autotools-dev, doxygen, libcunit1-dev, libdumbnet-dev,
