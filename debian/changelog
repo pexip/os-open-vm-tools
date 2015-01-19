@@ -1,3 +1,9 @@
+open-vm-tools (2011.12.20-562307-0ubuntu1pexip2) pexip; urgency=low
+
+  * Respect ordering of mounts when freezing/thawing.
+
+ -- Alan Ford <alan@pexip.com>  Mon, 19 Jan 2015 17:20:06 +0100
+
 open-vm-tools (2011.12.20-562307-0ubuntu1pexip1) precise; urgency=low
 
   * Package for Pexip.
