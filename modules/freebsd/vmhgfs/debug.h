@@ -52,7 +52,7 @@
 #define VM_DEBUG_FAIL	        VM_DEBUG_ALWAYS
 #define VM_DEBUG_NOTSUP         VM_DEBUG_ALWAYS
 #define VM_DEBUG_ENTRY          (1 << 1)
-#define VM_DEBUG_DONE	        (1 << 2)
+#define VM_DEBUG_EXIT           (1 << 2)
 #define VM_DEBUG_LOAD	        (1 << 3)
 #define VM_DEBUG_INFO           (1 << 4)
 #define VM_DEBUG_STRUCT         (1 << 5)
@@ -70,35 +70,35 @@
 #define VM_DEBUG_HSHTBL         (1 << 17)
 #define VM_DEBUG_HANDLE         (1 << 18)
 #define VM_DEBUG_STATE          (1 << 19)
+#define VM_DEBUG_VNODE          (1 << 20)
 #define VM_DEBUG_ALL            (~0)
 
 #if defined VMX86_DEVEL
-#  define VM_DEBUG_LEV (VM_DEBUG_ALWAYS | VM_DEBUG_FAIL)
+extern uint32_t gHgfsVmDebugLevel;
+#define VM_DEBUG_DEFAULT_LEV (VM_DEBUG_ALWAYS | VM_DEBUG_ENTRY | VM_DEBUG_EXIT | VM_DEBUG_FAIL)
 #endif
 
-#ifdef VM_DEBUG_LEV
+#ifdef VMX86_DEVEL
 #  if defined __FreeBSD__
 #    define DEBUG(type, fmt, ...)                                         \
-               ((type & VM_DEBUG_LEV) ?                                   \
+               ((type & gHgfsVmDebugLevel) ?                              \
                 (log(LOG_NOTICE, "%s:%u: " fmt,                           \
                      __func__, __LINE__, ##__VA_ARGS__))                  \
                 : 0)
 #  elif defined __APPLE__
 #    define DEBUG(type, fmt, ...)                             \
-                 ((type & VM_DEBUG_LEV) ?                     \
-                  (kprintf("%s:%u: " fmt,                     \
-                       __func__, __LINE__, ##__VA_ARGS__))    \
-                  : (void)0)
+                 HgfsDebugPrint(type, __func__, __LINE__, fmt, ##__VA_ARGS__)
 #  endif
 #else
 #  define DEBUG(type, ...)
 #endif
 
-
 /*
  * Global functions
  */
 
+void HgfsDebugPrint(int type, const char *funcname, unsigned int linenum, const char *fmt, ...);
 void HgfsDebugPrintVattr(const HgfsVnodeAttr *vap);
+void HgfsDebugPrintOperation(HgfsKReqHandle req);
 
 #endif // _DEBUG_H_

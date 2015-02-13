@@ -287,6 +287,23 @@ XRSTOR_AMD_ES0(const void *load, uint64 mask)
 
 #endif /* __GNUC__ */
 
+/*
+ * XTEST
+ *     Return TRUE if processor is in transaction region.
+ *
+ */
+#if defined(__GNUC__) && (defined(VMM) || defined(VMKERNEL) || defined(FROBOS))
+static INLINE Bool
+xtest(void)
+{
+   uint8 al;
+   __asm__ __volatile__(".byte 0x0f, 0x01, 0xd6    # xtest \n"
+                        "setnz %%al\n"
+                        : "=a"(al) : : "cc"); 
+   return al;
+}
+
+#endif /* __GNUC__ */
 
 /*
  *-----------------------------------------------------------------------------
@@ -322,7 +339,7 @@ Mul64x6464(uint64 multiplicand,
    uint64 result, dummy;
 
    __asm__("mulq    %3      \n\t"
-           "shrdq   %1, %0  \n\t"
+           "shrdq   %b4, %1, %0  \n\t"
            : "=a" (result),
              "=d" (dummy)
            : "0"  (multiplier),
@@ -380,7 +397,7 @@ Muls64x64s64(int64 multiplicand, int64 multiplier, uint32 shift)
    int64 result, dummy;
 
    __asm__("imulq   %3      \n\t"
-       "shrdq   %1, %0  \n\t"
+       "shrdq   %b4, %1, %0  \n\t"
        : "=a" (result),
          "=d" (dummy)
        : "0"  (multiplier),

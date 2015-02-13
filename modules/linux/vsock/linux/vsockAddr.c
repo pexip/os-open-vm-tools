@@ -69,7 +69,6 @@ VSockAddr_Init(struct sockaddr_vm *addr, // OUT
                uint32 port)              // IN
 {
    ASSERT(addr);
-   memset(addr, 0, sizeof *addr);
    VSockAddr_InitNoFamily(addr, cid, port);
    addr->svm_family = VMCISockGetAFValueInt();
    VSOCK_ADDR_ASSERT(addr);
@@ -102,12 +101,11 @@ VSockAddr_InitNoFamily(struct sockaddr_vm *addr, // OUT
                        uint32 port)              // IN
 {
    ASSERT(addr);
-   memset(addr, 0, sizeof *addr);
 
+   memset(addr, 0, sizeof *addr);
 #if defined(__APPLE__)
    addr->svm_len = sizeof *addr;
 #endif
-
    addr->svm_cid = cid;
    addr->svm_port = port;
    VSOCK_ADDR_NOFAMILY_ASSERT(addr);
@@ -448,14 +446,9 @@ VSockAddr_SocketContextDgram(uint32 cid,  // IN
    if (cid == VMCI_HYPERVISOR_CONTEXT_ID) {
       /*
        * Registrations of PBRPC Servers do not modify VMX/Hypervisor state and
-       * are allowed.  We also allow messages on the two RPC channels.
-       *
-       * XXX, we should disallow messages to the privileged channel for
-       * sockets that are not owned by admin/root.  See PR 794652.
+       * are allowed.
        */
-      if (rid == VMCI_UNITY_PBRPC_REGISTER ||
-          rid == VMCI_RPC_PRIVILEGED ||
-          rid == VMCI_RPC_UNPRIVILEGED) {
+      if (rid == VMCI_UNITY_PBRPC_REGISTER) {
          return TRUE;
       } else {
          return FALSE;

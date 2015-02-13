@@ -59,8 +59,6 @@
  * Brief names are used when the VMware prefix is not wanted.
  */
 #define PRODUCT_SCALABLE_SERVER_BRIEF_NAME "ESX"
-#define PRODUCT_WGS_BRIEF_NAME "Server"
-#define PRODUCT_GSX_BRIEF_NAME "GSX Server"
 #define PRODUCT_WORKSTATION_BRIEF_NAME "Workstation"
 #define PRODUCT_WORKSTATION_ENTERPRISE_BRIEF_NAME \
          PRODUCT_WORKSTATION_BRIEF_NAME " " "ACE Edition"
@@ -83,9 +81,6 @@
 
 #define PRODUCT_SCALABLE_SERVER_NAME MAKE_NAME(PRODUCT_SCALABLE_SERVER_BRIEF_NAME)
 #define PRODUCT_ESX_SMP_NAME MAKE_NAME("Virtual SMP for ESX Server")
-#define PRODUCT_WGS_NAME MAKE_NAME(PRODUCT_WGS_BRIEF_NAME)
-#define PRODUCT_GSX_NAME MAKE_NAME(PRODUCT_GSX_BRIEF_NAME)
-#define PRODUCT_GSX_SMP_NAME MAKE_NAME("Virtual SMP for GSX Server")
 #define PRODUCT_WORKSTATION_NAME MAKE_NAME(PRODUCT_WORKSTATION_BRIEF_NAME)
 #define PRODUCT_WORKSTATION_ENTERPRISE_NAME MAKE_NAME(PRODUCT_WORKSTATION_ENTERPRISE_BRIEF_NAME)
 #define PRODUCT_WORKSTATION_SERVER_NAME MAKE_NAME(PRODUCT_WORKSTATION_SERVER_BRIEF_NAME)
@@ -95,6 +90,7 @@
 #define PRODUCT_PLAYER_NAME_FOR_LICENSE PRODUCT_PLAYER_NAME
 #define PRODUCT_ACE_PLAYER_NAME MAKE_NAME(PRODUCT_ACE_PLAYER_BRIEF_NAME)
 #define PRODUCT_ACE_MANAGEMENT_SERVER_NAME MAKE_NAME(PRODUCT_ACE_MANAGEMENT_SERVER_BRIEF_NAME)
+#define PRODUCT_MAC_DESKTOP_NAME_FOR_LICENSE "VMware Fusion for Mac OS"
 
 #define PRODUCT_VMLS_SHORT_NAME "VMLS"
 #define PRODUCT_VMLS_NAME MAKE_NAME("License Server")
@@ -114,24 +110,25 @@
 #define PRODUCT_VCB_SHORT_NAME "VCB"
 #define PRODUCT_VCB_NAME MAKE_NAME("Consolidated Backup")
 
-#define PRODUCT_API_SCRIPTING_COM_SHORT_NAME "VmCOM"
-#define PRODUCT_API_SCRIPTING_PERL_SHORT_NAME "VmPerl"
-
-#define PRODUCT_API_SCRIPTING_COM_NAME MAKE_NAME(PRODUCT_API_SCRIPTING_COM_SHORT_NAME " Scripting API")
-
-#define PRODUCT_API_SCRIPTING_PERL_NAME MAKE_NAME(PRODUCT_API_SCRIPTING_PERL_SHORT_NAME " Scripting API")
-
 #define PRODUCT_VPX_NAME MAKE_NAME("VirtualCenter")
 
 #define PRODUCT_VPXA_NAME PRODUCT_VPX_NAME " Agent"
 
 #define PRODUCT_FDM_NAME MAKE_NAME("Fault Domain Manager")
 
+#define PRODUCT_HA_NAME MAKE_NAME("High Availability Extension")
+
 #define PRODUCT_WBC_NAME MAKE_NAME("WebCenter")
 
 #define PRODUCT_SDK_NAME MAKE_NAME("SDK")
 
 #define PRODUCT_DDK_NAME MAKE_NAME("ESX DDK")
+
+#define PRODUCT_NGCINSTALLER_NAME MAKE_NAME("vSphere Web Client")
+
+#define PRODUCT_SSOINSTALLER_NAME MAKE_NAME("Single Sign On")
+
+#define PRODUCT_SSOREGMM_NAME MAKE_NAME("vCenter Registration Tool")
 
 // XXX I think these are dead and can be removed -clayton
 // #define PRODUCT_VDM_SHORT_NAME "VDM"
@@ -189,8 +186,8 @@
  *
  * VMRC is versioned x.y.z - ProgID is intentionally built using only x.y
  */
-#define PRODUCT_VMRC_PLUGIN_GUID_EMBEDDED      6FB1850B-AC2A-4AEA-9847-EBCE6AB2A62E
-#define PRODUCT_VMRC_PLUGIN_GUID_TYPELIB       EF9A6976-4861-49B5-AFED-05281B5887C5
+#define PRODUCT_VMRC_PLUGIN_GUID_EMBEDDED      4AEA1010-0A0C-405E-9B74-767FC8A998CB
+#define PRODUCT_VMRC_PLUGIN_GUID_TYPELIB       E82F3B76-A628-4486-B197-03780F86063A
 #define PRODUCT_VMRC_PLUGIN_PROGID_EMBEDDED_BASE "VMware.RemoteConsole"
 #define PRODUCT_VMRC_PLUGIN_PROGID_EMBEDDED    PRODUCT_VMRC_PLUGIN_PROGID_EMBEDDED_BASE "." \
                                                XSTR(VMRC_PLUGIN_VERSION_BASE)
@@ -207,19 +204,7 @@
 #endif
 
 #define PRODUCT_VMRC_PLUGIN_CURRENT_MIMETYPE \
-   "application/x-vmware-remote-console"
-
-/*
- * legacy plugin mimetypes (currently unused but here for reference)
- */
-#define PRODUCT_VMRC_PLUGIN_LEGACY_MIMETYPES \
-   "application/x-vmware-vmrc;version=2.5.0.199067" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-vmrc;version=2.5.0.158248" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-vmrc;version=2.5.0.116460" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-vmrc;version=2.5.0.0" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-mks;version=2.1.0.0" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-mks;version=2.0.1.0" PRODUCT_VMRC_MIMETYPE_SEPARATOR \
-   "application/x-vmware-mks;version=2.0.0.0" PRODUCT_VMRC_MIMETYPE_SEPARATOR
+   "application/x-vmware-remote-console-2012"
 
 /*
  * All supported plugin mimetypes
@@ -250,12 +235,10 @@
 
 
 #if !(   defined(VMX86_SERVER)   \
-      || defined(VMX86_WGS)      \
       || defined(VMX86_DESKTOP)  \
       || defined(VMX86_ENTERPRISE_DESKTOP) \
       || defined(VMX86_VIEW)     \
       || defined(VMX86_MUI)      \
-      || defined(VMX86_API)      \
       || defined(VMX86_VPX)      \
       || defined(VMX86_WBC)      \
       || defined(VMX86_SDK)      \
@@ -288,14 +271,8 @@
 # define PRODUCT_SHORT_NAME PRODUCT_VMVISOR_NAME
 #elif defined(VMX86_SERVER)
 # define PRODUCT_SHORT_NAME PRODUCT_SCALABLE_SERVER_NAME
-#elif defined(VMX86_WGS_MIGRATION)
-# define PRODUCT_SHORT_NAME PRODUCT_WGS_MIGRATION_NAME
-#elif defined(VMX86_WGS)
-#  if defined(VMX86_CONSOLE)
-#     define PRODUCT_SHORT_NAME PRODUCT_CONSOLE_NAME
-#  else
-#     define PRODUCT_SHORT_NAME PRODUCT_WGS_NAME
-#  endif
+#elif defined(VMX86_CONSOLE)
+# define PRODUCT_SHORT_NAME PRODUCT_CONSOLE_NAME
 #elif defined(VMX86_MUI)
 # define PRODUCT_SHORT_NAME PRODUCT_MUI_NAME
 #elif defined(VMX86_ENTERPRISE_DESKTOP)
@@ -308,19 +285,21 @@
 # endif
 #elif defined(VMX86_TOOLS)
 # define PRODUCT_SHORT_NAME VMWARE_TOOLS_SHORT_NAME
-#elif defined(VMX86_API)
-#  ifdef _WIN32
-#     define PRODUCT_SHORT_NAME PRODUCT_API_SCRIPTING_COM_NAME
-#  else
-#     define PRODUCT_SHORT_NAME PRODUCT_API_SCRIPTING_PERL_NAME
-#  endif
 #elif defined(VMX86_VPX)
-#  if defined(CSI_FDM)
+#  if defined(CSI_HA)
+#     define PRODUCT_SHORT_NAME PRODUCT_HA_NAME     
+#  elif defined(CSI_FDM)
 #     define PRODUCT_SHORT_NAME PRODUCT_FDM_NAME
 #  elif defined(VPXA)
 #     define PRODUCT_SHORT_NAME PRODUCT_VPXA_NAME
 #  elif defined(XVP)
 #     define PRODUCT_SHORT_NAME PRODUCT_XVP_NAME
+#  elif defined(INSTALL_NGC)
+#     define PRODUCT_SHORT_NAME PRODUCT_NGCINSTALLER_NAME
+#  elif defined(INSTALL_SSO)
+#     define PRODUCT_SHORT_NAME PRODUCT_SSOINSTALLER_NAME
+#  elif defined(INSTALL_SSOREGMM)
+#     define PRODUCT_SHORT_NAME PRODUCT_SSOREGMM_NAME
 #  else
 #     define PRODUCT_SHORT_NAME PRODUCT_VPX_NAME
 #  endif
@@ -415,7 +394,7 @@
 #      define PRODUCT_SMP_NAME_FOR_LICENSE PRODUCT_ESX_SMP_NAME
 #   elif defined(VMX86_DESKTOP)
 #      if defined(__APPLE__)
-#         define PRODUCT_NAME_FOR_LICENSE "VMware Fusion for Mac OS"
+#         define PRODUCT_NAME_FOR_LICENSE PRODUCT_MAC_DESKTOP_NAME_FOR_LICENSE
 #      else
 #         define PRODUCT_NAME_FOR_LICENSE "VMware Workstation"
 #      endif
@@ -423,12 +402,6 @@
 #   elif defined(VMX86_VPX)
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME " Server"
 #      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None
-#   elif defined(VMX86_WGS_MIGRATION)
-#      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME " for " PRODUCT_OS
-#      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None
-#   elif defined(VMX86_WGS)
-#      define PRODUCT_NAME_FOR_LICENSE PRODUCT_GSX_NAME " for " PRODUCT_OS
-#      define PRODUCT_SMP_NAME_FOR_LICENSE PRODUCT_GSX_SMP_NAME " for " PRODUCT_OS
 #   elif defined(VMX86_SYSIMAGE)
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME
 #      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None
@@ -444,9 +417,8 @@
  * VMWARE_HOST_DIRECTORY is for host-specific configuration files.
  * DEFAULT_LIBDIRECTORY is the default for the 'libdir' config variable.
  *
- * The APIs are installed as separate products and must have their own
- * configuration and library directories.  The remote console checks at
- * run time, and the MUI is not really a separate product.
+ * The remote console checks at run time, and the MUI is not really a separate
+ * product.
  */
 #   if defined(__APPLE__)
 #      if defined VMX86_DESKTOP
@@ -458,14 +430,7 @@
 #      endif
 #   endif
 
-#   if defined(VMX86_API)
-#      if defined(__APPLE__)
-#         define VMWARE_HOST_DIRECTORY VMWARE_HOST_DIRECTORY_PREFIX " API"
-#      else
-#         define VMWARE_HOST_DIRECTORY "/etc/" PRODUCT_GENERIC_NAME_LOWER "-api"
-#         define DEFAULT_LIBDIRECTORY "/usr/lib/" PRODUCT_GENERIC_NAME_LOWER "-api"
-#      endif
-#   elif defined (VMX86_CONSOLE)
+#   if defined (VMX86_CONSOLE)
 #      if defined(__APPLE__)
 #         define VMWARE_HOST_DIRECTORY VMWARE_HOST_DIRECTORY_PREFIX " Console"
 #      else
@@ -538,7 +503,7 @@
  */
 #   if defined(VMX86_DESKTOP)
 #      if defined(__APPLE__)
-#         define PRODUCT_NAME_FOR_LICENSE "VMware Fusion for Mac OS"
+#         define PRODUCT_NAME_FOR_LICENSE PRODUCT_MAC_DESKTOP_NAME_FOR_LICENSE
 #      else
 #         define PRODUCT_NAME_FOR_LICENSE "VMware Workstation"
 #      endif
@@ -546,12 +511,6 @@
 #   elif defined(VMX86_VPX)
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME " Server"
 #      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None
-#   elif defined(VMX86_WGS_MIGRATION)
-#      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME " for Win32"
-#      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None
-#   elif defined(VMX86_WGS)
-#      define PRODUCT_NAME_FOR_LICENSE PRODUCT_GSX_NAME " for Win32"
-#      define PRODUCT_SMP_NAME_FOR_LICENSE PRODUCT_GSX_SMP_NAME " for Win32"
 #   else
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_REG_NAME
 #      define PRODUCT_SMP_NAME_FOR_LICENSE "" // None

@@ -27,6 +27,7 @@
 
 #include "compat_fs.h"
 #include "compat_kernel.h"
+#include "compat_namei.h"
 #include "compat_version.h"
 
 #include "inode.h"
@@ -35,7 +36,12 @@
 
 /* HGFS dentry operations. */
 static int HgfsDentryRevalidate(struct dentry *dentry,
-                                struct nameidata *nd);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+                                unsigned int flags
+#else
+                                struct nameidata *nd
+#endif
+);
 
 /* HGFS dentry operations structure. */
 struct dentry_operations HgfsDentryOperations = {
@@ -70,7 +76,12 @@ struct dentry_operations HgfsDentryOperations = {
 
 static int
 HgfsDentryRevalidate(struct dentry *dentry,  // IN: Dentry to revalidate
-                     struct nameidata *nd)   // IN: Lookup flags & intent
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+                     unsigned int flags      // IN: Lookup flags & intent
+#else
+                     struct nameidata *nd    // IN: Lookup flags & intent
+#endif
+)
 {
    int error;
    LOG(6, (KERN_DEBUG "VMware hgfs: HgfsDentryRevalidate: calling "
@@ -78,10 +89,26 @@ HgfsDentryRevalidate(struct dentry *dentry,  // IN: Dentry to revalidate
 
    ASSERT(dentry);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+   if (flags & LOOKUP_RCU) {
+      return -ECHILD;
+   }
+#elif defined(LOOKUP_RCU) /* Introduced in 2.6.38 */
+   if (nd && (nd->flags & LOOKUP_RCU)) {
+      return -ECHILD;
+   }
+#endif
+
    /* Just call HgfsRevaliate, which does the right thing. */
    error = HgfsRevalidate(dentry);
    if (error) {
       LOG(4, (KERN_DEBUG "VMware hgfs: HgfsDentryRevalidate: invalid\n"));
+
+      if (dentry->d_inode && S_ISDIR(dentry->d_inode->i_mode)) {
+         shrink_dcache_parent(dentry);
+      }
+      d_drop(dentry);
+
       return 0;
    }
 

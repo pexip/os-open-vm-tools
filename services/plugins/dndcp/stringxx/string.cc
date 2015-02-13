@@ -96,50 +96,6 @@ string::string(ConstUnicode s) // IN
 
 
 #ifdef _WIN32
-
-/*
- *-----------------------------------------------------------------------------
- *
- * utf::string::init_bstr_t --
- *
- *      Utility function to construct from a _bstr_t object.
- *      Copies the UTF-16 representation of the _bstr_t.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      Makes a copy of the _bstr_t data and frees that data when
- *      the utf::string is destroyed.
- *
- * Note:
- *      WIN32 only call
- *
- *-----------------------------------------------------------------------------
- */
-
-void
-string::init_bstr_t(const _bstr_t &s) // IN
-{
-   // If the input is empty, then there's nothing to do.
-   if (s.length() == 0) {
-      return;
-   }
-
-   Unicode utf8 = Unicode_AllocWithUTF16(static_cast<const utf16_t *>(s));
-
-   try {
-      mUstr = utf8;
-      Unicode_Free(utf8);
-   } catch (...) {
-      Unicode_Free(utf8);
-      throw;
-   }
-
-   ASSERT(Validate(mUstr));
-}
-
-
 /*
  *-----------------------------------------------------------------------------
  *
@@ -202,93 +158,23 @@ string::string(const _bstr_t &s) // IN
      mUtf16Cache(NULL),
      mUtf16Length(npos)
 {
-   init_bstr_t(s);
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * utf::string::string --
- *
- *      Constructor from a uvariant_t object. Copies the UTF-16 representation
- *      of the ubstr_t interface.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      Makes a copy of the uvariant_t data and frees that data when the
- *      utf::string is destroyed.
- *
- * Note:
- *      WIN32 only call
- *
- *-----------------------------------------------------------------------------
- */
-
-string::string(const uvariant_t &v) // IN
-   : mUstr(),
-     mUtf16Cache(NULL),
-     mUtf16Length(npos)
-{
-   ubstr_t s;
-
-   try {
-      s = v;
-   } catch (...) {
-      Warning("Invalid uvariant_t to ubstr_t conversion.\n");
-      throw;
-   }
-
    // If the input is empty, then there's nothing to do.
    if (s.length() == 0) {
       return;
    }
 
-   mUstr = static_cast<const char *>(s);
-   ASSERT(Validate(mUstr));
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * utf::string::string --
- *
- *      Constructor from a _variant_t object. Copies the UTF-16 representation
- *      of the _variant_t.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      Makes a copy of the _variant_t data and frees that data when
- *      the utf::string is destroyed.
- *
- * Note:
- *      WIN32 only call
- *
- *-----------------------------------------------------------------------------
- */
-
-string::string(const _variant_t &v) // IN
-   : mUstr(),
-     mUtf16Cache(NULL),
-     mUtf16Length(npos)
-{
-   _bstr_t s;
+   Unicode utf8 = Unicode_AllocWithUTF16(static_cast<const utf16_t *>(s));
 
    try {
-      s = v;
+      mUstr = utf8;
+      Unicode_Free(utf8);
    } catch (...) {
-      Warning("Invalid _variant_t to _bstr_t conversion.\n");
+      Unicode_Free(utf8);
       throw;
    }
 
-   init_bstr_t(s);
+   ASSERT(Validate(mUstr));
 }
-
 #endif
 
 
@@ -411,12 +297,6 @@ string::string(const char *s,           // IN
  *
  *      Constructor.
  *
- *      XXX: When initializing mUstr, we do a deep copy of the string data
- *      instead of just calling mUstr(s). This is because Glib::ustring is very
- *      smart about sharing storage, and zero_clear is very dumb. Once we get
- *      rid of zero_clear and have a separate sensitive-string class, this can
- *      go back to being simple.
- *
  * Results:
  *      None.
  *
@@ -426,8 +306,8 @@ string::string(const char *s,           // IN
  *-----------------------------------------------------------------------------
  */
 
-string::string(const Glib::ustring &s)    // IN
-   : mUstr(s.c_str()),
+string::string(const Glib::ustring& s) // IN
+   : mUstr(s),
      mUtf16Cache(NULL),
      mUtf16Length(npos)
 {
@@ -442,12 +322,6 @@ string::string(const Glib::ustring &s)    // IN
  *
  *      Copy constructor.
  *
- *      XXX: When initializing mUstr, we do a deep copy of the string data
- *      instead of just calling mUstr(s). This is because Glib::ustring is very
- *      smart about sharing storage, and zero_clear is very dumb. Once we get
- *      rid of zero_clear and have a separate sensitive-string class, this can
- *      go back to being simple.
- *
  * Results:
  *      None.
  *
@@ -457,8 +331,8 @@ string::string(const Glib::ustring &s)    // IN
  *-----------------------------------------------------------------------------
  */
 
-string::string(const string &s) // IN
-   : mUstr(s.mUstr.c_str()),
+string::string(const string& s) // IN
+   : mUstr(s.mUstr),
      mUtf16Cache(NULL),
      mUtf16Length(npos)
 {
@@ -738,30 +612,6 @@ string::empty()
    const
 {
    return mUstr.empty();
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * utf::string::isASCII --
- *
- *      Test if every character in the string is in the ASCII range.
- *
- * Results:
- *      true if all ASCII, otherwise false.
- *
- * Side effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-bool
-string::isASCII()
-   const
-{
-   return mUstr.is_ascii();
 }
 
 
@@ -1209,7 +1059,7 @@ string::assign(const string &s) // IN
 
 string&
 string::insert(size_type i,      // IN
-               const string &s)  // IN
+               const string& s)  // IN
 {
    InvalidateCache();
    mUstr.insert(i, s.mUstr);
@@ -1224,6 +1074,16 @@ string::insert(size_type i,      // IN
 {
    InvalidateCache();
    mUstr.insert(i, n, uc);
+   return *this;
+}
+
+
+string&
+string::insert(iterator p,    // IN
+               value_type uc) // IN
+{
+   InvalidateCache();
+   mUstr.insert(p, uc);
    return *this;
 }
 
@@ -1248,46 +1108,6 @@ void
 string::clear()
 {
    InvalidateCache();
-   mUstr.clear();
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * utf::string::zero_clear --
- *
- *      Zeroes and clears this string.
- *
- *      XXX: This is temporary until we have a separate string class for
- *      passwords.
- *
- * Results:
- *      None
- *
- * Side effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-void
-string::zero_clear()
-{
-   if (mUtf16Cache != NULL) {
-      Util_ZeroFree(mUtf16Cache,
-                    Unicode_UTF16Strlen(mUtf16Cache) * sizeof *mUtf16Cache);
-      mUtf16Cache = NULL;
-   }
-
-   /*
-    * This is a best effort.  We aren't guaranteed that Glib::ustring doesn't
-    * leave behind any internal copies of the string.
-    */
-   if (mUstr.c_str() != mUstr.data()) {
-      Util_Zero(const_cast<char *>(mUstr.c_str()), mUstr.bytes());
-   }
-   Util_Zero(const_cast<char *>(mUstr.data()), mUstr.bytes());
    mUstr.clear();
 }
 
@@ -1370,7 +1190,7 @@ string::erase(iterator pbegin,    // IN
 string&
 string::replace(size_type i,     // IN
                 size_type n,     // IN
-                const string &s) // IN
+                const string& s) // IN
 {
    InvalidateCache();
    mUstr.replace(i, n, s.mUstr);
@@ -1396,8 +1216,8 @@ string::replace(size_type i,     // IN
  */
 
 string&
-string::replace(const string &from, // IN
-                const string &to)   // IN
+string::replace(const string& from, // IN
+                const string& to)   // IN
 {
    size_type end;
    size_type start = 0;
@@ -1864,11 +1684,15 @@ string::endsWith(const string &s, // IN
  *
  *      Return a vector of utf::strings.  The vector contains the elements of
  *      the string split by the passed in separator. Empty tokens are not
- *      skipped.
+ *      skipped. If maxStrings is zero, any number of strings will be returned,
+ *      otherwise parsing stops after maxStrings - 1 matches of the separator.
+ *      In that case, the last string returned includes the rest of the
+ *      original string.
  *
  *      "1,2,3".split(",") -> ["1", "2", "3"]
  *      "1,,".split(",") -> ["1", "", ""]
  *      "1".split(",") -> ["1"]
+ *      "1,2,3".split(",", 2) -> ["1", "2,3"]
  *
  *      XXX If this is to be used for things like command line parsing, support
  *      for quoted strings needs to be added.
@@ -1883,18 +1707,21 @@ string::endsWith(const string &s, // IN
  */
 
 std::vector<string>
-string::split(const string &sep) // IN
+string::split(const string &sep, // IN
+              size_t maxStrings) // IN/OPT
    const
 {
    std::vector<string> splitStrings;
    size_type sIndex = 0;
    size_type sepLen = sep.length();
+   size_t count = 0;
 
    ASSERT(sepLen > 0);
 
    while (true) {
       size_type index = find(sep, sIndex);
-      if (index == npos) {
+      count++;
+      if (count == maxStrings || index == npos) {
          splitStrings.push_back(substr(sIndex));
          break;
       }

@@ -190,9 +190,17 @@ typedef enum {
  *   Adaptively picks between mandatory and advisory.
  * Almost all cases should use the "best" lock.
  */
-#define FILEIO_OPEN_LOCK_BEST      FILEIO_OPEN_LOCKED /* historical */
-#define FILEIO_OPEN_LOCK_ADVISORY  (1 << 20)
-#define FILEIO_OPEN_LOCK_MANDATORY (1 << 21)
+#define FILEIO_OPEN_LOCK_BEST         FILEIO_OPEN_LOCKED /* historical */
+#define FILEIO_OPEN_LOCK_ADVISORY     (1 << 20)
+#define FILEIO_OPEN_LOCK_MANDATORY    (1 << 21)
+
+/*
+ * OPTIMISTIC is an alternative to EXCLUSIVE and MANDATORY. It applies
+ * only on ESX, and gives VMkernel permission to use a type of lock
+ * called "optimistic" to speed up opens. Rule-of-thumb is to use it
+ * only for read-only opens of small files (< 1KB).
+ */
+#define FILEIO_OPEN_OPTIMISTIC_LOCK   (1 << 22)
 
 /*
  * Flag passed to open() to not attempt to get the lun attributes as part of
@@ -207,6 +215,9 @@ typedef enum {
 // Flag passed to open() to get exclusive VMFS lock.  This definition must
 // match USEROBJ_OPEN_EXCLUSIVE_LOCK in user_vsiTypes.h.
 #define O_EXCLUSIVE_LOCK 0x10000000
+// Flag passed to open() to enable use of oplocks on VMFS.  This definition
+// must match USEROBJ_OPEN_OPTIMISTIC_LOCK in user_vsiTypes.h.
+#define O_OPTIMISTIC_LOCK 0x00400000
 
 /* File Access check args */
 #define FILEIO_ACCESS_READ       (1 << 0)
@@ -309,11 +320,14 @@ FileIOResult FileIO_Write(FileIODescriptor *file,
                           size_t requested,
                           size_t *actual);
 
+Unicode FileIO_AtomicTempPath(ConstUnicode path);
+
 FileIOResult FileIO_AtomicTempFile(FileIODescriptor *fileFD,
                                    FileIODescriptor *tempFD);
 
-Bool FileIO_AtomicUpdate(FileIODescriptor *newFD,
-                         FileIODescriptor *currFD);
+int FileIO_AtomicUpdate(FileIODescriptor *newFD,
+                        FileIODescriptor *currFD,
+                        Bool renameOnNFS);
 
 #if !defined(VMX86_TOOLS) || !defined(__FreeBSD__)
 
@@ -334,13 +348,15 @@ FileIOResult FileIO_Preadv(FileIODescriptor *fd,   // IN: File descriptor
                            struct iovec *entries,  // IN: Vector to read into
                            int numEntries,         // IN: Number of vector entries
                            uint64 offset,          // IN: Offset to start reading
-                           size_t totalSize);      // IN: totalSize (bytes) in entries
+                           size_t totalSize,       // IN: totalSize (bytes) in entries
+                           size_t *actual);        // OUT: number of bytes read
 
 FileIOResult FileIO_Pwritev(FileIODescriptor *fd,  // IN: File descriptor
                             struct iovec *entries, // IN: Vector to write from
                             int numEntries,        // IN: Number of vector entries
                             uint64 offset,         // IN: Offset to start writing
-                            size_t totalSize);     // IN: Total size (bytes) in entries
+                            size_t totalSize,      // IN: Total size (bytes) in entries
+                            size_t *actual);       // OUT: number of bytes written
 
 FileIOResult FileIO_Pread(FileIODescriptor *fd,    // IN: File descriptor
                           void *buf,               // IN: Buffer to read into
