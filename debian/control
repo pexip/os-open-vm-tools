@@ -10,6 +10,7 @@ Build-Depends:
  libxtst-dev
 Standards-Version: 3.9.2
 Homepage: http://open-vm-tools.sourceforge.net/
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
 
 Package: open-vm-tools
 Architecture: linux-amd64 linux-i386 kfreebsd-amd64 kfreebsd-i386
