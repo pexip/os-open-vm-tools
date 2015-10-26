@@ -90,9 +90,10 @@ long  _InterlockedCompareExchange(long volatile*, long, long);
 long  _InterlockedExchangeAdd(long volatile*, long);
 long  _InterlockedDecrement(long volatile*);
 long  _InterlockedIncrement(long volatile*);
+void  _ReadWriteBarrier(void);
 #pragma intrinsic(_InterlockedExchange, _InterlockedCompareExchange)
 #pragma intrinsic(_InterlockedExchangeAdd, _InterlockedDecrement)
-#pragma intrinsic(_InterlockedIncrement)
+#pragma intrinsic(_InterlockedIncrement, _ReadWriteBarrier)
 
 #if defined(VM_X86_64)
 long     _InterlockedAnd(long volatile*, long);
@@ -1287,16 +1288,17 @@ Atomic_FetchAndAddUnfenced(Atomic_uint32 *var, // IN
 #ifdef VM_ARM_V7
    register volatile uint32 res;
    register volatile uint32 retVal;
+   register volatile uint32 tmp;
 
    dmb();
 
    __asm__ __volatile__(
       "1: ldrex %[retVal], [%[var]] \n\t"
-      "add %[val], %[val], %[retVal] \n\t"
-      "strex %[res], %[val], [%[var]] \n\t"
+      "add %[tmp], %[val], %[retVal] \n\t"
+      "strex %[res], %[tmp], [%[var]] \n\t"
       "teq %[res], #0 \n\t"
       "bne 1b"
-      : [res] "=&r" (res), [retVal] "=&r" (retVal)
+      : [tmp] "=&r" (tmp), [res] "=&r" (res), [retVal] "=&r" (retVal)
       : [var] "r" (&var->value), [val] "r" (val)
       : "cc"
    );
@@ -1409,6 +1411,30 @@ Atomic_ReadAdd64(Atomic_uint64 *var, // IN
 #else
 #error No compiler defined for Atomic_ReadAdd64
 #endif
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * Atomic_ReadSub64 --
+ *
+ *      Atomic read (returned), sub a value, write.
+ *
+ * Results:
+ *      The value of the variable before the operation.
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static INLINE uint64
+Atomic_ReadSub64(Atomic_uint64 *var, // IN
+                 uint64 val)         // IN
+{
+   // Do an sub by an add and a overflow
+   return Atomic_ReadAdd64(var, -val);
 }
 #endif
 
@@ -2397,7 +2423,7 @@ Atomic_TestBit64(Atomic_uint64 *var, // IN
       "bt %2, %1; setc %0"
       : "=rm"(out)
       : "m" (var->value),
-        "ri" (bit)
+        "rJ" (bit)
       : "cc"
    );
    return out;
@@ -2421,6 +2447,9 @@ Atomic_TestBit64(Atomic_uint64 *var, // IN
  * (void *)val, we have (void *)(uintptr_t)val.
  * The specific problem case is the Windows ddk compiler
  * (as used by the SVGA driver).  -- edward
+ *
+ * NOTE: See the comment in vm_assert.h for why we need UNUSED_TYPE in
+ * AtomicAssertOnCompile(), and why we need to be very careful doing so.
  */
 
 #define MAKE_ATOMIC_TYPE(name, size, in, out, cast)                           \
@@ -2434,7 +2463,7 @@ Atomic_TestBit64(Atomic_uint64 *var, // IN
                                       && 8 * sizeof (out) == size             \
                                       && 8 * sizeof (cast) == size            \
                                          ? 1 : -1 };                          \
-      typedef char AssertOnCompileFailed[AssertOnCompileMisused];             \
+      UNUSED_TYPE(typedef char AssertOnCompileFailed[AssertOnCompileMisused]);\
    }                                                                          \
                                                                               \
                                                                               \
@@ -2602,6 +2631,16 @@ MAKE_ATOMIC_TYPE(Ptr, 32, void const *, void *, uintptr_t)
 MAKE_ATOMIC_TYPE(Int, 32, int, int, int)
 
 
+/* Prevent the compiler from re-ordering memory references. */
+#ifdef __GNUC__
+#define ATOMIC_COMPILER_BARRIER()   __asm__ __volatile__ ("": : :"memory")
+#elif defined(_MSC_VER)
+#define ATOMIC_COMPILER_BARRIER()   _ReadWriteBarrier()
+#else
+#error No compiler defined for ATOMIC_COMPILER_BARRIER
+#endif
+
+
 /*
  *-----------------------------------------------------------------------------
  *
@@ -2626,7 +2665,13 @@ static INLINE void
 Atomic_MFence(void)
 {
    Atomic_uint32 fence;
+   ATOMIC_COMPILER_BARRIER();
    Atomic_Xor(&fence, 0x1);
+   ATOMIC_COMPILER_BARRIER();
 }
+
+#ifdef ATOMIC_COMPILER_BARRIER
+#undef ATOMIC_COMPILER_BARRIER
+#endif
 
 #endif // ifndef _ATOMIC_H_

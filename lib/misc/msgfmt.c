@@ -175,6 +175,13 @@ memchr(const void *s, int c, size_t n)
 
 #endif // }
 
+#if defined __ANDROID__
+/*
+ * Android doesn't support dtoa().
+ */
+#define NO_DTOA
+#endif
+
 
 /*
  * Local data
@@ -910,10 +917,12 @@ MsgFmt_GetArgsWithBuf(const char *fmt,	  // IN: format string
 	 a->v.unsigned64 = (uint64) (uintptr_t) va_arg(va, void *);
 	 break;
 
+#ifndef NO_FLOATING_POINT
       case MSGFMT_ARG_FLOAT64:
-	 ASSERT_ON_COMPILE(sizeof (double) == 8);
-	 a->v.float64 = va_arg(va, double);
+         ASSERT_ON_COMPILE(sizeof (double) == 8);
+         a->v.float64 = va_arg(va, double);
 	 break;
+#endif
 
       case MSGFMT_ARG_STRING8: {
 	 const char *p = va_arg(va, char *);
@@ -983,23 +992,15 @@ MsgFmt_GetArgsWithBuf(const char *fmt,	  // IN: format string
 	 if (p == NULL) {
 	    a->v.ptr = NULL;
 	 } else {
-	    if ((n = a->p.precision) < 0) {
+	    if (a->p.precision < 0) {
 	       n = wcslen(p);
 	    } else {
-#ifndef _WIN32
-	       const wchar_t *q = wmemchr(p, 0, n);
-	       if (q != NULL) {
-		  n = q - p;
-	       }
-#else
-	       // XXX no wmemchar()
-	       // fix this when we get new compiler -- edward
-	       const wchar_t *e = p + n;
 	       const wchar_t *q;
-	       for (q = p; q < e && *q != 0; q++) {
+	       n = a->p.precision;
+	       q = wmemchr(p, 0, n);
+	       if (q != NULL) {
+	          n = q - p;
 	       }
-	       n = q - p;
-#endif
 	    }
 	    a->v.ptr = MsgFmtAlloc(&state, sizeof (wchar_t) * (n + 1));
 	    if (a->v.ptr == NULL) {
@@ -1198,6 +1199,7 @@ MsgFmtGetArg1(void *clientData,      // IN: state
    case 'G':
    case 'a':
    case 'A':
+#ifndef NO_FLOATING_POINT
       switch (lengthMod) {
       // l h hh t z are not defined by man page, but allowed by glibc
       case '\0':
@@ -1229,6 +1231,13 @@ MsgFmtGetArg1(void *clientData,      // IN: state
 	 NOT_REACHED();
       }
       break;
+#else
+      MsgFmtError(state,
+                  "MsgFmtGetArg1: %%%c%c not supported, "
+                  "pos \"%.*s\", type \"%.*s\"",
+                  lengthMod, conversion, posSize, pos, typeSize, type);
+      return -2;
+#endif /*! NO_FLOATING_POINT */
 
    case 'c':
       switch (lengthMod) {
@@ -1965,7 +1974,7 @@ MsgFmtSnprintfWork(char **outbuf, size_t bufSize, const char *fmt0,
     */
    char *decimal_point;   /* locale specific decimal point */
 #if defined __ANDROID__
-   static const char dp = '.';
+   static char dp = '.';
 #endif
    int signflag;      /* true if float is negative */
    union {         /* floating point arguments %[aAeEfFgG] */
@@ -2396,9 +2405,17 @@ MsgFmtSnprintfWork(char **outbuf, size_t bufSize, const char *fmt0,
 	    goto error;
 	 }
 	 fparg.dbl = a->v.float64;
+#if defined NO_DTOA
+         NOT_TESTED();
+         dtoaresult = NULL;
+         sbuf.error = TRUE;
+
+         goto error;
+#else
 	 dtoaresult = cp =
 	    dtoa(fparg.dbl, expchar ? 2 : 3, prec,
 		 &expt, &signflag, &dtoaend);
+#endif
 	 if (expt == 9999)
 	    expt = INT_MAX;
          if (signflag)

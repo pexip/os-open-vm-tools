@@ -108,8 +108,15 @@ char *FileMacos_DiskDevToVolumeName(char const *bsdDiskDev);
 
 char *FileMacos_DiskDeviceToUniqueID(char const *bsdPath);
 char *FileMacos_UniqueIDToDiskDevice(char const *identifier);
-
+Bool FileMacOS_MakeSecureLibraryCopies(const char   *inDir,
+                                       const char  **dylibName,
+                                       unsigned      numDylibs,
+                                       char        **outDir);
 #elif defined VMX86_SERVER
+struct FS_PartitionListResult;
+
+int File_GetVMFSAttributes(ConstUnicode pathName,
+                           struct FS_PartitionListResult **fsAttrs);
 int File_GetVMFSVersion(ConstUnicode pathName,
                         uint32 *versionNum);
 int File_GetVMFSBlockSize(ConstUnicode pathName,
@@ -154,11 +161,19 @@ Unicode File_PathJoin(ConstUnicode dirName,
                       ConstUnicode baseName);
 
 Bool File_CreateDirectory(ConstUnicode pathName);
+
+Bool File_CreateDirectoryEx(ConstUnicode pathName, int mask);
+
 Bool File_EnsureDirectory(ConstUnicode pathName);
 
 Bool File_DeleteEmptyDirectory(ConstUnicode pathName);
 
-Bool File_CreateDirectoryHierarchy(ConstUnicode pathName);
+Bool File_CreateDirectoryHierarchy(ConstUnicode pathName,
+                                   Unicode *topmostCreated);
+
+Bool File_CreateDirectoryHierarchyEx(ConstUnicode pathName,
+                                     int mask,
+                                     Unicode *topmostCreated);
 
 Bool File_DeleteDirectoryTree(ConstUnicode pathName);
 
@@ -235,6 +250,13 @@ Bool File_SetFilePermissions(ConstUnicode pathName,
 
 Bool File_SupportsFileSize(ConstUnicode pathName,
                            uint64 fileSize);
+
+Bool File_GetMaxFileSize(ConstUnicode pathName,
+                         uint64 *maxFileSize);
+
+#ifdef VMX86_SERVER
+Bool File_Is2TiBEnabled(void);
+#endif
 
 Bool File_SupportsLargeFiles(ConstUnicode pathName);
 

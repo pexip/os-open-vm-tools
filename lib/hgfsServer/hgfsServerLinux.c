@@ -99,6 +99,7 @@
 #   include "sig.h"
 #endif
 
+
 /*
  * On Linux, we must wrap getdents64, as glibc does not wrap it for us. We use getdents64
  * (rather than getdents) because with the latter, we'll get 64-bit offsets and inode
@@ -247,6 +248,17 @@ struct FInfoAttrBuf {
    char finderInfo[32];
 };
 #endif
+
+/*
+ * Taken from WinNT.h.
+ * For verifying the Windows client which can ask for delete access as well as the
+ * standard read, write, execute permissions.
+ * XXX - should probably be moved into a header file and may need to be expanded if
+ * Posix looks at the access mode more thoroughly or we expand the set of cross-platform
+ * access mode flags.
+ */
+#define DELETE                           (0x00010000L)
+
 /*
  * Server open flags, indexed by HgfsOpenFlags. Stolen from
  * lib/fileIOPosix.c
@@ -289,6 +301,12 @@ static int HgfsStat(const char* fileName,
 static int HgfsFStat(int fd,
                      struct stat *stats,
                      uint64 *creationTime);
+
+static void HgfsGetSequentialOnlyFlagFromName(const char *fileName,
+                                              HgfsFileAttrInfo *attr);
+
+static void HgfsGetSequentialOnlyFlagFromFd(int fd,
+                                            HgfsFileAttrInfo *attr);
 
 static int HgfsConvertComponentCase(char *currentComponent,
                                     const char *dirPath,
@@ -568,7 +586,7 @@ HgfsServerGetOpenFlags(HgfsOpenFlags flagsIn, // IN
 
    arraySize = ARRAYSIZE(HgfsServerOpenFlags);
 
-   if (flagsIn < 0 || flagsIn >= arraySize) {
+   if ((unsigned int)flagsIn >= arraySize) {
       Log("%s: Invalid HgfsOpenFlags %d\n", __FUNCTION__, flagsIn);
 
       return FALSE;
@@ -1008,8 +1026,20 @@ HgfsPlatformValidateOpen(HgfsFileOpenInfo *openInfo, // IN: Open info struct
     */
    status = 0;
    if (!openInfo->shareInfo.writePermissions) {
+      Bool deleteAccess = FALSE;
+      /*
+       * If a valid desiredAccess field specified by the Windows client, we use that
+       * as the desiredAccess field has more data such as delete than is contained
+       * in the mode.
+       */
+      if ((0 != (openInfo->mask & HGFS_OPEN_VALID_DESIRED_ACCESS)) &&
+          (0 != (openInfo->desiredAccess & DELETE))) {
+         deleteAccess = TRUE;
+      }
+
       if ((openFlags & (O_APPEND | O_CREAT | O_TRUNC)) ||
-          (openMode & (O_WRONLY | O_RDWR))) {
+          (openMode & (O_WRONLY | O_RDWR)) ||
+          deleteAccess) {
          status = Posix_Access(openInfo->utf8Name, F_OK);
          if (status < 0) {
             status = errno;
@@ -2071,6 +2101,107 @@ HgfsFStat(int fd,                 // IN: file descriptor
 
 
 /*
+ *----------------------------------------------------------------------------
+ *
+ * HgfsGetSequentialOnlyFlagFromName --
+ *
+ *    Certain files like 'kallsyms' residing in /proc/ filesystem can be
+ *    copied only if they are opened in sequential mode. Check for such files
+ *    and set the 'sequential only' flag. This is done by trying to read the file
+ *    content using 'pread'. If 'pread' fails with ESPIPE then they are
+ *    tagged as 'sequential only' files.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    None
+ *
+ *----------------------------------------------------------------------------
+ */
+
+static void
+HgfsGetSequentialOnlyFlagFromName(const char *fileName,        // IN
+                                  HgfsFileAttrInfo *attr)      // IN/OUT
+{
+#if defined(__linux) || defined(__APPLE__)
+   int fd;
+
+   if ((NULL == fileName) || (NULL == attr)) {
+      return;
+   }
+
+   fd = Posix_Open(fileName, O_RDONLY);
+   if (fd < 0) {
+      LOG(4, ("%s: Couldn't open the file \"%s\"\n", __FUNCTION__, fileName));
+      return;
+   }
+   HgfsGetSequentialOnlyFlagFromFd(fd, attr);
+   close(fd);
+   return;
+#endif
+}
+
+
+/*
+ *----------------------------------------------------------------------------
+ *
+ * HgfsGetSequentialOnlyFlagFromFd --
+ *
+ *    Certain files like 'kallsyms' residing in /proc/ filesystem can be
+ *    copied only if they are opened in sequential mode. Check for such files
+ *    and set the 'sequential only' flag. This is done by trying to read the file
+ *    content using 'pread'. If 'pread' fails with ESPIPE then they are
+ *    tagged as 'sequential only' files.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    None
+ *
+ *----------------------------------------------------------------------------
+ */
+
+static void
+HgfsGetSequentialOnlyFlagFromFd(int fd,                     // IN
+                                HgfsFileAttrInfo *attr)     // IN/OUT
+{
+#if defined(__linux) || defined(__APPLE__)
+   int error;
+   char buffer[2];
+   struct stat stats;
+
+   if (NULL == attr) {
+      return;
+   }
+
+   if (fstat(fd, &stats) < 0) {
+      return;
+   }
+
+   if (S_ISDIR(stats.st_mode) || S_ISLNK(stats.st_mode)) {
+      return;
+   }
+
+   /*
+    * At this point in the code, we are not reading any amount of data from the
+    * file. We just want to check the behavior of pread. Since we are not
+    * reading any data, we can call pread with size specified as 0.
+    */
+   error = pread(fd, buffer, 0, 0);
+   LOG(4, ("%s: pread returned %d, errno %d\n", __FUNCTION__, error, errno));
+   if ((-1 == error) && (ESPIPE == errno)) {
+      LOG(4, ("%s: Marking the file as 'Sequential only' file\n", __FUNCTION__));
+      attr->flags |= HGFS_ATTR_SEQUENTIAL_ONLY;
+   }
+
+   return;
+#endif
+}
+
+
+/*
  *-----------------------------------------------------------------------------
  *
  * HgfsPlatformGetattrFromName --
@@ -2251,6 +2382,8 @@ HgfsPlatformGetattrFromName(char *fileName,                 // IN/OUT:  Input fi
     */
    HgfsGetHiddenAttr(fileName, attr);
 
+   HgfsGetSequentialOnlyFlagFromName(fileName, attr);
+
    /* Get effective permissions if we can */
    if (!(S_ISLNK(stats.st_mode))) {
       HgfsOpenMode shareMode;
@@ -2369,6 +2502,8 @@ HgfsPlatformGetattrFromFd(fileDesc fileDesc,        // IN:  file descriptor
     * This will be ignored by Linux, Solaris clients.
     */
    HgfsGetHiddenAttr(fileName, attr);
+
+   HgfsGetSequentialOnlyFlagFromFd(fileDesc, attr);
 
    if (shareMode == HGFS_OPEN_MODE_READ_ONLY) {
       /*
@@ -3521,12 +3656,28 @@ HgfsPlatformWriteFile(HgfsHandle file,             // IN: Hgfs file handle
       return EBADF;
    }
 
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__)
    /* Write to the file. */
    if (sequentialOpen) {
       error = write(fd, payload, requiredSize);
    } else {
       error = pwrite(fd, payload, requiredSize, offset);
+   }
+#elif defined(__APPLE__)
+   {
+      Bool appendMode;
+
+      if (!HgfsHandle2AppendFlag(file, session, &appendMode)) {
+         LOG(4, ("%s: Could not get append mode\n", __FUNCTION__));
+         return EBADF;
+      }
+
+      /* Write to the file. */
+      if (sequentialOpen || appendMode) {
+         error = write(fd, payload, requiredSize);
+      } else {
+         error = pwrite(fd, payload, requiredSize, offset);
+      }
    }
 #else
    /*

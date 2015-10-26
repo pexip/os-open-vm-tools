@@ -36,6 +36,15 @@
  */
 
 /*
+ * workerLib default completion lock
+ *
+ * Used for workerLib callers who don't provide their own lock. Held
+ * around arbitrary completion callbacks so it probably makes sense to
+ * be of a low rank.
+ */
+#define RANK_workerLibCmplLock      RANK_libLockBase
+
+/*
  * hostDeviceInfo HAL lock
  *
  * Must be < vmhs locks since this is held around the RANK_vmhsHDILock
@@ -49,8 +58,6 @@
 #define RANK_vmhsHDILock            (RANK_libLockBase + 0x3002)
 #define RANK_vmhsThrMxLock          (RANK_libLockBase + 0x3005)
 #define RANK_vmhsVmxMxLock          (RANK_libLockBase + 0x3005)
-#define RANK_vmhsMvmtsMxLock        (RANK_libLockBase + 0x3005)
-#define RANK_vmhsHotfixesMxLock     (RANK_libLockBase + 0x3005)
 
 /*
  * hgfs locks
@@ -96,6 +103,7 @@
 #define RANK_scsiStateLock           (RANK_libLockBase + 0x5060)
 #define RANK_parInitLock             (RANK_libLockBase + 0x5070)
 #define RANK_namespaceLock           (RANK_libLockBase + 0x5080)
+#define RANK_vvolLibLock             (RANK_libLockBase + 0x5090)
 
 /*
  * VMDB range:
@@ -112,6 +120,16 @@
 #define RANK_vmdbMemMapLock          (RANK_libLockBase + 0x5580)
 
 /*
+ * USB range:
+ * (RANK_libLockBase + 0x6500, RANK_libLockBase + 0x6600)
+ */
+
+#define RANK_usbArbLibGlobalLock     (RANK_libLockBase + 0x6505)
+#define RANK_usbEnumGlobalLock       (RANK_libLockBase + 0x6506)
+#define RANK_usbArbLibAsockLock      (RANK_libLockBase + 0x6507)
+#define RANK_usbEnumBackendLock      (RANK_libLockBase + 0x6508)
+
+/*
  * misc locks
  *
  * Assuming ordering is important here for the listed locks. Other
@@ -120,14 +138,15 @@
  * At least:
  *    impersonate < pollDefault
  *    keyLocator < preference (for checking AESNI)
- *    keyLocator < ssl (bug 743010)
+ *    keyLocator < sslState (bug 743010)
  *    configDb < keyLocator (for unlocking dictionaries)
  *    battery/button < preference
  *    workerLib < something for sure under VThread_Create
  *    licenseCheck < preference
+ *    sslState < getSafeTmpDir
  */
 
-#define RANK_getSafeTmpDirLock       (RANK_libLockBase + 0x7020)
+#define RANK_vigorTransportListLock  (RANK_libLockBase + 0x7010)
 #define RANK_batteryLock             (RANK_libLockBase + 0x7030)
 #define RANK_buttonLock              (RANK_libLockBase + 0x7040)
 #define RANK_impersonateLock         (RANK_libLockBase + 0x7045)
@@ -136,6 +155,7 @@
 #define RANK_configDbLock            (RANK_libLockBase + 0x7070)
 #define RANK_keyLocatorLock          (RANK_libLockBase + 0x7080)
 #define RANK_sslStateLock            (RANK_libLockBase + 0x7085)
+#define RANK_getSafeTmpDirLock       (RANK_libLockBase + 0x7086)
 #define RANK_licenseCheckLock        (RANK_libLockBase + 0x7090)
 #define RANK_preferenceLock          (RANK_libLockBase + 0x7100)
 
