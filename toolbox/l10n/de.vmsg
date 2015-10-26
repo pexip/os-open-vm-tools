@@ -67,11 +67,19 @@ disk.shrink.unavailable =
    "weil Sie entweder eine alte Version eines VMware-Produkts ausführen oder weil "
    "zu viele Kommunikationskanäle offen sind.\n"
    "\n"
-   " Wenn Sie eine alte Version eines VMware-Produkts ausführen, sollten Sie "
+   "Wenn Sie eine alte Version eines VMware-Produkts ausführen, sollten Sie "
    "ein Upgrade in Erwägung ziehen.\n"
    "\n"
    "Wenn zu viele Kommunikationskanäle geöffnet sind, sollten Sie Ihre virtuelle "
    "Maschine aus- und anschließend wieder einschalten.\n"
+
+disk.shrink.ignoreFreeSpaceWarnings =
+   "Ignorieren Sie während des Verkleinerungsvorgangs etwaige Warnungen"
+   "bezüglich des Speicherplatzes.\n"
+
+disk.wipe.ignoreFreeSpaceWarnings =
+   "Ignorieren Sie während des Wiper-Vorgangs etwaige Warnungen"
+   "bezüglich des Speicherplatzes.\n"
 
 disk.wiper.error = "Fehler: %1$s"
 
@@ -91,7 +99,7 @@ error.unknown = "%1$s: %2$s '%3$s' unbekannt\n"
 
 help.device =
    "%1$s: Funktionen für die Hardwaregeräte der virtuellen Maschine\n"
-   "Nutzung: %2$s %3$s <Unterbefehl> [args]\n"
+   "Nutzung: %2$s %3$s <Unterbefehl> [argumente]\n"
    "'dev' ist der Name des Geräts.\n"
    "\n"
    "Unterbefehle:\n"
@@ -102,11 +110,13 @@ help.device =
 
 help.disk =
    "%1$s: Führt Verkleinerungen von Festplatten durch\n"
-   "Nutzung: %2$s %3$s <Unterbefehl> [args]\n"
+   "Nutzung: %2$s %3$s <Unterbefehl> [argumente]\n"
    "\n"
    "Unterbefehle:\n"
-   "   list: Liste der verfügbaren Mount-Punkte\n"
-   "   shrink <Mount-Punkt>: Verkleinert ein Dateisystem am angegebenen Mount-Punkt\n"
+   "   list: Liste der verfügbaren Speicherorte\n"
+   "   shrink <Speicherort>: Löscht und verkleinert ein Dateisystem am angegebenen Speicherort\n"
+   "   shrinkonly: Verkleinert alle Festplatten\n"
+   "   wipe <Speicherort>: Löscht ein Dateisystem am angegebenen Speicherort\n"
 
 help.hint = "Siehe '%1$s %2$s%3$s%4$s' für weitere Informationen.\n"
 
@@ -124,18 +134,15 @@ help.main =
    "   stat\n"
    "   timesync\n"
    "   upgrade (nicht auf allen Betriebssystemen verfügbar)\n"
-   "\n"
-   "Zusätzliche Informationen finden Sie unter http://www.vmware.com/support/\n"
-   "\n"
 
 help.script =
    "%1$s: Steuerung der Skripts, die als Reaktion auf Betriebsvorgänge ausgeführt werden\n"
-   "Nutzung: %2$s %3$s <power|resume|suspend|shutdown> <Unterbefehl> [args]\n"
+   "Nutzung: %2$s %3$s <power|resume|suspend|shutdown> <Unterbefehl> [argumente]\n"
    "\n"
    "Unterbefehle:\n"
    "   enable: Aktivieren des angegebenen Skripts und Wiederherstellen dessen Pfads auf den Standardpfad\n"
    "   disable: Deaktivieren des vorhandenen Skripts\n"
-   "   set <full_path>: Festlegen des angegebenen Skripts auf den angegebenen Pfad\n"
+   "   set <Vollständiger Pfad>: Festlegen des angegebenen Skripts auf den angegebenen Pfad\n"
    "   default: Ausgabe des Standardpfads des angegebenen Skripts\n"
    "   current: Ausgabe des aktuellen Pfads des angegebenen Skripts\n"
 
@@ -165,11 +172,11 @@ help.timesync =
    "   status: Ausgabe des Status der Uhrzeitsynchronisierung\n"
 
 help.upgrade =
-   "%1$s: Funktionen für das Upgrade der VMware Tools.\n"
-   "Nutzung: %2$s %3$s <Unterbefehl> [args]\n"
+   "%1$s: Funktionen für das Upgrade von VMware Tools.\n"
+   "Nutzung: %2$s %3$s <Unterbefehl> [argumente]\n"
    "Unterbefehle:\n"
    "   status: Überprüfen des Upgrade-Status für VMware Tools.\n"
-   "   start: Starten eines automatischen Upgrades der VMware Tools.\n"
+   "   start: Starten eines automatischen Upgrades von VMware Tools.\n"
    "\n"
    "Damit die Upgrades funktionieren, muss der VMware Tools-Dienst ausgeführt werden.\n"
 
@@ -209,13 +216,27 @@ stat.openhandle.failed = "OpenHandle fehlgeschlagen: %1$s\n"
 
 stat.update.failed = "UpdateInfo fehlgeschlagen: %1$s\n"
 
+stat.processorSpeed.info = "%1$u MHz\n"
+
+stat.memoryBalloon.info = "%1$u MB\n"
+
+stat.memoryReservation.info = "%1$u MB\n"
+
+stat.memorySwapped.info = "%1$u MB\n"
+
+stat.memoryLimit.info = "%1$u MB\n"
+
+stat.cpuReservation.info = "%1$u MHz\n"
+
+stat.cpuLimit.info = "%1$u MHz\n"
+
 upgrade.available = "Eine neue Version von VMware Tools steht zur Verfügung.\n"
 
 upgrade.error.check_error = "Fehler beim Überprüfen der Verfügbarkeit von Upgrades.\n"
 
 upgrade.error.error = "Fehler beim Starten des Upgrades von VMware Tools.\n"
 
-upgrade.error.not_supported = "Der Host unterstützt kein automatisches Upgrade der VMware Tools.\n"
+upgrade.error.not_supported = "Der Host unterstützt kein automatisches Upgrade von VMware Tools.\n"
 
 upgrade.error.unknown_reply = "Unerwartete Antwort vom Host: %1$s\n"
 

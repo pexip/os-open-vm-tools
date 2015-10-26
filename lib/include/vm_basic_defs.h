@@ -113,6 +113,9 @@
 #endif
 #endif // __APPLE__
 
+#define VMW_CONTAINER_OF(ptr, type, member) \
+   ((type *)((char *)(ptr) - offsetof(type, member)))
+
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(a) (sizeof (a) / sizeof *(a))
 #endif
@@ -141,6 +144,9 @@ Max(int a, int b)
    return a > b ? a : b;
 }
 #endif
+
+#define VMW_CLAMP(x, min, max) \
+   ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
 
 #define ROUNDUP(x,y)		(((x) + (y) - 1) / (y) * (y))
 #define ROUNDDOWN(x,y)		((x) / (y) * (y))
@@ -207,8 +213,10 @@ Max(int a, int b)
  * Wide versions of string constants.
  */
 
+#ifndef WSTR
 #define WSTR_(X)     L ## X
 #define WSTR(X)      WSTR_(X)
+#endif
 
 
 /*
@@ -268,6 +276,14 @@ Max(int a, int b)
 
 #ifndef PAGES_2_MBYTES
 #define PAGES_2_MBYTES(_npages) ((_npages) >> (20 - PAGE_SHIFT))
+#endif
+
+#ifndef GBYTES_2_PAGES
+#define GBYTES_2_PAGES(_nbytes) ((_nbytes) << (30 - PAGE_SHIFT))
+#endif
+
+#ifndef PAGES_2_GBYTES
+#define PAGES_2_GBYTES(_npages) ((_npages) >> (30 - PAGE_SHIFT))
 #endif
 
 #ifndef BYTES_2_MBYTES
@@ -419,6 +435,8 @@ GetCallerFrameAddr(void)
 /* We do not have YIELD() as we do not need it yet... */
 #elif defined(_WIN32)
 #      define YIELD()		Sleep(0)
+#elif defined(VMKERNEL)
+/* We don't have a YIELD macro in the vmkernel */
 #else
 #      include <sched.h>        // For sched_yield.  Don't ask.  --Jeremy.
 #      define YIELD()		sched_yield()
@@ -550,6 +568,9 @@ typedef int pid_t;
 #if __GLIBC_PREREQ(2, 5) && !defined GLIBC_VERSION_25
 #define GLIBC_VERSION_25
 #endif
+#if __GLIBC_PREREQ(2, 12) && !defined GLIBC_VERSION_212
+#define GLIBC_VERSION_212
+#endif
 #endif
 
 /*
@@ -615,14 +636,6 @@ typedef int pid_t;
 #define HOSTED_ONLY(x) x
 #endif
 
-#ifdef VMX86_WGS
-#define vmx86_wgs 1
-#define WGS_ONLY(x) x
-#else
-#define vmx86_wgs 0
-#define WGS_ONLY(x) 
-#endif
-
 #ifdef VMKERNEL
 #define vmkernel 1
 #define VMKERNEL_ONLY(x) x
@@ -634,14 +647,18 @@ typedef int pid_t;
 #ifdef _WIN32
 #define WIN32_ONLY(x) x
 #define POSIX_ONLY(x)
+#define vmx86_win32 1
 #else
 #define WIN32_ONLY(x)
 #define POSIX_ONLY(x) x
+#define vmx86_win32 0
 #endif
 
 #ifdef __linux__
+#define vmx86_linux 1
 #define LINUX_ONLY(x) x
 #else
+#define vmx86_linux 0
 #define LINUX_ONLY(x)
 #endif
 
@@ -691,7 +708,11 @@ typedef int pid_t;
 #ifdef _WIN32
 #ifndef USES_OLD_WINDDK
 #if defined(VMX86_LOG)
+#ifdef _WIN64
+#define WinDrvPrint(arg, ...) DbgPrintEx(DPFLTR_IHVDRIVER_ID, (ULONG)~0, arg, __VA_ARGS__)
+#else
 #define WinDrvPrint(arg, ...) DbgPrint(arg, __VA_ARGS__)
+#endif
 #define WinDrvEngPrint(arg, ...) EngDbgPrint(arg, __VA_ARGS__)
 #else
 #define WinDrvPrint(arg, ...)
@@ -723,5 +744,14 @@ typedef int pid_t;
       }                                                                 \
    } while (0)
 
+/*
+ * Bug 827422 and 838523.
+ */
+
+#if defined __GNUC__ && __GNUC__ >= 4
+#define VISIBILITY_HIDDEN __attribute__((visibility("hidden")))
+#else
+#define VISIBILITY_HIDDEN /* nothing */
+#endif
 
 #endif // ifndef _VM_BASIC_DEFS_H_

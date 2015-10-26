@@ -103,8 +103,6 @@ public:
 #ifdef _WIN32
    string(const ubstr_t &s);
    explicit string(const _bstr_t &s);
-   string(const uvariant_t &v);
-   explicit string(const _variant_t &v);
 #endif
 
    string(const utf16string &s);
@@ -130,7 +128,6 @@ public:
    void swap(string &s);
    void resize(size_type n, value_type c = '\0');
    bool empty() const;
-   bool isASCII() const;
    size_type size() const;
    size_type w_size() const;
    size_type length() const;
@@ -154,14 +151,14 @@ public:
    string& assign(const string &s);
    void push_back(value_type uc);
    void clear();
-   void zero_clear();
    string& insert(size_type i, const string& s);
    string& insert(size_type i, size_type n, value_type uc);
+   string& insert(iterator p, value_type uc);
    string& erase(size_type i, size_type n = npos);
    iterator erase(iterator p);
    iterator erase(iterator pbegin, iterator pend);
    string& replace(size_type i, size_type n, const string& s);
-   string& replace(const string &from, const string &to);
+   string& replace(const string& from, const string& to);
    string replace_copy(const string& from, const string& to) const;
 
    int compare(const string &s, bool ignoreCase = false) const;
@@ -201,7 +198,7 @@ public:
    // Some helper functions that are nice to have
    bool startsWith(const string &s, bool ignoreCase = false) const;
    bool endsWith(const string &s, bool ignoreCase = false) const;
-   std::vector<string> split(const string &sep) const;
+   std::vector<string> split(const string &sep, size_t maxStrings = 0) const;
 
    // Overloaded operators
    string operator+(const string &rhs) const;
@@ -219,11 +216,6 @@ private:
 
    // Cache accessors
    const utf16_t *GetUtf16Cache() const;
-
-#ifdef _WIN32
-   // Private utility constructor.
-   void init_bstr_t(const _bstr_t &s);
-#endif
 
    // utf::string is internally backed by Glib::ustring.
    Glib::ustring mUstr;
@@ -285,6 +277,13 @@ inline std::ostream&
 operator<<(std::ostream& strm, const string& s)
 {
    strm << s.c_str();
+   return strm;
+}
+
+inline std::wostream&
+operator<<(std::wostream& strm, const string& s)
+{
+   strm << s.w_str();
    return strm;
 }
 

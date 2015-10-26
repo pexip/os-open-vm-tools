@@ -138,8 +138,10 @@ MsgList_AppendStr(MsgList **list,  // IN reference to existing list
    ASSERT(id != NULL);
 
    /* Silently upgrade system errors to real MSGIDs. */
-   if (!Msg_HasMsgID(id) && Err_String2Errno(id) != ERR_INVALID) {
-      MsgList_Append(list, MSGID(systemerror) "%s", id);
+   if (!Msg_HasMsgID(id)) {
+      ASSERT(Err_String2Errno(id) != ERR_INVALID);
+      /* On release builds, tolerate other messages that lack MSGIDs. */
+      MsgList_Append(list, MSGID(literal) "%s", id);
       return;
    }
 
@@ -198,9 +200,10 @@ MsgList_VAppend(MsgList **list,     // IN reference to existing list
 {
    ASSERT(idFmt != NULL);
 
-   /* Silently upgrade system errors to real MSGIDs. */
-   if (!Msg_HasMsgID(idFmt) && Err_String2Errno(idFmt) != ERR_INVALID) {
-      MsgList_Append(list, MSGID(systemerror) "%s", idFmt);
+   if (!Msg_HasMsgID(idFmt)) {
+      ASSERT(Err_String2Errno(idFmt) != ERR_INVALID);
+      /* On release builds, tolerate other messages that lack MSGIDs. */
+      MsgList_Append(list, MSGID(literal) "%s", idFmt);
       return;
    }
 
@@ -257,6 +260,40 @@ MsgList_Append(MsgList **list,     // IN reference to existing list
    va_start(args, idFmt);
    MsgList_VAppend(list, idFmt, args);
    va_end(args);
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * MsgList_AppendMsgList --
+ *
+ *      Append the 'messages' to an existing MsgList, 'list'. Memory
+ *      owner ship is transfered to 'list'.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      Callers are responsible to free the returned MsgList.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+MsgList_AppendMsgList(MsgList **list,     // IN/OUT
+                      MsgList *messages)  // IN
+{
+   if (list != NULL && messages != NULL) {
+      MsgList *head = messages;
+      while (messages->next != NULL) {
+         messages = messages->next;
+      }
+      messages->next = *list;
+      *list = head;
+   } else {
+      MsgList_Free(messages);
+   }
 }
 
 
@@ -527,4 +564,27 @@ MsgList_Log(const MsgList *messages)  // IN:
                                                                        : "\n");
       free(formatted);
    }
+}
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * MsgList_Present --
+ *
+ *      Tests if the MsgList is empty.
+ *
+ * Results:
+ *      TRUE if there are appended messages; FALSE otherwise.
+ *
+ * Side effects:
+ *      None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+Bool
+MsgList_Present(const MsgList *messages)  // IN:
+{
+   return messages != NULL;
 }

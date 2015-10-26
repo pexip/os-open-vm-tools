@@ -80,6 +80,10 @@ static int vmxnet_close(struct net_device *dev);
 static void vmxnet_set_multicast_list(struct net_device *dev);
 static int vmxnet_set_mac_address(struct net_device *dev, void *addr);
 static struct net_device_stats *vmxnet_get_stats(struct net_device *dev);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39)
+static int vmxnet_set_features(struct net_device *netdev, compat_netdev_features_t
+			       features);
+#endif
 #if defined(HAVE_CHANGE_MTU) || defined(HAVE_NET_DEVICE_OPS)
 static int vmxnet_change_mtu(struct net_device *dev, int new_mtu);
 #endif
@@ -353,6 +357,7 @@ vmxnet_get_drvinfo(struct net_device *dev,
 }
 
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
 /*
  *----------------------------------------------------------------------------
  *
@@ -482,7 +487,7 @@ vmxnet_set_rx_csum(struct net_device *netdev, uint32 val)
  *----------------------------------------------------------------------------
  */
 
-#ifdef VMXNET_DO_TSO
+#   ifdef VMXNET_DO_TSO
 static int
 vmxnet_set_tso(struct net_device *dev, u32 data)
 {
@@ -498,6 +503,7 @@ vmxnet_set_tso(struct net_device *dev, u32 data)
    }
    return 0;
 }
+#   endif
 #endif
 
 
@@ -506,17 +512,19 @@ vmxnet_ethtool_ops = {
    .get_settings        = vmxnet_get_settings,
    .get_drvinfo         = vmxnet_get_drvinfo,
    .get_link            = ethtool_op_get_link,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
    .get_rx_csum         = vmxnet_get_rx_csum,
    .set_rx_csum         = vmxnet_set_rx_csum,
    .get_tx_csum         = vmxnet_get_tx_csum,
    .set_tx_csum         = vmxnet_set_tx_csum,
    .get_sg              = ethtool_op_get_sg,
    .set_sg              = ethtool_op_set_sg,
-#ifdef VMXNET_DO_TSO
+#   ifdef VMXNET_DO_TSO
    .get_tso             = ethtool_op_get_tso,
    .set_tso             = vmxnet_set_tso,
-#   if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+#      if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
    .get_ufo             = ethtool_op_get_ufo,
+#      endif
 #   endif
 #endif
 };
@@ -989,6 +997,9 @@ vmxnet_probe_device(struct pci_dev             *pdev, // IN: vmxnet PCI device
       .ndo_start_xmit = &vmxnet_start_tx,
       .ndo_stop = &vmxnet_close,
       .ndo_get_stats = &vmxnet_get_stats,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39)
+      .ndo_set_features = vmxnet_set_features,
+#endif
 #if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
       .ndo_set_multicast_list = &vmxnet_set_multicast_list,
 #else
@@ -2039,10 +2050,10 @@ vmxnet_map_pkt(struct sk_buff *skb,
       for ( ; nextFrag < skb_shinfo(skb)->nr_frags; nextFrag++){
          int fragSize;
          frag = &skb_shinfo(skb)->frags[nextFrag];
-#if COMPAT_LINUX_VERSION_CHECK_LT(3, 1, 0)
-        fragSize = frag->size;
+#if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
+         fragSize = frag->size;
 #else
-	fragSize = skb_frag_size(frag);
+         fragSize = skb_frag_size(frag);
 #endif
 
          // skip those frags that are completely copied
@@ -2051,7 +2062,7 @@ vmxnet_map_pkt(struct sk_buff *skb,
          } else {
             // map the part of the frag that is not copied
             dma = pci_map_page(lp->pdev,
-#if COMPAT_LINUX_VERSION_CHECK_LT(3, 1, 0)
+#if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
                                frag->page,
 #else
                                frag->page.p,
@@ -2074,14 +2085,14 @@ vmxnet_map_pkt(struct sk_buff *skb,
    for ( ; nextFrag < skb_shinfo(skb)->nr_frags; nextFrag++) {
       int fragSize;
       frag = &skb_shinfo(skb)->frags[nextFrag];
-#if COMPAT_LINUX_VERSION_CHECK_LT(3, 1, 0)
+#if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
       fragSize = frag->size;
 #else
       fragSize = skb_frag_size(frag);
 #endif
-     
+
       dma = pci_map_page(lp->pdev,
-#if COMPAT_LINUX_VERSION_CHECK_LT(3, 1, 0)
+#if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
                          frag->page,
 #else
                          frag->page.p,
@@ -2583,7 +2594,7 @@ vmxnet_rx_frags(Vmxnet_Private *lp, struct sk_buff *skb)
          }
 
          pci_unmap_page(pdev, rre2->paddr, PAGE_SIZE, PCI_DMA_FROMDEVICE);
-#if COMPAT_LINUX_VERSION_CHECK_LT(3, 1, 0)
+#if COMPAT_LINUX_VERSION_CHECK_LT(3, 2, 0)
          skb_shinfo(skb)->frags[numFrags].page = lp->rxPages[dd->rxDriverNext2];
 #else
          __skb_frag_set_page(&skb_shinfo(skb)->frags[numFrags],
@@ -2949,10 +2960,11 @@ vmxnet_load_multicast (struct net_device *dev)
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 34)
     struct netdev_hw_addr *dmi;
 #else
+    int i=0;
     struct dev_mc_list *dmi = dev->mc_list;
 #endif
     u8 *addrs;
-    int i = 0, j, bit, byte;
+    int j, bit, byte;
     u32 crc, poly = CRC_POLYNOMIAL_LE;
 
     /* clear the multicast filter */
@@ -2990,7 +3002,11 @@ vmxnet_load_multicast (struct net_device *dev)
 	 crc = crc >> 26;
 	 mcast_table [crc >> 4] |= 1 << (crc & 0xf);
     }
-    return i;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 34)
+	return netdev_mc_count(dev);
+#else
+	return i;
+#endif
 }
 
 /*
@@ -3102,6 +3118,20 @@ vmxnet_get_stats(struct net_device *dev)
 
    return &lp->stats;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39)
+static int
+vmxnet_set_features(struct net_device *netdev, compat_netdev_features_t features)
+{
+   compat_netdev_features_t changed = features ^ netdev->features;
+
+   if (changed & (NETIF_F_RXCSUM)) {
+      if (features & NETIF_F_RXCSUM)
+         return 0;
+   }
+   return -1;
+}
+#endif
 
 module_init(vmxnet_init);
 module_exit(vmxnet_exit);
