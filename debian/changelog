@@ -1,3 +1,9 @@
+open-vm-tools (2:9.4.6-1770165-8pexip2) pexip; urgency=low
+
+  * Remove obsolete modprobe config
+
+ -- John-Mark Bell <jmb@pexip.com>  Fri, 10 Jun 2016 12:03:15 +0100
+
 open-vm-tools (2:9.4.6-1770165-8pexip1) pexip; urgency=low
 
   * New upstream release; migrate to Jessie.
