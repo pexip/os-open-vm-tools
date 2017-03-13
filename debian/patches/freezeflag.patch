@@ -1,0 +1,35 @@
+diff --git a/lib/syncDriver/syncDriverLinux.c b/lib/syncDriver/syncDriverLinux.c
+index 81d16e8..520f143 100644
+--- a/lib/syncDriver/syncDriverLinux.c
++++ b/lib/syncDriver/syncDriverLinux.c
+@@ -32,6 +32,7 @@
+ #include <sys/ioctl.h>
+ #include "debug.h"
+ #include "dynbuf.h"
++#include "fileIO.h"
+ #include "strutil.h"
+ #include "syncDriverInt.h"
+ 
+@@ -135,6 +136,9 @@ LinuxDriver_Freeze(const char *paths,
+    DynBuf fds;
+    LinuxDriver *sync = NULL;
+    SyncDriverErr err = SD_SUCCESS;
++   FileIOResult status;
++   FileIODescriptor tmpFD;
++   const char *touchPath = "/tmp/vm_frozen";
+ 
+    DynBuf_Init(&fds);
+ 
+@@ -148,6 +152,12 @@ LinuxDriver_Freeze(const char *paths,
+    sync->driver.thaw = LinuxFiThaw;
+    sync->driver.close = LinuxFiClose;
+ 
++   FileIO_Invalidate(&tmpFD);
++   status = FileIO_Open(&tmpFD, touchPath, FILEIO_OPEN_ACCESS_WRITE, FILEIO_OPEN_CREATE_EMPTY);
++   if (FileIO_IsSuccess(status)) {
++      FileIO_Close(&tmpFD);
++   }
++
+    /*
+     * Iterate through the requested paths. If we get an error for the first
+     * path, and it's not EPERM, assume that the ioctls are not available in

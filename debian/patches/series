@@ -24,3 +24,4 @@ debian/fix-CVE-2014-4199
 
 notimesync.patch
 freezeorder.patch
+freezeflag.patch

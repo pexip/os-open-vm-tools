@@ -1,3 +1,9 @@
+open-vm-tools (2:9.4.6-1770165-8pexip3) pexip; urgency=low
+
+  * Touch file on filesystem freeze
+
+ -- Alan Ford <alan@pexip.com>  Mon, 13 Mar 2017 17:32:15 +0100
+
 open-vm-tools (2:9.4.6-1770165-8pexip2) pexip; urgency=low
 
   * Remove obsolete modprobe config
