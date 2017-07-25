@@ -1,3 +1,310 @@
+open-vm-tools (2:10.1.5-5055683-4+deb9u1) stretch; urgency=medium
+
+  * [dec8df6] Upstream fix for CVE-2015-5191 (Closes: #869633)
+  * [ff10dcb] Update gbp.conf for stretch.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 25 Jul 2017 11:40:02 +0200
+
+open-vm-tools (2:10.1.5-5055683-4) unstable; urgency=medium
+
+  * [27689b3] Load the fuse module before mounting /run/vmblock-fuse.
+    Thanks to Norbert Lange (Closes: #860875, #860861)
+  * [008bdde] Don't recommend -dkms for -desktop.
+    The dkms package is clearly not necessary anymore here.
+    Thanks to Oliver Kurth (Closes: #860857)
+  * [ffc37f2] Let -desktop depend on fuse.
+    Mounting fuse filesystems requires mount.fuse - and doing so
+    is required for a working desktop running under VMware.
+  * [cf1f9b3] Ensure /run/vmblock-fuse is mounted properly.
+    - open-vm-tools-desktop.postinst: Add the fuse module if it was
+      not loaded into the kernel before
+    - Handle the mount unit with dh_systemd_*
+    - Ensure /run/vmblock-fuse is mounted before open-vm-tools.service
+      is started.
+  * [1f479db] Do not restart run-vmblock\x2dfuse.mount on upgrades.
+    Restarting won't work if people are using the mountpoint,
+    also it would require to restart vmtoolsd.
+  * Unfortunately mounting the fuse filesystem properly depends
+    on a fix in deb-systemd-invoke, see #861204.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 30 Apr 2017 06:21:41 +0200
+
+open-vm-tools (2:10.1.5-5055683-3) unstable; urgency=medium
+
+  * [0aa95b6] Start open-vm-tools before cloud-init-local.service.
+    Required for a working guest customization as reported by VMware.
+    Also add cloud-init to 'Suggests'.
+    Thanks to Sankar Tanguturi (Closes: #859677)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 09 Apr 2017 21:54:21 +0200
+
+open-vm-tools (2:10.1.5-5055683-2) unstable; urgency=medium
+
+  * [651cdfe] Depend on iproute2.
+    Necessary for /etc/vmware-tools/scripts/vmware/network.
+  * [ed95c1d] Depend on libssl1.0-dev | libssl-dev.
+    Thanks to Tiago Daitx (Closes: #856569)
+    Makes building the package in Ubuntu easier.
+  * [2750700] Add o-v-t as dependency of o-v-t-dev.
+    Thanks to Andreas Beckmann (Closes: #858494)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 23 Mar 2017 09:35:16 +0100
+
+open-vm-tools (2:10.1.5-5055683-1) unstable; urgency=medium
+
+  * [60d1417] Merge tag 'upstream/10.1.5-5055683'
+    Upstream version 10.1.5-5055683
+    Closes: #856330
+
+    10.1.5 is a point release fixing the following issues:
+    - Authentication failure is reported as unknown general system error.
+      Attempts to authenticate through VGAuth service might result
+      in an authentication-specific error such as an expired account or
+      password. The authentication-specific error might then be incorrectly
+      reported as an unknown general system error, similar to the following:
+      CommunicationException: Failed to create temp file on target
+      <IP_ADDRESS>: A general system error occurred: Unknown error
+
+    - Unable to backup virtual machines with active Docker containers.
+      This bug should not happen in Debian stretch at all, but might
+      be relevant for backports.
+
+    - Fix ISO mappings for CentOS/OracleLinux. Not relevant for Debian
+
+    - Thaw Filesystems if snapshot commit message to VMX fails.
+
+    - Add missing agent configuration files that were accidentally
+      ignored by .gitignore
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 28 Feb 2017 15:54:58 +0100
+
+open-vm-tools (2:10.1.0-4449150-4) unstable; urgency=medium
+
+  [ Chris Glass ]
+  * [d55b33f] Point the control file's homepage to the new one.
+    The upstream open-vm-tools switched from sourceforge to github. This
+    simply updates the link to reflect that.
+    Signed-off-by: Chris Glass <chris.glass@canonical.com>
+
+  [ Bernd Zeimetz ]
+  * [f44a9a8] Drop duplicate udev rules.
+    Timeouts are set in 99-vmware-scsi-udev.rules now,
+    shipped by upstream.
+    Thanks to Bernhard Schmidt (Closes: #851240)
+  * [21df3fa] Install vgauth.service.
+    vgauth is a service that allows authentication in the guest using SAML
+    tokens. Necessary for guest operations initiated from the vSphere
+    datacenter. (Closes: #855337)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 21 Feb 2017 22:45:06 +0100
+
+open-vm-tools (2:10.1.0-4449150-3) unstable; urgency=medium
+
+  * [17b04da] Override dh_md5sums for arch-dependent packages only.
+    Thanks to Santiago Vila (Closes: #849876)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 01 Jan 2017 22:11:18 +0100
+
+open-vm-tools (2:10.1.0-4449150-2) unstable; urgency=medium
+
+  * [fe8ae94] Stay with .gz as compression.
+  * [afb2f52] Use systemd-detect-virt if available.
+    Use systemd-detect-virt to detect VMware platform because
+    vmware-checkvm might misbehave on non-VMware platforms.
+    (RHBZ#1251656)
+  * [1505d5f] Re-indent files properly.
+  * [1b0b7eb] vm-support script needs lspci from pciutils.
+    (RHBZ#1388766)
+  * [1e2eb34] Make dpkg --verify happy now. (Closes: #847221)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 06 Dec 2016 22:58:30 +0100
+
+open-vm-tools (2:10.1.0-4449150-1) unstable; urgency=medium
+
+  * [72150f0] Merge tag 'upstream/10.1.0-4449150'
+    Upstream version 10.1.0-4449150
+  * [d4743dd] Bump dh compat level to 10.
+  * [acce982] Handle open-vm-tools subdirectory as shipped by upstream.
+  * [9047555] Install upstream changelog.
+  * [fafb845] Remove extra \ from md5sums file.
+    See #843163
+    dpkg: -V fails on files with \ in the name
+    for details.
+  * [1455af1] Refreshing patches.
+  * [776971c] dh_autoreconf_clean doesn't need --sourcedirectory.
+  * [d50714b] Stay with libssl1.0 for now. (Closes: #828476)
+  * [a0c6696] Fix dkms.sh call for new directory structure.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 16 Nov 2016 03:35:44 +0100
+
+open-vm-tools (2:10.0.7-3227872-5) unstable; urgency=medium
+
+  * [9295c22] Add .travis.yml from http://travis.debian.net.
+  * [af7da59] Fix building the vmxnet module for kernel 4.7.
+    Thanks to Hilmar Preuße (Closes: #836915)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 17 Sep 2016 23:26:58 +0200
+
+open-vm-tools (2:10.0.7-3227872-4.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+
+  [ Bernd Zeimetz ]
+  * [0176637] Recommend lsb_release for consistent hostinfo.
+
+  [ Raphaël Hertzog ]
+  * [257c90b] Fix build failure with GCC 6.
+    Thanks to Paul Wise for the patch. (Closes: #812046)
+
+ -- Raphaël Hertzog <hertzog@debian.org>  Thu, 21 Jul 2016 17:24:34 +0200
+
+open-vm-tools (2:10.0.7-3227872-4) unstable; urgency=medium
+
+  * [007eacb] Better check for availability of vmware-checkvm and -rpctool.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 04 Jun 2016 07:31:17 +0200
+
+open-vm-tools (2:10.0.7-3227872-3) unstable; urgency=medium
+
+  * [5060f42] Notify vmware when removing open-vm-tools.
+    Thanks to Yanhui He (Closes: #825810)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 31 May 2016 11:15:30 +0200
+
+open-vm-tools (2:10.0.7-3227872-2) unstable; urgency=medium
+
+  * [f2f4971] Work around wrong dkms versions.
+  * [1be403b] Move vmhgfs-fuse to open-vm-tools.
+    As suggested by various people: vmhgfs-fuse is useful on server
+    installations by mounting it from fstab, without having GTK installed.
+    This closes bzed/pkg-open-vm-tools#4
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 24 Mar 2016 07:13:23 +0100
+
+open-vm-tools (2:10.0.7-3227872-1) unstable; urgency=medium
+
+  * [537ed0a] Drop -dbg package.
+    Creating debug packages is handled by dh_strip automatically.
+  * [3bef19a] Updating debian/watch to use github.
+  * [806e1e9] Merge tag 'upstream/10.0.7-3227872'
+    Upstream version 10.0.7-3227872
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 23 Mar 2016 14:30:13 +0100
+
+open-vm-tools (2:10.0.5-3227872-2) unstable; urgency=medium
+
+  * [da26597] Merge pull request #3 from rfc1036/usrmerge.
+    Move mount.vmhgfs to /sbin/
+    Closes: #810274
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 16 Jan 2016 15:27:14 +0100
+
+open-vm-tools (2:10.0.5-3227872-1) unstable; urgency=medium
+
+  * [c973a13] Merge tag 'upstream/10.0.5-3227872'
+    Upstream version 10.0.5-3227872
+  * [d10e230] Auto-update version in open-vm-tools-dkms.dkms
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 26 Dec 2015 17:26:52 +0100
+
+open-vm-tools (2:10.0.0-3000743-3) unstable; urgency=medium
+
+  * [8b49d5b] fix open-vm-tools-dkms description
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 31 Oct 2015 23:28:22 +0100
+
+open-vm-tools (2:10.0.0-3000743-2) unstable; urgency=medium
+
+  * [e42d6de] Fix dkms config file.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 25 Oct 2015 09:31:05 +0100
+
+open-vm-tools (2:10.0.0-3000743-1) unstable; urgency=medium
+
+  * [b0ae431] Merge tag 'upstream/10.0.0-3000743'
+    Upstream version 10.0.0-3000743
+    Closes: #797725
+  * [27f0147] Snapshot changelog
+  * [236554b] Refreshing patches.
+  * [711f1e2] Merge remote-tracking branch 'origin/master'
+  * [bfc0ed3] Remove the vmhgfs module and tools.
+  * [6ab9fc7] Move fuse binaries into open-vm-tools-desktop package.
+  * [2617cef] Use -std=gnu++11
+  * [e5e0c1f] ensure dh_fixperms runs as root
+  * [4c57986] Remove paths from maintainer scripts.
+  * [03db1df] Fix dkms destination folder.
+  * [fb5a5a1] Merge branch 'master' of github.com:bzed/pkg-open-vm-tools
+  * [ba55c8a] Work around broken cflags from libsigc++.
+  * [c78bd75] Always use vmhgfs-fuse.
+    We want to avoid the need to patch the module for every new kernel.
+    VMware officially supports vmhgfs-fuse for kernels >= 4.0, but
+    it should just work fine for older kernels. (Closes: #800322)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 25 Oct 2015 08:52:49 +0100
+
+open-vm-tools (2:9.10.2-2822639-3) unstable; urgency=medium
+
+  * [41f90f1] Make open-vm-tools-dev amd64/i386 instead of all.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 16 Aug 2015 17:51:24 +0200
+
+open-vm-tools (2:9.10.2-2822639-2) unstable; urgency=medium
+
+  * [6537e76] Update package version in dkms file.
+  * [c3a1d4a] Add patch to support backing dev info.
+    Thanks to Peter Vrabel (Closes: #794843)
+  * [be97f01] Add missing #DEBHELPER# statement.
+  * [eac5b6a] Updating Standards Version
+  * [a508cfe] Remove path from command in maintainer script.
+  * [085d637] Remove executable bit from config files.
+  * [b084140] Move all dev files into the -dev package.
+  * [ac965de] Fix building vmghfs for kernel >= 4.1.
+    Thanks to Achim Schaefer (Closes: #794707)
+  * [16ca60a] Update gbp config header in debian/gbp.conf.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 16 Aug 2015 16:27:27 +0200
+
+open-vm-tools (2:9.10.2-2822639-1) unstable; urgency=medium
+
+  * [a4125bd1] Merge tag 'upstream/9.10.2-2822639'
+    Upstream version 9.10.2-2822639
+    (Closes: #789722)
+  * Quiescing Filesystems should work as expected.  (Closes: #784398)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 24 Jun 2015 09:20:25 +0200
+
+open-vm-tools (2:9.10.0-2476743-4) unstable; urgency=medium
+
+  * [d7d898c4] Update package version in dkms file.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 04 May 2015 17:14:31 +0200
+
+open-vm-tools (2:9.10.0-2476743-3) unstable; urgency=medium
+
+  * [4148c544] Also fix version number in modules/linux/dkms.sh.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 28 Apr 2015 12:34:38 +0200
+
+open-vm-tools (2:9.10.0-2476743-2) unstable; urgency=medium
+
+  * [7967f7c1] Fix version number in configure.ac.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 18 Apr 2015 16:37:13 +0200
+
+open-vm-tools (2:9.10.0-2476743-1) unstable; urgency=medium
+
+  * [4de8ff44] Add script to update patches.
+  * [52b74910] Merge tag 'upstream/9.10.0-2476743'
+    Upstream version 9.10.0-2476743
+    (Closes: #781784)
+  * [fddc317d] Refreshing patches for new upstream version.
+  * [7b53f258] Add libmspack-dev as build-dependency.
+  * [6b5841da] Add libssl-dev as build-dependency.
+  * [de52be8e] Add libxerces-c-dev as build-dependency.
+  * [17b2788a] Add libxml-security-c-dev as build-dependency.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 18 Apr 2015 15:41:58 +0200
+
 open-vm-tools (2:9.4.6-1770165-8) unstable; urgency=medium
 
   * [406817b6] Add patch to move from d_alias to d_u.d_alias.
