@@ -13,7 +13,7 @@ Standards-Version: 3.9.5
 Homepage: http://open-vm-tools.sourceforge.net/
 Vcs-Git: https://github.com/bzed/pkg-open-vm-tools.git
 Vcs-Browser: https://github.com/bzed/pkg-open-vm-tools
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ stretch
 
 Package: open-vm-tools
 Architecture: amd64 i386
