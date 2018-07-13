@@ -1,15 +1,15 @@
 diff --git a/lib/syncDriver/syncDriverLinux.c b/lib/syncDriver/syncDriverLinux.c
 index 81d16e8..520f143 100644
---- a/lib/syncDriver/syncDriverLinux.c
-+++ b/lib/syncDriver/syncDriverLinux.c
+--- a/open-vm-tools/lib/syncDriver/syncDriverLinux.c
++++ b/open-vm-tools/lib/syncDriver/syncDriverLinux.c
 @@ -32,6 +32,7 @@
- #include <sys/ioctl.h>
+ #include <sys/stat.h>
  #include "debug.h"
  #include "dynbuf.h"
 +#include "fileIO.h"
- #include "strutil.h"
  #include "syncDriverInt.h"
  
+ /* Out toolchain headers are somewhat outdated and don't define these. */
 @@ -135,6 +136,9 @@ LinuxDriver_Freeze(const char *paths,
     DynBuf fds;
     LinuxDriver *sync = NULL;
@@ -21,8 +21,8 @@ index 81d16e8..520f143 100644
     DynBuf_Init(&fds);
  
 @@ -148,6 +152,12 @@ LinuxDriver_Freeze(const char *paths,
-    sync->driver.thaw = LinuxFiThaw;
-    sync->driver.close = LinuxFiClose;
+     */
+    VERIFY(paths != NULL);
  
 +   FileIO_Invalidate(&tmpFD);
 +   status = FileIO_Open(&tmpFD, touchPath, FILEIO_OPEN_ACCESS_WRITE, FILEIO_OPEN_CREATE_EMPTY);

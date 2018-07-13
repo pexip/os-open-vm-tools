@@ -5,6 +5,7 @@ open-vm-tools (2:10.1.5-5055683-4+deb9u1pexip1) pexip; urgency=medium
     relevant
   * debian/patches/notimesync.patch: refresh
   * debian/patches/freezeorder.patch: drop; merged upstream
+  * debian/patches/freezeflag.patch: refresh
 
  -- John-Mark Bell <jmb@pexip.com>  Fri, 13 Jul 2018 09:19:52 +0100
 
