@@ -3,6 +3,7 @@ open-vm-tools (2:10.1.5-5055683-4+deb9u1pexip1) pexip; urgency=medium
   * Migrate to Stretch
   * debian/open-vm-tools.postinst: drop modprobe config removal; no longer
     relevant
+  * debian/patches/notimesync.patch: refresh
 
  -- John-Mark Bell <jmb@pexip.com>  Fri, 13 Jul 2018 09:19:52 +0100
 
