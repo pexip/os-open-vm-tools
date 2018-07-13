@@ -8,5 +8,4 @@ debian/vmxnet_fix_kernel_4.7.patch
 debian/cve-2015-5191.patch
 
 notimesync.patch
-freezeorder.patch
 freezeflag.patch
