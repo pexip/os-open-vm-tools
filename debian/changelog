@@ -1,3 +1,9 @@
+open-vm-tools (2:9.4.6-1770165-8pexip5) pexip; urgency=low
+
+  * Reinstate systemd support
+
+ -- John-Mark Bell <jmb@pexip.com>  Mon, 23 Jul 2018 16:57:52 +0100
+
 open-vm-tools (2:9.4.6-1770165-8pexip4) pexip; urgency=low
 
   * No-change rebuild
