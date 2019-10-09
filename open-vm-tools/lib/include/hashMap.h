@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -38,12 +38,11 @@
 #include "aioMgr.h"
 #endif
 
-typedef struct HashMap HashMap;
-
-#ifdef __cplusplus
+#if defined(__cplusplus)
 extern "C" {
 #endif
 
+typedef struct HashMap HashMap;
 
 /*
  * ----------------------------------------------------------------------------
@@ -72,6 +71,7 @@ HashMap *HashMap_AllocMapAlpha(uint32 numEntries, uint32 alpha, size_t keySize,
 void HashMap_DestroyMap(HashMap *map);
 Bool HashMap_Put(HashMap *map, const void *key, const void *data);
 void *HashMap_Get(HashMap *map, const void *key);
+void *HashMap_ConstTimeGet(struct HashMap *map, const void *key);
 void HashMap_Clear(HashMap *map);
 Bool HashMap_Remove(HashMap *map, const void *key);
 uint32 HashMap_Count(HashMap *map);
@@ -79,8 +79,8 @@ void HashMap_Iterate(HashMap* map, HashMapIteratorFn mapFn, Bool clear,
       void *userData);
 Bool HashMap_DoTests(void);
 
-#ifdef __cplusplus
-}
+#if defined(__cplusplus)
+}  // extern "C"
 #endif
 
 #endif /* _HASHMAP_H_ */

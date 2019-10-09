@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,6 +33,7 @@
 #include "conf.h"
 #include "guestApp.h"
 #include "serviceObj.h"
+#include "str.h"
 #include "system.h"
 #include "util.h"
 #include "vmcheck.h"
@@ -42,6 +43,34 @@
 #include "vmware/tools/log.h"
 #include "vmware/tools/utils.h"
 #include "vmware/tools/vmbackup.h"
+
+
+/*
+ * Establish the default and maximum vmusr RPC channel error limits
+ * that will be used to detect that the single allowed toolbox-dnd channel
+ * is not available.
+ */
+
+/*
+ * Lowest number of RPC channel errors to reasonably indicate that the
+ * single allowed toolbox-dnd channel is currently in use by another
+ * process.
+ */
+#define VMUSR_CHANNEL_ERR_MIN 3        /* approximately 3 secs. */
+
+/*
+ * The default number of vmusr channel errors before quitting the vmusr
+ * process start-up.
+ */
+#define VMUSR_CHANNEL_ERR_DEFAULT 5    /* approximately 5  secs. */
+
+/*
+ * Arbitrary upper vmusr channel error count limit.
+ */
+#define VMUSR_CHANNEL_ERR_MAX 15       /* approximately 15 secs. */
+
+#define CONFNAME_MAX_CHANNEL_ATTEMPTS "maxChannelAttempts"
+
 
 /*
  ******************************************************************************
@@ -177,6 +206,86 @@ ToolsCoreIOFreezeCb(gpointer src,
 
 /*
  ******************************************************************************
+ * ToolsCoreReportVersionData --                                         */ /**
+ *
+ * Report version info as guest variables.
+ *
+ * @param[in]  state       Service state.
+ *
+ ******************************************************************************
+ */
+
+static void
+ToolsCoreReportVersionData(ToolsServiceState *state)
+{
+   char *value;
+   const static char cmdPrefix[] = "info-set guestinfo.vmtools.";
+
+   /*
+    * These values are documented with specific formats.  Do not change
+    * the formats, as client code can depend on them.
+    */
+
+
+   /*
+    * Version description as a human-readable string.  This value should
+    * not be parsed, so its format can be modified if necessary.
+    */
+   value = g_strdup_printf("%sdescription "
+#ifdef OPEN_VM_TOOLS
+                           "open-vm-tools %s build %s",
+#else
+                           "VMware Tools %s build %s",
+#endif
+                           cmdPrefix,
+                           TOOLS_VERSION_CURRENT_STR,
+                           BUILD_NUMBER_NUMERIC_STRING);
+   if (!RpcChannel_Send(state->ctx.rpc, value,
+                        strlen(value) + 1, NULL, NULL)) {
+      g_warning("%s: failed to send description", __FUNCTION__);
+   }
+   g_free(value);
+
+   /*
+    * Version number as a code-readable string.  This value can
+    * be parsed, so its format should not be modified.
+    */
+   value = g_strdup_printf("%sversionString "
+                           "%s", cmdPrefix, TOOLS_VERSION_CURRENT_STR);
+   if (!RpcChannel_Send(state->ctx.rpc, value,
+                        strlen(value) + 1, NULL, NULL)) {
+      g_warning("%s: failed to send versionString", __FUNCTION__);
+   }
+   g_free(value);
+
+   /*
+    * Version number as a code-readable integer.  This value can
+    * be parsed, so its format should not be modified.
+    */
+   value = g_strdup_printf("%sversionNumber "
+                           "%d", cmdPrefix, TOOLS_VERSION_CURRENT);
+   if (!RpcChannel_Send(state->ctx.rpc, value,
+                         strlen(value) + 1, NULL, NULL)) {
+      g_warning("%s: failed to send versionNumber", __FUNCTION__);
+   }
+   g_free(value);
+
+   /*
+    * Build number as a code-readable integer.  This value can
+    * be parsed, so its format should not be modified.
+    */
+   value = g_strdup_printf("%sbuildNumber "
+                           "%d", cmdPrefix, BUILD_NUMBER_NUMERIC);
+   if (!RpcChannel_Send(state->ctx.rpc, value,
+                        strlen(value) + 1, NULL, NULL)) {
+      g_warning("%s: failed to send buildNumber", __FUNCTION__);
+   }
+   g_free(value);
+}
+
+
+/*
+ ******************************************************************************
  * ToolsCoreRunLoop --                                                  */ /**
  *
  * Loads and registers all plugins, and runs the service's main loop.
@@ -201,6 +310,11 @@ ToolsCoreRunLoop(ToolsServiceState *state)
     */
    if (state->ctx.rpc && !RpcChannel_Start(state->ctx.rpc)) {
       return 1;
+   }
+
+   /* Report version info as guest Vars */
+   if (state->ctx.rpc) {
+      ToolsCoreReportVersionData(state);
    }
 
    if (!ToolsCore_LoadPlugins(state)) {
@@ -317,6 +431,44 @@ ToolsCore_DumpState(ToolsServiceState *state)
 
 
 /**
+ * Return the RpcChannel failure threshold for the tools user service.
+ *
+ * @param[in]      state       The service state.
+ *
+ * @return  The RpcChannel failure limit for the user tools service.
+ */
+
+guint
+ToolsCore_GetVmusrLimit(ToolsServiceState *state)      // IN
+{
+   gint errorLimit = 0;      /* Special value 0 means no error threshold. */
+
+   if (TOOLS_IS_USER_SERVICE(state)) {
+      errorLimit = VMTools_ConfigGetInteger(state->ctx.config,
+                                            state->name,
+                                            CONFNAME_MAX_CHANNEL_ATTEMPTS,
+                                            VMUSR_CHANNEL_ERR_DEFAULT);
+
+      /*
+       * A zero value is allowed and will disable the single vmusr
+       * process restriction.
+       */
+      if (errorLimit != 0 &&
+          (errorLimit < VMUSR_CHANNEL_ERR_MIN ||
+           errorLimit > VMUSR_CHANNEL_ERR_MAX)) {
+         g_warning("%s: Invalid %s: %s (%d) specified in tools configuration; "
+                   "using default value (%d)\n", __FUNCTION__,
+                   state->name, CONFNAME_MAX_CHANNEL_ATTEMPTS,
+                   errorLimit, VMUSR_CHANNEL_ERR_DEFAULT);
+         errorLimit = VMUSR_CHANNEL_ERR_DEFAULT;
+      }
+   }
+
+   return errorLimit;
+}
+
+
+/**
  * Returns the name of the TCLO app name. This will only return non-NULL
  * if the service is either the tools "guestd" or "userd" service.
  *
@@ -421,7 +573,14 @@ ToolsCore_Setup(ToolsServiceState *state)
 #else
    state->ctx.mainLoop = g_main_loop_new(gctx, FALSE);
 #endif
+   /*
+    * Valgrind can't handle the backdoor check.
+    */
+#ifdef USE_VALGRIND
+   state->ctx.isVMware = TRUE;
+#else
    state->ctx.isVMware = VmCheck_IsVirtualWorld();
+#endif
    g_main_context_unref(gctx);
 
    g_type_init();

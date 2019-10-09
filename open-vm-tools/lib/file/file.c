@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,7 +35,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <errno.h>
-#include "safetime.h"
 #if defined(_WIN32)
 #include <io.h>
 #define S_IXUSR    0100
@@ -44,6 +43,7 @@
 #include <unistd.h>
 #endif
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -85,6 +85,8 @@
  *      uses the effective uid, but it's too risky to fix right now.
  *      See PR 459242.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
  *      TRUE    file is accessible with the process' real uid
  *      FALSE   file doesn't exist or an error occured
@@ -108,6 +110,8 @@ File_Exists(const char *pathName)  // IN: May be NULL.
  * File_UnlinkIfExists --
  *
  *      If the given file exists, unlink it.
+ *
+ *      Errno/GetLastError is available upon failure.
  *
  * Results:
  *      Return 0 if the unlink is successful or if the file did not exist.
@@ -169,6 +173,8 @@ File_SupportsMandatoryLock(const char *pathName) // IN: file to be locked
  *
  *      Check if specified file is a directory or not.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
  *      TRUE    is a directory
  *      FALSE   is not a directory or an error occured
@@ -196,6 +202,8 @@ File_IsDirectory(const char *pathName)  // IN:
  *
  *      Return the read / write / execute permissions of a file.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
  *      TRUE if success, FALSE otherwise.
  *
@@ -211,7 +219,7 @@ File_GetFilePermissions(const char *pathName,  // IN:
 {
    FileData fileData;
 
-   ASSERT(mode);
+   ASSERT(mode != NULL);
 
    if (FileAttributes(pathName, &fileData) != 0) {
       return FALSE;
@@ -246,6 +254,8 @@ File_GetFilePermissions(const char *pathName,  // IN:
  *      followed.
  *      WINDOWS: No symbolic links so no link following.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
  *      Return 0 if the unlink is successful. Otherwise, returns -1.
  *
@@ -271,6 +281,8 @@ File_Unlink(const char *pathName)  // IN:
  *      On Windows, there are no symbolic links so this is the same as
  *      File_Unlink
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
  *      Return 0 if the unlink is successful. Otherwise, returns -1.
  *
@@ -290,12 +302,60 @@ File_UnlinkNoFollow(const char *pathName)  // IN:
 /*
  *----------------------------------------------------------------------
  *
+ * File_UnlinkRetry --
+ *
+ *      Unlink the file, retrying on EBUSY on ESX, up to given timeout.
+ *
+ * Results:
+ *      Return 0 if the unlink is successful. Otherwise, return -1.
+ *
+ * Side effects:
+ *      The file is removed.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+File_UnlinkRetry(const char *pathName,       // IN:
+                 uint32 maxWaitTimeMilliSec) // IN:
+{
+   int ret;
+
+   if (vmx86_server) {
+      uint32 const unlinkWait = 300;
+      uint32 waitMilliSec = 0;
+
+      do {
+         ret = FileDeletion(pathName, TRUE);
+         if (ret != EBUSY || waitMilliSec >= maxWaitTimeMilliSec) {
+            break;
+         }
+         Log(LGPFX" %s: %s after %u ms\n", __FUNCTION__, pathName, unlinkWait);
+         Util_Usleep(unlinkWait * 1000);
+         waitMilliSec += unlinkWait;
+      } while (TRUE);
+   } else {
+      ret = FileDeletion(pathName, TRUE);
+   }
+
+   return ret == 0 ? 0 : -1;
+}
+
+
+/*
+ *----------------------------------------------------------------------
+ *
  * File_CreateDirectoryEx --
  *
  *      Creates the specified directory with the specified permissions.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
- *      True if the directory is successfully created, false otherwise.
+ *      TRUE   Directory was created
+ *      FALSE  Directory creation failed.
+ *             See File_EnsureDirectoryEx for dealing with directories that
+ *             may exist.
  *
  * Side effects:
  *      Creates the directory on disk.
@@ -305,9 +365,9 @@ File_UnlinkNoFollow(const char *pathName)  // IN:
 
 Bool
 File_CreateDirectoryEx(const char *pathName,  // IN:
-                       int mask)              // IN:
+                       int mode)              // IN:
 {
-   int err = FileCreateDirectory(pathName, mask);
+   int err = FileCreateDirectory(pathName, mode);
 
    return err == 0;
 }
@@ -320,8 +380,13 @@ File_CreateDirectoryEx(const char *pathName,  // IN:
  *
  *      Creates the specified directory with 0777 permissions.
  *
+ *      Errno/GetLastError is available upon failure.
+ *
  * Results:
- *      True if the directory is successfully created, false otherwise.
+ *      TRUE   Directory was created
+ *      FALSE  Directory creation failed.
+ *             See File_EnsureDirectory for dealing with directories that
+ *             may exist.
  *
  * Side effects:
  *      Creates the directory on disk.
@@ -332,7 +397,9 @@ File_CreateDirectoryEx(const char *pathName,  // IN:
 Bool
 File_CreateDirectory(const char *pathName)  // IN:
 {
-   return File_CreateDirectoryEx(pathName, 0777);
+   int err = FileCreateDirectory(pathName, 0777);
+
+   return err == 0;
 }
 
 
@@ -343,6 +410,8 @@ File_CreateDirectory(const char *pathName)  // IN:
  *
  *      If the directory doesn't exist, creates it. If the directory
  *      already exists, do nothing and succeed.
+ *
+ *      Errno/GetLastError is available upon failure.
  *
  * Results:
  *      See above.
@@ -355,11 +424,28 @@ File_CreateDirectory(const char *pathName)  // IN:
 
 Bool
 File_EnsureDirectoryEx(const char *pathName,  // IN:
-                       int mask)              // IN:
+                       int mode)              // IN:
 {
-   int err = FileCreateDirectory(pathName, mask);
+   int err = FileCreateDirectory(pathName, mode);
 
-   return ((err == 0) || (err == EEXIST));
+   if (err == EEXIST) {
+      FileData fileData;
+
+      err = FileAttributes(pathName, &fileData);
+
+      if (err == 0) {
+         if (fileData.fileType != FILE_TYPE_DIRECTORY) {
+            err = ENOTDIR;
+            errno = ENOTDIR;
+
+#if defined(_WIN32)
+            SetLastError(ERROR_DIRECTORY);
+#endif
+         }
+      }
+   }
+
+   return err == 0;
 }
 
 
@@ -370,6 +456,8 @@ File_EnsureDirectoryEx(const char *pathName,  // IN:
  *
  *      If the directory doesn't exist, creates it. If the directory
  *      already exists, do nothing and succeed.
+ *
+ *      Errno/GetLastError is available upon failure.
  *
  * Results:
  *      See above.
@@ -483,11 +571,11 @@ GetOldMachineID(void)
       p = Util_SafeStrdup(encodedMachineID);
 
       if (Atomic_ReadIfEqualWritePtr(&atomic, NULL, p)) {
-         free(p);
+         Posix_Free(p);
       }
 
       machineID = Atomic_ReadPtr(&atomic);
-      ASSERT(machineID);
+      ASSERT(machineID != NULL);
    }
 
    return machineID;
@@ -552,7 +640,7 @@ FileLockGetMachineID(void)
          p = Util_SafeStrdup(GetOldMachineID());
       } else {
          p = Str_SafeAsprintf(NULL, "uuid=%s", q);
-         free(q);
+         Posix_Free(q);
 
          /* Surpress any whitespace. */
          for (q = p; *q; q++) {
@@ -563,11 +651,11 @@ FileLockGetMachineID(void)
       }
 
       if (Atomic_ReadIfEqualWritePtr(&atomic, NULL, p)) {
-         free(p);
+         Posix_Free(p);
       }
 
       machineID = Atomic_ReadPtr(&atomic);
-      ASSERT(machineID);
+      ASSERT(machineID != NULL);
    }
 
    return machineID;
@@ -595,7 +683,7 @@ static Bool
 OldMachineIDMatch(const char *first,   // IN:
                   const char *second)  // IN:
 {
-#if defined(__APPLE__) || defined(linux)
+#if defined(__APPLE__) || defined(__linux__)
    /* Ignore the host name hash */
    char *p;
    char *q;
@@ -610,7 +698,7 @@ OldMachineIDMatch(const char *first,   // IN:
       }
    }
    result = Base64_Decode(q, rawMachineID_1, sizeof rawMachineID_1, &len);
-   free(q);
+   Posix_Free(q);
 
    if ((result == FALSE) || (len != 12)) {
       Warning("%s: unexpected decode problem #1 (%s)\n", __FUNCTION__,
@@ -625,7 +713,7 @@ OldMachineIDMatch(const char *first,   // IN:
       }
    }
    result = Base64_Decode(q, rawMachineID_2, sizeof rawMachineID_2, &len);
-   free(q);
+   Posix_Free(q);
 
    if ((result == FALSE) || (len != 12)) {
       Warning("%s: unexpected decode problem #2 (%s)\n", __FUNCTION__,
@@ -859,8 +947,8 @@ File_CopyFromFdToFd(FileIODescriptor src,  // IN:
  *      for File_CopyTree.
  *
  * Results:
- *      TRUE on success
- *      FALSE on failure: Error messages are appended.
+ *      TRUE   Success.
+ *      FALSE  Failure. Error messages appended
  *
  * Side effects:
  *      None.
@@ -944,7 +1032,7 @@ FileCopyTree(const char *srcName,     // IN:
             break;
          }
 
-         free(dstFilename);
+         Posix_Free(dstFilename);
       } else {
          err = Err_Errno();
          Msg_Append(MSGID(File.CopyTree.stat.failure)
@@ -953,7 +1041,7 @@ FileCopyTree(const char *srcName,     // IN:
          Err_SetErrno(err);
       }
 
-      free(srcFilename);
+      Posix_Free(srcFilename);
    }
 
    Util_FreeStringList(fileList, numFiles);
@@ -971,8 +1059,8 @@ FileCopyTree(const char *srcName,     // IN:
  *      optionally overwriting any files.
  *
  * Results:
- *      TRUE on success
- *      FALSE on failure: Error messages are appended.
+ *      TRUE   Success.
+ *      FALSE  Failure. Error messages appended
  *
  * Side effects:
  *      None.
@@ -988,8 +1076,8 @@ File_CopyTree(const char *srcName,     // IN:
 {
    int err;
 
-   ASSERT(srcName);
-   ASSERT(dstName);
+   ASSERT(srcName != NULL);
+   ASSERT(dstName != NULL);
 
    if (!File_IsDirectory(srcName)) {
       err = Err_Errno();
@@ -1023,8 +1111,8 @@ File_CopyTree(const char *srcName,     // IN:
  *      decides whether to overwrite the existing file or not.
  *
  * Results:
- *      TRUE on success
- *      FALSE on failure: Messages are appended
+ *      TRUE   Success.
+ *      FALSE  Failure. Error messages appended
  *
  * Side effects:
  *      None
@@ -1043,7 +1131,7 @@ File_CopyFromFd(FileIODescriptor src,    // IN:
    FileIODescriptor dst;
    FileIOOpenAction action;
 
-   ASSERT(dstName);
+   ASSERT(dstName != NULL);
 
    FileIO_Invalidate(&dst);
 
@@ -1101,8 +1189,8 @@ File_CopyFromFd(FileIODescriptor src,    // IN:
  *      decides whether to overwrite the existing file or not.
  *
  * Results:
- *      TRUE on success
- *      FALSE on failure: Messages are appended
+ *      TRUE   Success.
+ *      FALSE  Failure. Error messages appended
  *
  * Side effects:
  *      None
@@ -1120,8 +1208,8 @@ File_Copy(const char *srcName,     // IN:
    FileIOResult fret;
    FileIODescriptor src;
 
-   ASSERT(srcName);
-   ASSERT(dstName);
+   ASSERT(srcName != NULL);
+   ASSERT(dstName != NULL);
 
    FileIO_Invalidate(&src);
 
@@ -1171,7 +1259,7 @@ File_Copy(const char *srcName,     // IN:
  *      purposes copying only results if the native rename ability fails.
  *
  * Results:
- *      TRUE   succeeded
+ *      TRUE   success
  *      FALSE  otherwise
  *
  * Side effects:
@@ -1230,8 +1318,8 @@ File_Move(const char *oldFile,  // IN:
  *    reason.  In that event we will append error messages.
  *
  * Results:
- *    TRUE - on success
- *    FALSE - on failure with error messages appended
+ *    TRUE   Success.
+ *    FALSE  Failure. Error messages appended
  *
  * Side effects:
  *    - Deletes the originating directory
@@ -1249,8 +1337,8 @@ File_MoveTree(const char *srcName,    // IN:
    Bool ret = FALSE;
    Bool createdDir = FALSE;
 
-   ASSERT(srcName);
-   ASSERT(dstName);
+   ASSERT(srcName != NULL);
+   ASSERT(dstName != NULL);
 
    if (asMove) {
       *asMove = FALSE;
@@ -1273,10 +1361,10 @@ File_MoveTree(const char *srcName,    // IN:
    } else {
       struct stat statbuf;
 
-      if (-1 == Posix_Stat(dstName, &statbuf)) {
+      if (Posix_Stat(dstName, &statbuf) == -1) {
          int err = Err_Errno();
 
-         if (ENOENT == err) {
+         if (err == ENOENT) {
             if (!File_CreateDirectoryHierarchy(dstName, NULL)) {
                Msg_Append(MSGID(File.MoveTree.dst.couldntCreate)
                           "Could not create '%s'.\n\n", dstName);
@@ -1323,7 +1411,7 @@ File_MoveTree(const char *srcName,    // IN:
                   "There is not enough space in the file system to "
                   "move the directory tree. Free %s and try again.",
                   spaceStr);
-            free(spaceStr);
+            Posix_Free(spaceStr);
             return FALSE;
          }
       }
@@ -1473,46 +1561,33 @@ File_SupportsLargeFiles(const char *pathName)  // IN:
  */
 
 int64
-File_GetSizeEx(const char *pathName) // IN:
+File_GetSizeEx(const char *pathName)  // IN:
 {
-   int numFiles;
    int i;
-   char **fileList = NULL;
-   struct stat sb;
+   int numFiles;
    int64 totalSize = 0;
+   char **fileList = NULL;
 
    if (pathName == NULL) {
       return -1;
    }
 
-   if (-1 == Posix_Lstat(pathName, &sb)) {
-      return -1;
-   }
-
-   if (S_IFDIR != (sb.st_mode & S_IFMT)) {
-      return sb.st_size;
+   if (!File_IsDirectory(pathName)) {
+      return File_GetSize(pathName);
    }
 
    numFiles = File_ListDirectory(pathName, &fileList);
-
-   if (-1 == numFiles) {
+   if (numFiles == -1) {
       return -1;
    }
 
    for (i = 0; i < numFiles; i++) {
-      char *fileName;
-      int64 fileSize;
+      char *fileName = File_PathJoin(pathName, fileList[i]);
+      int64 fileSize = File_GetSizeEx(fileName);
 
-      fileName = File_PathJoin(pathName, fileList[i]);
+      Posix_Free(fileName);
 
-      fileSize = File_GetSizeEx(fileName);
-
-      free(fileName);
-
-      if (-1 == fileSize) {
-         totalSize = -1;
-         break;
-      } else {
+      if (fileSize != -1) {
          totalSize += fileSize;
       }
    }
@@ -1547,6 +1622,53 @@ File_GetSizeByPath(const char *pathName)  // IN:
 
 
 /*
+ *----------------------------------------------------------------------
+ *
+ * FileFirstSlashIndex --
+ *
+ *      Finds the first pathname slash index in a path (both slashes count
+ *      for Win32, only forward slash for Unix).
+ *
+ * Results:
+ *      As described.
+ *
+ * Side effects:
+ *      None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static UnicodeIndex
+FileFirstSlashIndex(const char *pathName,     // IN:
+                    UnicodeIndex startIndex)  // IN:
+{
+   UnicodeIndex firstFS;
+#if defined(_WIN32)
+   UnicodeIndex firstBS;
+#endif
+
+   ASSERT(pathName);
+
+   firstFS = Unicode_FindSubstrInRange(pathName, startIndex, -1,
+                                       "/", 0, 1);
+
+#if defined(_WIN32)
+   firstBS = Unicode_FindSubstrInRange(pathName, startIndex, -1,
+                                       "\\", 0, 1);
+
+   if ((firstFS != UNICODE_INDEX_NOT_FOUND) &&
+       (firstBS != UNICODE_INDEX_NOT_FOUND)) {
+      return MIN(firstFS, firstBS);
+   } else {
+     return (firstFS == UNICODE_INDEX_NOT_FOUND) ? firstBS : firstFS;
+   }
+#else
+   return firstFS;
+#endif
+}
+
+
+/*
  *-----------------------------------------------------------------------------
  *
  * File_CreateDirectoryHierarchyEx --
@@ -1557,7 +1679,8 @@ File_GetSizeByPath(const char *pathName)  // IN:
  *      to remove it after in case later operations fail.
  *
  * Results:
- *      TRUE on success, FALSE on failure.
+ *      TRUE   Success.
+ *      FALSE  Failure.
  *
  *      If topmostCreated is not NULL, it returns the result of the hierarchy
  *      creation. If no directory was created, *topmostCreated is set to NULL.
@@ -1574,7 +1697,7 @@ File_GetSizeByPath(const char *pathName)  // IN:
 
 Bool
 File_CreateDirectoryHierarchyEx(const char *pathName,   // IN:
-                                int mask,               // IN:
+                                int mode,               // IN:
                                 char **topmostCreated)  // OUT/OPT:
 {
    char *volume;
@@ -1603,18 +1726,18 @@ File_CreateDirectoryHierarchyEx(const char *pathName,   // IN:
 
    index = Unicode_LengthInCodePoints(volume);
 
-   free(volume);
+   Posix_Free(volume);
 
    if (index >= length) {
       return File_IsDirectory(pathName);
    }
 
    /*
-    * Iterate parent directories, splitting on appropriate dir separators.
+    * Iterate directory path, creating directories as necessary.
     */
 
    while (TRUE) {
-      Bool failed;
+      int err;
       char *temp;
 
       index = FileFirstSlashIndex(pathName, index + 1);
@@ -1625,32 +1748,50 @@ File_CreateDirectoryHierarchyEx(const char *pathName,   // IN:
 
       /*
        * If we check if the directory already exists and then we create it,
-       * there is a race between these two operations - that might cause this
-       * operation to fail with no reason.
-       * This is why we reverse the attempt and the check.
+       * there is a race between these two operations. Any failure can be
+       * confusing. We avoid this by attempting to create the directory before
+       * checking the type.
        */
+      err = FileCreateDirectory(temp, mode);
 
-      failed = !File_CreateDirectoryEx(temp, mask);
-
-      if (failed) {
-         if (File_IsDirectory(temp)) {
-            failed = FALSE;
+      if (err == 0) {
+         if (topmostCreated != NULL && *topmostCreated == NULL) {
+            *topmostCreated = temp;
+            temp = NULL;
          }
-      } else if (topmostCreated != NULL && *topmostCreated == NULL) {
-         *topmostCreated = temp;
-         temp = NULL;
+      } else {
+         if (err == EEXIST) {
+            FileData fileData;
+
+            err = FileAttributes(temp, &fileData);
+
+            if (err == 0) {
+               if (fileData.fileType != FILE_TYPE_DIRECTORY) {
+                  err = ENOTDIR;
+                  errno = err;
+
+#if defined(_WIN32)
+                  SetLastError(ERROR_DIRECTORY);
+#endif
+               }
+            }
+         }
       }
 
-      free(temp);
+      if (err != 0) {
+         Log(LGPFX" %s: Failure on '%s'. Error = %d\n",
+             __FUNCTION__, temp, err);
+      }
 
-      if (failed) {
+      Posix_Free(temp);
+
+      if (err != 0) {
          return FALSE;
       }
 
       if (index == UNICODE_INDEX_NOT_FOUND) {
          break;
       }
-
    }
 
    return TRUE;
@@ -1722,7 +1863,7 @@ FileDeleteDirectoryTree(const char *pathName,  // IN: directory to delete
    char *base;
 
    char **fileList = NULL;
-   Bool sawFileError = FALSE;
+   Err_Number fileError = 0;
 
    if (Posix_EuidAccess(pathName, F_OK) != 0) {
       /*
@@ -1768,7 +1909,7 @@ FileDeleteDirectoryTree(const char *pathName,  // IN: directory to delete
          case S_IFDIR:
             /* Directory, recurse */
             if (!FileDeleteDirectoryTree(curPath, FALSE)) {
-               sawFileError = TRUE;
+               fileError = Err_Errno();
             }
             break;
 
@@ -1776,7 +1917,7 @@ FileDeleteDirectoryTree(const char *pathName,  // IN: directory to delete
          case S_IFLNK:
             /* Delete symlink, not what it points to */
             if (FileDeletion(curPath, FALSE) != 0) {
-               sawFileError = TRUE;
+               fileError = Err_Errno();
             }
             break;
 #endif
@@ -1786,39 +1927,43 @@ FileDeleteDirectoryTree(const char *pathName,  // IN: directory to delete
 #if defined(_WIN32)
                if (File_SetFilePermissions(curPath, S_IWUSR)) {
                   if (FileDeletion(curPath, FALSE) != 0) {
-                     sawFileError = TRUE;
+                     fileError = Err_Errno();
                   }
                } else {
-                  sawFileError = TRUE;
+                  fileError = Err_Errno();
                }
 #else
-               sawFileError = TRUE;
+               fileError = Err_Errno();
 #endif
             }
             break;
          }
       } else {
-         sawFileError = TRUE;
+         fileError = Err_Errno();
+         Log(LGPFX" %s: Lstat of '%s' failed, errno = %d\n",
+             __FUNCTION__, curPath, errno);
       }
 
-      free(curPath);
+      Posix_Free(curPath);
    }
 
-   free(base);
+   Posix_Free(base);
 
    if (!contentOnly) {
       /*
        * Call File_DeleteEmptyDirectory() only if there is no prior error
        * while deleting the children.
        */
-      if (!sawFileError && !File_DeleteEmptyDirectory(pathName)) {
-         sawFileError = TRUE;
+      if (fileError == 0 && !File_DeleteEmptyDirectory(pathName)) {
+         fileError = Err_Errno();
       }
    }
 
    Util_FreeStringList(fileList, numFiles);
 
-   return !sawFileError;
+   Err_SetErrno(fileError);
+
+   return fileError == 0;
 }
 
 
@@ -1832,9 +1977,9 @@ FileDeleteDirectoryTree(const char *pathName,  // IN: directory to delete
  *      it can but will return FALSE.
  *
  * Results:
- *      TRUE   the entire content was deleted or there were no files and the
- *             directoy was empty
- *      FALSE  otherwise.
+ *      TRUE   the entire contents were deleted or there were no files and the
+ *             directory was empty
+ *      FALSE  otherwise
  *
  * Side effects:
  *      Deletes the directory content from disk.
@@ -1884,7 +2029,8 @@ File_DeleteDirectoryTree(const char *pathName)  // IN: directory to delete
  *      searchPath must be ';' delimited.
  *
  * Results:
- *      TRUE if a file is found. FALSE otherwise.
+ *      TRUE   file was found
+ *      FALSE  otherwise.
  *
  * Side effects:
  *      If result is non Null allocate a string for the filename found.
@@ -1907,9 +2053,9 @@ File_FindFileInSearchPath(const char *fileIn,      // IN:
    char *dir = NULL;
    char *file = NULL;
 
-   ASSERT(fileIn);
-   ASSERT(cwd);
-   ASSERT(searchPath);
+   ASSERT(fileIn != NULL);
+   ASSERT(searchPath != NULL);
+   ASSERT(cwd != NULL);
 
    /*
     * First check the usual places - the fullpath or the cwd.
@@ -1929,7 +2075,7 @@ File_FindFileInSearchPath(const char *fileIn,      // IN:
       goto done;
    }
 
-   free(cur);
+   Posix_Free(cur);
    cur = NULL;
 
    if (full) {
@@ -1976,7 +2122,7 @@ File_FindFileInSearchPath(const char *fileIn,      // IN:
          break;
       }
 
-      free(cur);
+      Posix_Free(cur);
       cur = NULL;
 
       tok = strtok_r(NULL, FILE_SEARCHPATHTOKEN, &saveptr);
@@ -1994,14 +2140,14 @@ done:
          }
       }
 
-      free(cur);
+      Posix_Free(cur);
    } else {
       found = FALSE;
    }
 
-   free(sp);
-   free(dir);
-   free(file);
+   Posix_Free(sp);
+   Posix_Free(dir);
+   Posix_Free(file);
 
    return found;
 }
@@ -2016,7 +2162,8 @@ done:
  *      the named directory is writeable.
  *
  * Results:
- *      NULL if error, the expanded path otherwise.
+ *      NULL error
+ *     !NULL the expanded path otherwise.
  *
  * Side effects:
  *      The result is allocated.
@@ -2083,7 +2230,7 @@ FileSimpleRandom(void)
 #endif
 
       context = Random_QuickSeed(value);
-      ASSERT(context);
+      ASSERT(context != NULL);
    }
 
    result = Random_Quick(context);
@@ -2114,27 +2261,44 @@ FileSimpleRandom(void)
  */
 
 uint32
-FileSleeper(uint32 msecMinSleepTime,  // IN:
-            uint32 msecMaxSleepTime)  // IN:
+FileSleeper(uint32 minSleepTimeMsec,  // IN:
+            uint32 maxSleepTimeMsec)  // IN:
 {
    uint32 variance;
-   uint32 msecActualSleepTime;
+   uint32 actualSleepTimeMsec;
+#if defined(_WIN32)
+   uint32 totalSleepTimeMsec;
+#endif
 
-   ASSERT(msecMinSleepTime <= msecMaxSleepTime);
+   ASSERT(minSleepTimeMsec <= maxSleepTimeMsec);
 
-   variance = msecMaxSleepTime - msecMinSleepTime;
+   variance = maxSleepTimeMsec - minSleepTimeMsec;
 
    if (variance == 0) {
-      msecActualSleepTime = msecMinSleepTime;
+      actualSleepTimeMsec = minSleepTimeMsec;
    } else {
       float fpRand = ((float) FileSimpleRandom()) / ((float) ~((uint32) 0));
 
-      msecActualSleepTime = msecMinSleepTime + (uint32) (fpRand * variance);
+      actualSleepTimeMsec = minSleepTimeMsec + (uint32) (fpRand * variance);
    }
 
-   Util_Usleep(1000 * msecActualSleepTime);
+#if defined(_WIN32)
+   /* Clamp individual sleeps to avoid Windows issues */
+   totalSleepTimeMsec = actualSleepTimeMsec;
 
-   return msecActualSleepTime;
+   while (totalSleepTimeMsec > 0) {
+      uint32 sleepTimeMsec = (totalSleepTimeMsec > 900) ? 900 :
+                                                          totalSleepTimeMsec;
+
+      Util_Usleep(1000 * sleepTimeMsec);
+
+      totalSleepTimeMsec -= sleepTimeMsec;
+   }
+#else
+   Util_Usleep(1000 * actualSleepTimeMsec);
+#endif
+
+   return actualSleepTimeMsec;
 }
 
 
@@ -2205,7 +2369,7 @@ FileRotateByRename(const char *fileName,  // IN: full path to file
       }
 
       ASSERT(dst != fileName);
-      free(dst);
+      Posix_Free(dst);
       dst = src;
    }
 }
@@ -2286,8 +2450,13 @@ FileRotateByRenumber(const char *filePath,       // IN: full path to file
    }
 
    File_GetPathName(fullPathNoExt, &baseDir, &baseName);
-   if ((baseDir[0] == '\0') || (baseName[0] == '\0')) {
-      Log(LGPFX" %s: failed to get base dir for path '%s'.\n", __FUNCTION__,
+
+   if ((baseDir == NULL) || (*baseDir == '\0')) {
+      baseDir = Unicode_Duplicate(DIRSEPS);
+   }
+
+   if ((baseName == NULL) || (*baseName == '\0')) {
+      Log(LGPFX" %s: failed to get base name for path '%s'.\n", __FUNCTION__,
           filePathNoExt);
       goto cleanup;
    }
@@ -2316,7 +2485,7 @@ FileRotateByRenumber(const char *filePath,       // IN: full path to file
          fileNumbers[nFound++] = curNr;
       }
 
-      free(fileList[i]);
+      Posix_Free(fileList[i]);
    }
 
    if (nFound > 0) {
@@ -2340,7 +2509,7 @@ FileRotateByRenumber(const char *filePath,       // IN: full path to file
    }
 
    if (newFilePath == NULL || result == -1) {
-      free(tmp);
+      Posix_Free(tmp);
    } else {
       *newFilePath = tmp;
    }
@@ -2355,17 +2524,17 @@ FileRotateByRenumber(const char *filePath,       // IN: full path to file
             Log(LGPFX" %s: failed to remove %s: %s\n", __FUNCTION__, tmp,
                 Msg_ErrString());
          }
-         free(tmp);
+         Posix_Free(tmp);
       }
    }
 
   cleanup:
-   free(fileNumbers);
-   free(fileList);
-   free(fmtString);
-   free(baseDir);
-   free(baseName);
-   free(fullPathNoExt);
+   Posix_Free(fileNumbers);
+   Posix_Free(fileList);
+   Posix_Free(fmtString);
+   Posix_Free(baseDir);
+   Posix_Free(baseName);
+   Posix_Free(fullPathNoExt);
 }
 
 
@@ -2399,7 +2568,7 @@ File_Rotate(const char *fileName,  // IN: original file
    size_t baseLen;
    char *baseName;
 
-   ASSERT(fileName);
+   ASSERT(fileName != NULL);
 
    if ((ext = Str_Strrchr(fileName, '.')) == NULL) {
       ext = fileName + strlen(fileName);
@@ -2422,7 +2591,7 @@ File_Rotate(const char *fileName,  // IN: original file
       FileRotateByRename(fileName, baseName, ext, n, newFileName);
    }
 
-   free(baseName);
+   Posix_Free(baseName);
 }
 
 
@@ -2461,3 +2630,47 @@ File_GetFSMountInfo(const char *pathName,
 }
 
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * File_ContainSymLink --
+ *
+ *      Check if the specified file path contains symbolic link.
+ *
+ * Results:
+ *      TRUE   pathName contains a symlink,
+ *      FALSE  pathName is not a symlink nor contains a symlink, or error.
+ *
+ * Side effects:
+ *      None
+ *
+ *----------------------------------------------------------------------
+ */
+
+Bool
+File_ContainSymLink(const char *pathName)  // IN:
+{
+   char *path = NULL;
+   char *base = NULL;
+   Bool retValue = FALSE;
+
+   if (File_IsSymLink(pathName)) {
+      return TRUE;
+   }
+
+   File_GetPathName(pathName, &path, &base);
+
+   if ((path != NULL) &&
+       (base != NULL) &&
+       (strcmp(path, "") != 0) &&
+       (strcmp(base, "") != 0)) {
+      if (File_ContainSymLink(path)) {
+         retValue = TRUE;
+      }
+   }
+
+   Posix_Free(path);
+   Posix_Free(base);
+
+   return retValue;
+}

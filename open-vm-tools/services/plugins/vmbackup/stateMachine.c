@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,7 +35,6 @@
 
 #include "vmBackupInt.h"
 
-#include "dynxdr.h"
 #include <glib-object.h>
 #include <gmodule.h>
 #include "guestApp.h"
@@ -85,6 +84,8 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 
 #define VMBACKUP_CONFIG_GET_INT(config, key, defVal)        \
    VMTools_ConfigGetInteger(config, "vmbackup", key, defVal)
+
+#define VMBACKUP_CFG_ENABLEVSS      "enableVSS"
 
 static VmBackupState *gBackupState = NULL;
 
@@ -200,17 +201,19 @@ VmBackupPrivSendMsg(gchar *msg,
  * Sends a command to the VMX asking it to update VMDB about a new backup event.
  * This will restart the keep-alive timer.
  *
+ * As the name implies, does not abort the quiesce operation on failure.
+ *
  * @param[in]  event    The event to set.
  * @param[in]  code     Error code.
- * @param[in]  dest     Error description.
+ * @param[in]  desc     Error description.
  *
  * @return TRUE on success.
  */
 
 Bool
-VmBackup_SendEvent(const char *event,
-                   const uint32 code,
-                   const char *desc)
+VmBackup_SendEventNoAbort(const char *event,
+                          const uint32 code,
+                          const char *desc)
 {
    Bool success;
    char *result = NULL;
@@ -223,6 +226,7 @@ VmBackup_SendEvent(const char *event,
    if (gBackupState->keepAlive != NULL) {
       g_source_destroy(gBackupState->keepAlive);
       g_source_unref(gBackupState->keepAlive);
+      gBackupState->keepAlive = NULL;
    }
 
    msg = g_strdup_printf(VMBACKUP_PROTOCOL_EVENT_SET" %s %u %s",
@@ -266,19 +270,52 @@ VmBackup_SendEvent(const char *event,
                              &result, &resultLen);
 #endif
 
-   if (!success) {
+   if (success) {
+      ASSERT(gBackupState->keepAlive == NULL);
+      gBackupState->keepAlive =
+         g_timeout_source_new(VMBACKUP_KEEP_ALIVE_PERIOD / 2);
+      VMTOOLSAPP_ATTACH_SOURCE(gBackupState->ctx,
+                               gBackupState->keepAlive,
+                               VmBackupKeepAliveCallback,
+                               NULL,
+                               NULL);
+   } else {
       g_warning("Failed to send vmbackup event: %s, result: %s.\n",
                 msg, result);
    }
    vm_free(result);
    g_free(msg);
 
-   gBackupState->keepAlive = g_timeout_source_new(VMBACKUP_KEEP_ALIVE_PERIOD / 2);
-   VMTOOLSAPP_ATTACH_SOURCE(gBackupState->ctx,
-                            gBackupState->keepAlive,
-                            VmBackupKeepAliveCallback,
-                            NULL,
-                            NULL);
+   return success;
+}
+
+
+/**
+ * Sends a command to the VMX asking it to update VMDB about a new backup event.
+ * This will restart the keep-alive timer.
+ *
+ * Aborts the quiesce operation on RPC failure.
+ *
+ * @param[in]  event    The event to set.
+ * @param[in]  code     Error code.
+ * @param[in]  desc     Error description.
+ *
+ * @return TRUE on success.
+ */
+
+Bool
+VmBackup_SendEvent(const char *event,
+                   const uint32 code,
+                   const char *desc)
+{
+   Bool success = VmBackup_SendEventNoAbort(event, code, desc);
+
+   if (!success  && gBackupState->rpcState != VMBACKUP_RPC_STATE_IGNORE) {
+      g_debug("Changing rpcState from %d to %d\n",
+              gBackupState->rpcState, VMBACKUP_RPC_STATE_ERROR);
+      gBackupState->rpcState = VMBACKUP_RPC_STATE_ERROR;
+   }
+
    return success;
 }
 
@@ -325,6 +362,7 @@ VmBackupFinalize(void)
    g_free(gBackupState->scriptArg);
    g_free(gBackupState->volumes);
    g_free(gBackupState->snapshots);
+   g_free(gBackupState->excludedFileSystems);
    g_free(gBackupState->errorMsg);
    g_free(gBackupState);
    gBackupState = NULL;
@@ -438,6 +476,12 @@ VmBackupDoAbort(void)
 {
    g_debug("*** %s\n", __FUNCTION__);
    ASSERT(gBackupState != NULL);
+
+   /*
+    * Once we abort the operation, we don't care about RPC state.
+    */
+   gBackupState->rpcState = VMBACKUP_RPC_STATE_IGNORE;
+
    if (gBackupState->machineState != VMBACKUP_MSTATE_SCRIPT_ERROR &&
        gBackupState->machineState != VMBACKUP_MSTATE_SYNC_ERROR) {
       const char *eventMsg = "Quiesce aborted.";
@@ -451,12 +495,13 @@ VmBackupDoAbort(void)
       g_static_mutex_unlock(&gBackupState->opLock);
 
 #ifdef __linux__
-      /* Thaw the guest if already quiesced */
+      /* If quiescing has been completed, then undo it.  */
       if (gBackupState->machineState == VMBACKUP_MSTATE_SYNC_FREEZE) {
-         g_debug("Guest already quiesced, thawing for abort\n");
-         if (!gBackupState->provider->snapshotDone(gBackupState,
+         g_debug("Aborting with file system already quiesced, undo quiescing "
+                 "operation.\n");
+         if (!gBackupState->provider->undo(gBackupState,
                                       gBackupState->provider->clientData)) {
-            g_debug("Thaw during abort failed\n");
+            g_debug("Quiescing undo failed.\n");
             eventMsg = "Quiesce could not be aborted.";
          }
       }
@@ -618,6 +663,17 @@ VmBackupAsyncCallback(void *clientData)
        * has not finished yet.
        */
       if (opPending) {
+         goto exit;
+      }
+
+      /*
+       * VMX state might have changed when we were processing
+       * currentOp. This is usually detected by failures in
+       * sending backup event to the host.
+       */
+      if (gBackupState->rpcState == VMBACKUP_RPC_STATE_ERROR) {
+         g_warning("Aborting backup operation due to RPC errors.");
+         VmBackupDoAbort();
          goto exit;
       }
    }
@@ -871,7 +927,7 @@ VmBackupStartCommon(RpcInData *data,
       const gchar *cfgEntry;
    } providers[] = {
 #if defined(_WIN32)
-      { VmBackup_NewVssProvider, "enableVSS" },
+      { VmBackup_NewVssProvider, VMBACKUP_CFG_ENABLEVSS},
 #endif
       { VmBackup_NewSyncDriverProvider, "enableSyncDriver" },
       { VmBackup_NewNullProvider, NULL },
@@ -884,10 +940,19 @@ VmBackupStartCommon(RpcInData *data,
           * only allow VSS provider
           */
 #if defined(_WIN32)
-         if (VMBACKUP_CONFIG_GET_BOOL(ctx->config, "enableVSS", TRUE)) {
+         if (VMBACKUP_CONFIG_GET_BOOL(ctx->config,
+                                      VMBACKUP_CFG_ENABLEVSS, TRUE)) {
             provider = VmBackup_NewVssProvider();
+            if (provider != NULL) {
+               completer = VmBackup_NewVssCompleter(provider);
+               if (completer == NULL) {
+                  g_warning("VSS completion helper cannot be initialized.");
+                  provider->release(provider);
+                  provider = NULL;
+               }
+            }
          }
-#elif defined(_LINUX) || defined(__linux__)
+#elif defined(__linux__)
          /*
           * If quiescing is requested on linux platform,
           * only allow SyncDriver provider
@@ -901,10 +966,6 @@ VmBackupStartCommon(RpcInData *data,
          /* If no quiescing is requested only allow null provider */
          provider = VmBackup_NewNullProvider();
       }
-      if (provider == NULL) {
-         g_warning("Requested quiescing cannot be initialized.");
-         goto error;
-      }
    } else {
       /* Instantiate the sync provider. */
       for (i = 0; i < ARRAYSIZE(providers); i++) {
@@ -913,24 +974,30 @@ VmBackupStartCommon(RpcInData *data,
          if (VMBACKUP_CONFIG_GET_BOOL(ctx->config, sp->cfgEntry, TRUE)) {
             provider = sp->ctor();
             if (provider != NULL) {
+#if defined(_WIN32)
+               if (sp->cfgEntry != NULL &&
+                   Str_Strcmp(sp->cfgEntry, VMBACKUP_CFG_ENABLEVSS) == 0) {
+                  completer = VmBackup_NewVssCompleter(provider);
+                  if (completer == NULL) {
+                     g_warning("VSS completion helper cannot be initialized.");
+                     provider->release(provider);
+                     provider = NULL;
+                     continue;
+                  }
+                  break;
+               }
+#else
                break;
+#endif
             }
          }
       }
    }
 
-   ASSERT(provider != NULL);
-
-#if defined(_WIN32)
-   if (VMBACKUP_CONFIG_GET_BOOL(ctx->config, "enableVSS", TRUE)) {
-      completer = VmBackup_NewVssCompleter(provider);
-      if (completer == NULL) {
-         provider->release(provider);
-         g_warning("Requested quiescing cannot be initialized.");
-         goto error;
-      }
+   if (provider == NULL) {
+      g_warning("Requested quiescing cannot be initialized.");
+      goto error;
    }
-#endif
 
    /* Instantiate the backup state and start the operation. */
    gBackupState->ctx = data->appCtx;
@@ -944,6 +1011,7 @@ VmBackupStartCommon(RpcInData *data,
    gBackupState->enableNullDriver = VMBACKUP_CONFIG_GET_BOOL(ctx->config,
                                                              "enableNullDriver",
                                                              TRUE);
+   gBackupState->rpcState = VMBACKUP_RPC_STATE_NORMAL;
 
    g_debug("Using quiesceApps = %d, quiesceFS = %d, allowHWProvider = %d,"
            " execScripts = %d, scriptArg = %s, timeout = %u,"
@@ -952,6 +1020,13 @@ VmBackupStartCommon(RpcInData *data,
            gBackupState->allowHWProvider, gBackupState->execScripts,
            (gBackupState->scriptArg != NULL) ? gBackupState->scriptArg : "",
            gBackupState->timeout, gBackupState->enableNullDriver, forceQuiesce);
+#if defined(__linux__)
+   gBackupState->excludedFileSystems =
+         VMBACKUP_CONFIG_GET_STR(ctx->config, "excludedFileSystems", NULL);
+   g_debug("Using excludedFileSystems = \"%s\"\n",
+           (gBackupState->excludedFileSystems != NULL) ?
+            gBackupState->excludedFileSystems : "(null)");
+#endif
    g_debug("Quiescing volumes: %s",
            (gBackupState->volumes) ? gBackupState->volumes : "(null)");
 
@@ -1313,9 +1388,9 @@ VmBackupDumpState(gpointer src,
 
 
 /**
- * Reset callback. Currently does nothing.
+ * Reset callback.  Currently does nothing.
  *
- * @param[in]  src      The source object.
+ * @param[in]  src      The source object.  Unused.
  * @param[in]  ctx      Unused.
  * @param[in]  data     Unused.
  */
@@ -1325,6 +1400,7 @@ VmBackupReset(gpointer src,
               ToolsAppCtx *ctx,
               gpointer data)
 {
+
 }
 
 

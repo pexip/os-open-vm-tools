@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -36,7 +36,7 @@
 #include "str.h"
 #include "strutil.h"
 #include "toolsCoreInt.h"
-#include "vm_tools_version.h"
+#include "vmtoolsd_version.h"
 #include "vmware/tools/utils.h"
 #include "vmware/tools/log.h"
 #include "vm_version.h"
@@ -81,10 +81,11 @@ ToolsCoreCheckReset(RpcChannel *chan,
 
       if (!version_sent) {
          /*
-          * Log the Tools build number to the VMX log file. We don't really care
+          * Log the Tools version to the VMX log file. We don't really care
           * if sending the message fails.
           */
-         msg = g_strdup_printf("log %s: Version: %s", app, BUILD_NUMBER);
+         msg = g_strdup_printf("log %s: Version: %s (%s)",
+                               app, VMTOOLSD_VERSION_STRING, BUILD_NUMBER);
          RpcChannel_Send(state->ctx.rpc, msg, strlen(msg) + 1, NULL, NULL);
          g_free(msg);
          /* send message only once to prevent log spewing: */
@@ -107,6 +108,73 @@ ToolsCoreCheckReset(RpcChannel *chan,
       VMTOOLSAPP_ERROR(&state->ctx, EXIT_FAILURE);
    }
 }
+
+
+#if !defined(_WIN32)
+/**
+ * ToolsCoreAppChannelFail --
+ *
+ * Call-back function for RpcChannel to report that the RPC channel for the
+ * toolbox-dnd (vmusr) application cannot be acquired. This would signify
+ * that the channel is currently in use by another vmusr process.
+ *
+ * @param[in]  _state   The service state.
+ */
+
+static void
+ToolsCoreAppChannelFail(UNUSED_PARAM(gpointer _state))
+{
+   char *cmdGrepVmusrTools;
+#if !defined(__APPLE__)
+   ToolsServiceState *state = _state;
+#endif
+#if defined(__linux__) || defined(__FreeBSD__) || defined(sun)
+   static const char  *vmusrGrepExpr = "'vmtoolsd.*vmusr'";
+#if defined(sun)
+   static const char *psCmd = "ps -aef";
+#else
+   static const char *psCmd = "ps ax";     /* using BSD syntax */
+#endif
+#else  /* Mac OS */
+   static const char  *vmusrGrepExpr = "'vmware-tools-daemon.*vmusr'";
+   static const char *psCmd = "ps -ex";
+#endif
+
+   cmdGrepVmusrTools = Str_Asprintf(NULL, "%s | egrep %s | egrep -v 'grep|%d'",
+                                    psCmd, vmusrGrepExpr, (int) getpid());
+
+   /*
+    * Check if there is another vmtoolsd vmusr process running on the
+    * system and log the appropriate warning message before terminating
+    * this vmusr process.
+    */
+   if (system(cmdGrepVmusrTools) == 0) {
+      g_warning("Exiting the vmusr process. Another vmusr process is "
+                "currently running.\n");
+   } else {
+      g_warning("Exiting the vmusr process; unable to acquire the channel.\n");
+   }
+   free(cmdGrepVmusrTools);
+
+#if !defined(__APPLE__)
+   if (g_main_loop_is_running(state->ctx.mainLoop)) {
+      g_warning("Calling g_main_loop_quit() to terminate the process.\n");
+      g_main_loop_quit(state->ctx.mainLoop);
+   } else {
+      g_warning("Exiting the process.\n");
+      exit(1);
+   }
+#else  /* Mac OS */
+   /*
+    * On Mac OS X, always exit with non-zero status. This is a signal to
+    * launchd that the vmusr process had a "permanent" failure and should
+    * not be automatically restarted for this user session.
+    */
+   g_warning("Exiting the process.\n");
+   exit(1);
+#endif
+}
+#endif
 
 
 /**
@@ -321,12 +389,31 @@ ToolsCore_InitRpc(ToolsServiceState *state)
    }
 
    if (state->ctx.rpc) {
+
+      /*
+       * Default tools RpcChannel setup: No channel error threshold limit and
+       *                                 no notification callback function.
+       */
+      RpcChannelFailureCb failureCb = NULL;
+      guint errorLimit = 0;
+
+#if !defined(_WIN32)
+
+      /* For the *nix user service app. */
+      if (TOOLS_IS_USER_SERVICE(state)) {
+         failureCb = ToolsCoreAppChannelFail;
+         errorLimit = ToolsCore_GetVmusrLimit(state);
+      }
+#endif
+
       RpcChannel_Setup(state->ctx.rpc,
                        app,
                        mainCtx,
                        &state->ctx,
                        ToolsCoreCheckReset,
-                       state);
+                       state,
+                       failureCb,
+                       errorLimit);
 
       /* Register the "built in" RPCs. */
       for (i = 0; i < ARRAYSIZE(rpcs); i++) {

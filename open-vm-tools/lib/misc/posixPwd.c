@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -72,7 +72,7 @@ Posix_Getpwnam(const char *name)  // IN:
       return NULL;
    }
    pw = getpwnam(tmpname);
-   free(tmpname);
+   Posix_Free(tmpname);
 
    return GetpwInternal(pw);
 }
@@ -130,20 +130,20 @@ GetpwInternal(struct passwd *pw)  // IN:
    }
 
    /* Free static structure string pointers before reuse. */
-   free(spw.pw_passwd);
+   Posix_Free(spw.pw_passwd);
    spw.pw_passwd = NULL;
-   free(spw.pw_dir);
+   Posix_Free(spw.pw_dir);
    spw.pw_dir = NULL;
-   free(spw.pw_name);
+   Posix_Free(spw.pw_name);
    spw.pw_name = NULL;
 #if !defined __ANDROID__
-   free(spw.pw_gecos);
+   Posix_Free(spw.pw_gecos);
    spw.pw_gecos = NULL;
 #endif
-   free(spw.pw_shell);
+   Posix_Free(spw.pw_shell);
    spw.pw_shell = NULL;
 #if defined(__FreeBSD__)
-   free(spw.pw_class);
+   Posix_Free(spw.pw_class);
    spw.pw_class = NULL;
 #endif
 
@@ -208,6 +208,7 @@ exit:
 
 /*
  *----------------------------------------------------------------------
+ *
  * Posix_Getpwent --
  *
  *      POSIX getpwent()
@@ -234,6 +235,39 @@ Posix_Getpwent(void)
    return GetpwInternal(pw);
 #endif
 }
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Posix_Endpwent --
+ *
+ *      POSIX endpwent()
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+Posix_Endpwent(void)
+{
+#if defined(__ANDROID__)
+   /*
+    * endpwent() not avail until Android O
+    * TODO: When Android O(Oreo) becomes mainstream, we can remove this #if
+    * Refer https://github.com/android-ndk/ndk/issues/77
+    */
+   return;
+#else
+   endpwent();
+#endif
+}
+
 
 #if !defined(VM_SYSTEM_HAS_GETPWNAM_R) || \
    !defined(VM_SYSTEM_HAS_GETPWUID_R) || \
@@ -643,7 +677,7 @@ Posix_Getpwnam_r(const char *name,     // IN:
    ret = EmulateGetpwnam_r(tmpname, pw, buf, size, ppw);
 #endif
 
-   free(tmpname);
+   Posix_Free(tmpname);
 
    // ret is errno on failure, *ppw is NULL if no matching entry found.
    if (ret != 0 || *ppw == NULL) {
@@ -826,13 +860,13 @@ GetpwInternal_r(struct passwd *pw,    // IN:
    ret = 0;
 
 exit:
-   free(passwd);
-   free(dir);
-   free(pwname);
+   Posix_Free(passwd);
+   Posix_Free(dir);
+   Posix_Free(pwname);
 #if !defined __ANDROID__
-   free(gecos);
+   Posix_Free(gecos);
 #endif
-   free(shell);
+   Posix_Free(shell);
 
    return ret;
 }
@@ -883,7 +917,7 @@ Posix_GetGroupList(const char *user,  // IN:
 
       *ngroups = 1;
       if (n < 1) {
-	 return -1;
+         return -1;
       }
       ASSERT(groups != NULL);
       *groups = group;
@@ -893,7 +927,7 @@ Posix_GetGroupList(const char *user,  // IN:
 
    ret = getgrouplist(tmpuser, group, groups, ngroups);
 
-   free(tmpuser);
+   Posix_Free(tmpuser);
 
    return ret;
 }
@@ -903,6 +937,7 @@ Posix_GetGroupList(const char *user,  // IN:
 
 /*
  *----------------------------------------------------------------------
+ *
  * Posix_Getgrnam --
  *
  *      POSIX getgrnam()
@@ -928,21 +963,19 @@ Posix_Getgrnam(const char *name)  // IN:
       return NULL;
    }
    gr = getgrnam(tmpname);
-   free(tmpname);
+   Posix_Free(tmpname);
 
    if (!gr) {
       return NULL;
    }
 
    /* Free static structure string pointers before reuse. */
-   free(sgr.gr_name);
+   Posix_Free(sgr.gr_name);
    sgr.gr_name = NULL;
-   free(sgr.gr_passwd);
+   Posix_Free(sgr.gr_passwd);
    sgr.gr_passwd = NULL;
-   if (sgr.gr_mem != NULL) {
-      Util_FreeStringList(sgr.gr_mem, -1);
-      sgr.gr_mem = NULL;
-   }
+   Util_FreeStringList(sgr.gr_mem, -1);
+   sgr.gr_mem = NULL;
 
    /* Fill out structure with new values. */
    sgr.gr_gid = gr->gr_gid;
@@ -1023,7 +1056,7 @@ Posix_Getgrnam_r(const char *name,     // IN:
 #else
    ret = EmulateGetgrnam_r(tmpname, gr, buf, size, pgr);
 #endif
-   free(tmpname);
+   Posix_Free(tmpname);
 
    // ret is errno on failure, *pgr is NULL if no matching entry found.
    if (ret != 0 || *pgr == NULL) {
@@ -1088,7 +1121,7 @@ Posix_Getgrnam_r(const char *name,     // IN:
          size_t len = strlen(grmem[i]) + 1;
 
          if (n + len > size) {
-	    goto exit;
+            goto exit;
          }
          gr->gr_mem[i] = memcpy(buf + n, grmem[i], len);
          n += len;
@@ -1098,11 +1131,9 @@ Posix_Getgrnam_r(const char *name,     // IN:
    ret = 0;
 
  exit:
-   free(grpasswd);
-   free(grname);
-   if (grmem) {
-      Util_FreeStringList(grmem, -1);
-   }
+   Posix_Free(grpasswd);
+   Posix_Free(grname);
+   Util_FreeStringList(grmem, -1);
 
    return ret;
 }
