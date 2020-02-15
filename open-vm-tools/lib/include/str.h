@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -55,25 +55,26 @@
 
 #include "vm_basic_types.h"
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+
 
 /*
  * These platforms use bsd_vsnprintf().
- * This does not mean it has bsd_vsnwprintf().
+ *
+ * XXX: open-vm-tools does not use bsd_vsnprintf because bsd_vsnprintf uses
+ * convertutf.{h,c}, and the license for those files does not meet the
+ * redistribution requirements for Debian.
+ * <https://github.com/vmware/open-vm-tools/issues/148>
  */
+#if !defined(VMX86_TOOLS) || defined(_WIN32)
 #if (defined _WIN32 && !defined STR_NO_WIN32_LIBS) || \
     (defined __linux__ && !defined __UCLIBC__) || \
     defined __APPLE__
 #define HAS_BSD_PRINTF 1
 #endif
-
-/*
- * And these platforms/setups use bsd_vsnwprintf()
- */
-#if (defined _WIN32 && !defined STR_NO_WIN32_LIBS) || \
-   (defined __GNUC__ && (__GNUC__ < 2                 \
-                         || (__GNUC__ == 2            \
-                             && __GNUC_MINOR__ < 96)))
-#define HAS_BSD_WPRINTF 1
 #endif
 
 /*
@@ -116,6 +117,10 @@ char *Str_Strnstr(const char *src,  // IN:
 char *Str_Strcpy(char *dst,        // OUT:
                  const char *src,  // IN:
                  size_t maxLen);   // IN:
+char *Str_Strncpy(char *dest,       // OUT:
+                  size_t destSize,  // IN:
+                  const char *src,  // IN:
+                  size_t n);        // IN:
 char *Str_Strcat(char *dst,        // IN/OUT:
                  const char *src,  // IN:
                  size_t maxLen);   // IN:
@@ -137,7 +142,7 @@ char *Str_SafeVasprintf(size_t *length,      // OUT/OPT:
                         const char *format,  // IN:
                         va_list arguments);  // IN:
 
-#if defined(_WIN32) || defined(__linux__) // {
+#if defined(_WIN32) // {
 
 /*
  * wchar_t versions
@@ -188,33 +193,20 @@ wchar_t *Str_SafeVaswprintf(size_t *length,         // OUT/OPT:
                             const wchar_t *format,  // IN:
                             va_list arguments);     // IN:
 
-unsigned char *Str_Mbscpy(char *buf,        // OUT:
-                          const char *src,  // IN:
-                          size_t maxSize);  // IN:
-unsigned char *Str_Mbscat(char *buf,        // IN/OUT:
-                          const char *src,  // IN:
-                          size_t maxSize);  // IN:
-
 /*
  * These are handly for Windows programmers.  They are like
  * the _tcs functions, but with Str_Strcpy-style bounds checking.
- *
- * We don't have Str_Mbsncat() because it has some odd semantic
- * ambiguity (whether to truncate in the middle of a multibyte
- * sequence) that I want to stay away from.  -- edward
  */
 
-#ifdef _WIN32
 #ifdef UNICODE
    #define Str_Tcscpy(s1, s2, n) Str_Wcscpy(s1, s2, n)
    #define Str_Tcscat(s1, s2, n) Str_Wcscat(s1, s2, n)
 #else
-   #define Str_Tcscpy(s1, s2, n) Str_Mbscpy(s1, s2, n)
-   #define Str_Tcscat(s1, s2, n) Str_Mbscat(s1, s2, n)
-#endif
+   #define Str_Tcscpy(s1, s2, n) Str_Strcpy(s1, s2, n)
+   #define Str_Tcscat(s1, s2, n) Str_Strcat(s1, s2, n)
 #endif
 
-#endif // } defined(_WIN32) || defined(__linux__)
+#endif // } defined(_WIN32)
 
 
 /*
@@ -255,6 +247,10 @@ unsigned char *Str_Mbscat(char *buf,        // IN/OUT:
    #define Str_Tcscspn(s1, s2) _tcscspn(s1, s2)
    #define Str_Tcsupr(s) _tcsupr(s)
    #define Str_Tcslwr(s) _tcslwr(s)
+#endif
+
+#if defined(__cplusplus)
+}  // extern "C"
 #endif
 
 #endif /* _STR_H_ */

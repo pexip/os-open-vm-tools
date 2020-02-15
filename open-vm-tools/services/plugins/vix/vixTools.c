@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -57,7 +57,7 @@
 #include <WTypes.h>
 #include <io.h>
 #include "wminic.h"
-#include "win32u.h"
+#include "windowsu.h"
 #include <sys/stat.h>
 #include <time.h>
 #define  SECURITY_WIN32
@@ -91,7 +91,6 @@
 #include "str.h"
 #include "file.h"
 #include "err.h"
-#include "guestInfo.h"  // MAX_VALUE_LEN
 #include "hostinfo.h"
 #include "guest_os.h"
 #include "guest_msg_def.h"
@@ -109,7 +108,7 @@
 #include "su.h"
 #include "escape.h"
 
-#if defined(linux) || defined(_WIN32)
+#if defined(__linux__) || defined(_WIN32)
 #include "netutil.h"
 #endif
 
@@ -120,7 +119,7 @@
 
 #ifdef _WIN32
 #include "registryWin32.h"
-#include "win32u.h"
+#include "windowsu.h"
 #endif /* _WIN32 */
 #include "hgfsHelper.h"
 
@@ -294,9 +293,17 @@ typedef struct VixToolsRunProgramState {
 
 /*
  * State of a single asynch startProgram.
+ *
+ * On Windows, keep the user's token and profile HANDLEs around
+ * so the profile isn't unloaded until the program exits.
  */
 typedef struct VixToolsStartProgramState {
    ProcMgr_AsyncProc    *procState;
+
+#if defined(_WIN32) && SUPPORT_VGAUTH
+   HANDLE hToken;
+   HANDLE hProfile;
+#endif
 
    void                 *eventQueue;
 } VixToolsStartProgramState;
@@ -488,6 +495,7 @@ static const char *fileExtendedInfoLinuxFormatString = "<fxi>"
 
 static VixError VixToolsGetTempFile(VixCommandRequestHeader *requestMsg,
                                     void *userToken,
+                                    Bool useSystemTemp,
                                     char **tempFile,
                                     int *tempFileFd);
 
@@ -516,6 +524,10 @@ static VixError VixToolsMoveObject(VixCommandRequestHeader *requestMsg);
 
 static VixError VixToolsCreateTempFile(VixCommandRequestHeader *requestMsg,
                                        char **result);
+
+static VixError VixToolsCreateTempFileInt(VixCommandRequestHeader *requestMsg,
+                                          Bool useSystemTemp,
+                                          char **result);
 
 static VixError VixToolsReadVariable(VixCommandRequestHeader *requestMsg,
                                      char **result);
@@ -581,7 +593,7 @@ static VixError VixToolsProcessHgfsPacket(VixCommandHgfsSendPacket *requestMsg,
 static VixError VixToolsListFileSystems(VixCommandRequestHeader *requestMsg,
                                         char **result);
 
-#if defined(_WIN32) || defined(linux)
+#if defined(_WIN32) || defined(__linux__)
 static VixError VixToolsPrintFileSystemInfo(char **destPtr,
                                             const char *endDestPtr,
                                             const char *name,
@@ -688,6 +700,10 @@ static Bool VixToolsCheckIfAuthenticationTypeEnabled(GKeyFile *confDictRef,
 #if SUPPORT_VGAUTH
 
 VGAuthError TheVGAuthContext(VGAuthContext **ctx);
+
+#ifdef _WIN32
+static void GuestAuthUnloadUserProfileAndToken(HANDLE hToken, HANDLE hProfile);
+#endif
 
 #endif
 
@@ -1625,6 +1641,12 @@ VixToolsStartProgramImpl(const char *requestName,            // IN
    Bool envBlockFromMalloc = TRUE;
 #endif
    GSource *timer;
+#if defined(_WIN32) && SUPPORT_VGAUTH
+   HANDLE hToken = INVALID_HANDLE_VALUE;
+   HANDLE hProfile = INVALID_HANDLE_VALUE;
+   VGAuthError vgErr;
+   VGAuthContext *ctx;
+#endif
 
    /*
     * Initialize this here so we can call free on its member variables in abort
@@ -1687,7 +1709,7 @@ VixToolsStartProgramImpl(const char *requestName,            // IN
     * For non-Windows, we use the user's $HOME if workingDir isn't supplied.
     */
    if (NULL == workingDir) {
-#if defined(linux) || defined(sun) || defined(__FreeBSD__) || defined(__APPLE__)
+#if defined(__linux__) || defined(sun) || defined(__FreeBSD__) || defined(__APPLE__)
       char *username = NULL;
 
       if (!ProcMgr_GetImpersonatedUserInfo(&username, &workingDirectory)) {
@@ -1784,6 +1806,43 @@ VixToolsStartProgramImpl(const char *requestName,            // IN
    procArgs.envp = (char **)envVars;
 #endif
 
+#if defined(_WIN32) && SUPPORT_VGAUTH
+   /*
+    * Special case profile handling for StartProgram.  It should stay loaded
+    * until the program exits, so copy the profile and user handles for
+    * later cleanup, and clobber the profile handle so that it's not unloaded
+    * when the impersonation ends.
+    *
+    * Only do this when we've actually impersonated; its not
+    * needed when impersonation isn't done (eg vmusr or SYSTEM bypass).
+    */
+   if (GuestAuthEnabled() && PROCESS_CREATOR_USER_TOKEN != userToken) {
+      vgErr = TheVGAuthContext(&ctx);
+      if (VGAUTH_FAILED(vgErr)) {
+         err = VixToolsTranslateVGAuthError(vgErr);
+         g_warning("%s: Couldn't get the vgauth context\n", __FUNCTION__);
+         goto abort;
+      }
+
+      vgErr = VGAuth_UserHandleAccessToken(ctx, currentUserHandle, &hToken);
+      if (VGAUTH_FAILED(vgErr)) {
+         err = VixToolsTranslateVGAuthError(vgErr);
+         g_warning("%s: Failed to get user token\n", __FUNCTION__);
+         goto abort;
+      }
+      vgErr = VGAuth_UserHandleGetUserProfile(ctx, currentUserHandle,
+                                              &hProfile);
+      if (VGAUTH_FAILED(vgErr)) {
+         err = VixToolsTranslateVGAuthError(vgErr);
+         g_warning("%s: Failed to get user profile\n", __FUNCTION__);
+         CloseHandle(hToken);
+         goto abort;
+      }
+   }
+   asyncState->hToken = hToken;
+   asyncState->hProfile = hProfile;
+#endif
+
    asyncState->procState = ProcMgr_ExecAsync(fullCommandLine, &procArgs);
 
 #if defined(_WIN32)
@@ -1804,6 +1863,25 @@ VixToolsStartProgramImpl(const char *requestName,            // IN
    g_debug("%s: started '%s', pid %"FMT64"d\n",
            __FUNCTION__, fullCommandLine, *pid);
 
+#if defined(_WIN32) && SUPPORT_VGAUTH
+   /*
+    * Clobber the profile handle before un-impersonation.
+    */
+   if (GuestAuthEnabled() && PROCESS_CREATOR_USER_TOKEN != userToken) {
+      vgErr = VGAuth_UserHandleSetUserProfile(ctx, currentUserHandle,
+                                              INVALID_HANDLE_VALUE);
+      if (VGAUTH_FAILED(vgErr)) {
+         err = VixToolsTranslateVGAuthError(vgErr);
+         g_warning("%s: Failed to clobber user profile\n", __FUNCTION__);
+         // VGAuth_EndImpersonation will take care of profile, close hToken
+         CloseHandle(asyncState->hToken);
+         asyncState->hToken = INVALID_HANDLE_VALUE;
+         asyncState->hProfile = INVALID_HANDLE_VALUE;
+         goto abort;
+      }
+   }
+#endif
+
    /*
     * Start a periodic procedure to check the app periodically
     */
@@ -1818,6 +1896,7 @@ VixToolsStartProgramImpl(const char *requestName,            // IN
     * finishes.
     */
    asyncState = NULL;
+
 
 abort:
    free(tempCommandLine);
@@ -2119,6 +2198,7 @@ done:
  *
  *-----------------------------------------------------------------------------
  */
+
 static void
 VixToolsUpdateStartedProgramList(VixToolsStartedProgramState *state)        // IN
 {
@@ -2142,6 +2222,9 @@ VixToolsUpdateStartedProgramList(VixToolsStartedProgramState *state)        // I
             spList->exitCode = state->exitCode;
             spList->endTime = state->endTime;
             spList->isRunning = FALSE;
+
+            g_debug("%s: started program '%s' has completed, exitCode %d\n",
+                    __FUNCTION__, spList->fullCommandLine, spList->exitCode);
 
             /*
              * Don't let the procState be free'd on Windows to
@@ -2332,7 +2415,7 @@ FoundryToolsDaemon_TranslateSystemErr(void)
  *-----------------------------------------------------------------------------
  */
 
-static VixError
+VixError
 VixToolsTranslateVGAuthError(VGAuthError vgErr)
 {
    VixError err;
@@ -2510,7 +2593,7 @@ VixTools_GetToolsPropertiesImpl(GKeyFile *confDictRef,            // IN
                                             CONFNAME_SUSPENDSCRIPT, NULL);
    }
 
-   tempDir = File_GetSafeTmpDir(TRUE);
+   tempDir = File_GetSafeRandomTmpDir(TRUE);
 
    /*
     * Now, record these values in a property list.
@@ -3732,7 +3815,7 @@ abort:
  *
  * VixToolsCreateTempFile --
  *
- *    Create a temporary file on the guest.
+ *    Wrapper to call VixToolsCreateTempFileInt.
  *
  * Return value:
  *    VixError
@@ -3746,6 +3829,52 @@ abort:
 VixError
 VixToolsCreateTempFile(VixCommandRequestHeader *requestMsg,   // IN
                        char **result)                         // OUT: UTF-8
+{
+   VixError err = VixToolsCreateTempFileInt(requestMsg, FALSE, result);
+#ifdef _WIN32
+   /*
+    * PR 2155708: CreateTemporaryFileInGuest succeeds and returns a file
+    * path that does not exist when using user name format "domain\user"
+    * if the user does not have a profile folder created before, such as
+    * by interactively logging onto Windows. What happens here is that
+    * Win32 API UnloadUserProfile() deletes the temp user profile folder
+    * "C:\Users\TEMP" in the end.
+    * Verify existence of the returned path, retry the guest OP using
+    * system temp folder if the path disappears.
+    */
+   if (VIX_SUCCEEDED(err) && *result != NULL && !File_Exists(*result)) {
+      g_warning("%s: '%s' does not exist, retry using system temp.\n",
+                __FUNCTION__, *result);
+      free(*result);
+      *result = NULL;
+      err = VixToolsCreateTempFileInt(requestMsg, TRUE, result);
+   }
+#endif
+
+   return err;
+} // VixToolsCreateTempFile
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * VixToolsCreateTempFileInt --
+ *
+ *    Create a temporary file on the guest.
+ *
+ * Return value:
+ *    VixError
+ *
+ * Side effects:
+ *    None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+VixError
+VixToolsCreateTempFileInt(VixCommandRequestHeader *requestMsg,   // IN
+                          Bool useSystemTemp,                    // IN
+                          char **result)                         // OUT: UTF-8
 {
    VixError err = VIX_OK;
    char *filePathName = NULL;
@@ -3772,7 +3901,8 @@ VixToolsCreateTempFile(VixCommandRequestHeader *requestMsg,   // IN
    g_debug("%s: User: %s\n",
            __FUNCTION__, IMPERSONATED_USERNAME);
 
-   err = VixToolsGetTempFile(requestMsg, userToken, &filePathName, &fd);
+   err = VixToolsGetTempFile(requestMsg, userToken, useSystemTemp,
+                             &filePathName, &fd);
    if (VIX_FAILED(err)) {
       goto abort;
    }
@@ -3804,7 +3934,7 @@ abort:
              requestMsg->opCode, err);
 
    return err;
-} // VixToolsCreateTempFile
+} // VixToolsCreateTempFileInt
 
 
 /*
@@ -4844,11 +4974,22 @@ VixToolsInitiateFileTransferToGuest(VixCommandRequestHeader *requestMsg)  // IN
 
    File_GetPathName(guestPathName, &dirName, &baseName);
    if ((NULL == dirName) || (NULL == baseName)) {
+      g_debug("%s: File_GetPathName failed for '%s', dirName='%s', "
+              "baseName='%s'.\n", __FUNCTION__, guestPathName,
+              dirName ? dirName : "(null)",
+              baseName ? baseName : "(null)");
       err = VIX_E_FILE_NAME_INVALID;
       goto abort;
    }
 
    if (!File_IsDirectory(dirName)) {
+#ifdef _WIN32
+      DWORD sysErr = GetLastError();
+#else
+      int sysErr = errno;
+#endif
+      g_debug("%s: File_IsDirectory failed for '%s', err=%d.\n",
+              __FUNCTION__, dirName, sysErr);
       err = VIX_E_FILE_NAME_INVALID;
       goto abort;
    }
@@ -6255,7 +6396,7 @@ VixToolsListFiles(VixCommandRequestHeader *requestMsg,    // IN
    int remaining = 0;
    int numResults;
    GRegex *regex = NULL;
-   GError *gerr = NULL;
+   GError *gErr = NULL;
    char *pathName;
    VMAutomationRequestParser parser;
 
@@ -6309,10 +6450,11 @@ VixToolsListFiles(VixCommandRequestHeader *requestMsg,    // IN
            index, maxResults, (int) offset);
 
    if (pattern) {
-      regex = g_regex_new(pattern, 0, 0, &gerr);
+      regex = g_regex_new(pattern, 0, 0, &gErr);
       if (!regex) {
-         g_warning("%s: bad regex pattern '%s'; failing with INVALID_ARG\n",
-                   __FUNCTION__, pattern);
+         g_warning("%s: bad regex pattern '%s' (%s);"
+                   "failing with INVALID_ARG\n",
+                   __FUNCTION__, pattern, gErr ? gErr->message : "");
          err = VIX_E_INVALID_ARG;
          goto abort;
       }
@@ -6468,6 +6610,10 @@ abort:
    }
    VixToolsLogoutUser(userToken);
 
+   if (NULL != regex) {
+      g_regex_unref(regex);
+   }
+
    if (NULL == fileList) {
       fileList = Util_SafeStrdup("");
    }
@@ -6529,7 +6675,7 @@ VixToolsGetFileExtendedInfoLength(const char *filePathName,   // IN
    fileExtendedInfoBufferSize += 10 * 3;            // uid, gid, perms
 #endif
 
-#if defined(linux) || defined(sun) || defined(__FreeBSD__)
+#if defined(__linux__) || defined(sun) || defined(__FreeBSD__)
    if (File_IsSymLink(filePathName)) {
       char *symlinkTarget;
       symlinkTarget = Posix_ReadLink(filePathName);
@@ -7300,7 +7446,7 @@ VixToolsRunScript(VixCommandRequestHeader *requestMsg,  // IN
       /*
        * Don't give up if VixToolsGetUserTmpDir() failed. It might just
        * have failed to load DLLs, so we might be running on Win 9x.
-       * Just fall through to use the old fashioned File_GetSafeTmpDir().
+       * Just fall through to use the old fashioned File_GetSafeRandomTmpDir().
        */
 
       err = VIX_OK;
@@ -7308,13 +7454,14 @@ VixToolsRunScript(VixCommandRequestHeader *requestMsg,  // IN
 #endif
 
    if (NULL == tempDirPath) {
-      tempDirPath = File_GetSafeTmpDir(TRUE);
+      tempDirPath = File_GetSafeRandomTmpDir(TRUE);
+
       if (NULL == tempDirPath) {
          err = FoundryToolsDaemon_TranslateSystemErr();
          goto abort;
       }
    }
-   for (var = 0; var <= 0xFFFFFFFF; var++) {
+   for (var = 0; var < MAX_INT32; var++) {
       free(tempScriptFilePath);
       tempScriptFilePath = Str_SafeAsprintf(NULL,
                                             "%s"DIRSEPS"%s%d%s",
@@ -7814,6 +7961,9 @@ VixToolsImpersonateUserImplEx(char const *credentialTypeStr,         // IN
             *userToken = PROCESS_CREATOR_USER_TOKEN;
             gImpersonatedUsername = Util_SafeStrdup(unobfuscatedUserName);
 
+            g_debug("%s: allowing interactive mode for user '%s'\n",
+                    __FUNCTION__, gImpersonatedUsername);
+
             goto abort;
          } else {
             /*
@@ -8120,6 +8270,16 @@ VixToolsFreeStartProgramState(VixToolsStartProgramState *asyncState) // IN
    if (NULL == asyncState) {
       return;
    }
+#if defined(_WIN32) && SUPPORT_VGAUTH
+   /*
+    * Unload the user profile if saved.
+    */
+   if (asyncState->hProfile != INVALID_HANDLE_VALUE &&
+       asyncState->hToken != INVALID_HANDLE_VALUE) {
+      GuestAuthUnloadUserProfileAndToken(asyncState->hToken,
+                                         asyncState->hProfile);
+   }
+#endif
 
    free(asyncState);
 } // VixToolsFreeStartProgramState
@@ -8199,6 +8359,7 @@ abort:
 static VixError
 VixToolsGetTempFile(VixCommandRequestHeader *requestMsg,   // IN
                     void *userToken,                       // IN
+                    Bool useSystemTemp,                    // IN
                     char **tempFile,                       // OUT
                     int *tempFileFd)                       // OUT
 {
@@ -8295,7 +8456,20 @@ VixToolsGetTempFile(VixCommandRequestHeader *requestMsg,   // IN
       if (!(strcmp(directoryPath, ""))) {
          free(directoryPath);
          directoryPath = NULL;
-         err = VixToolsGetUserTmpDir(userToken, &directoryPath);
+         if (useSystemTemp) {
+            wchar_t tempPath[MAX_PATH];
+            DWORD dwRet = GetTempPathW(ARRAYSIZE(tempPath), tempPath);
+            if (0 < dwRet && dwRet < ARRAYSIZE(tempPath)) {
+               directoryPath = Unicode_AllocWithUTF16(tempPath);
+               err = VIX_OK;
+            } else {
+               g_warning("%s: unable to get temp path: windows error code %d\n",
+                         __FUNCTION__, GetLastError());
+               err = VIX_E_FAIL;
+            }
+         } else {
+            err = VixToolsGetUserTmpDir(userToken, &directoryPath);
+         }
       } else {
          /*
           * Initially, when 'err' variable is defined, it is initialized to
@@ -8344,7 +8518,8 @@ VixToolsGetTempFile(VixCommandRequestHeader *requestMsg,   // IN
          /*
           * Don't give up if VixToolsGetUserTmpDir() failed. It might just
           * have failed to load DLLs, so we might be running on Win 9x.
-          * Just fall through to use the old fashioned File_GetSafeTmpDir().
+          * Just fall through to use the old fashioned
+          * File_GetSafeRandomTmpDir().
           */
 
          ASSERT(directoryPath == NULL);
@@ -8358,7 +8533,7 @@ VixToolsGetTempFile(VixCommandRequestHeader *requestMsg,   // IN
       if (!strcmp(directoryPath, "")) {
          free(directoryPath);
          directoryPath = NULL;
-         directoryPath = File_GetSafeTmpDir(TRUE);
+         directoryPath = File_GetSafeRandomTmpDir(TRUE);
       }
 
       /*
@@ -8539,7 +8714,7 @@ VixToolsListFileSystems(VixCommandRequestHeader *requestMsg, // IN
    char *destPtr;
    char *endDestPtr;
    Bool escapeStrs;
-#if defined(_WIN32) || defined(linux)
+#if defined(_WIN32) || defined(__linux__)
    Bool truncated;
 #endif
 #if defined(_WIN32)
@@ -8621,7 +8796,7 @@ VixToolsListFileSystems(VixCommandRequestHeader *requestMsg, // IN
       free(fileSystemType);
    }
 
-#elif defined(linux)
+#elif defined(__linux__)
 
    mountfile = "/etc/mtab";
 
@@ -8681,7 +8856,7 @@ abort:
 } // VixToolsListFileSystems
 
 
-#if defined(_WIN32) || defined(linux)
+#if defined(_WIN32) || defined(__linux__)
 /*
  *-----------------------------------------------------------------------------
  *
@@ -8759,7 +8934,7 @@ abort:
 
    return err;
 }
-#endif // #if defined(_WIN32) || defined(linux)
+#endif // #if defined(_WIN32) || defined(__linux__)
 
 
 /*
@@ -10115,7 +10290,7 @@ abort:
    struct passwd pwd;
    struct passwd *ppwd = &pwd;
    char *buffer = NULL; // a pool of memory for Posix_Getpwnam_r() to use.
-   size_t bufferSize;
+   long bufferSize;
 
    /*
     * For POSIX systems, look up the uid of 'username', and compare
@@ -10128,9 +10303,15 @@ abort:
     * Multiply by 4 to compensate for the conversion to UTF-8 by
     * the Posix_Getpwnam_r() wrapper.
     */
-   bufferSize = (size_t) sysconf(_SC_GETPW_R_SIZE_MAX) * 4;
+   errno = 0;
+   bufferSize = sysconf(_SC_GETPW_R_SIZE_MAX);
+   if ((errno != 0) || (bufferSize <= 0)) {
+      bufferSize = 16 * 1024;  // Unlimited; pick something reasonable
+   }
 
-   buffer = Util_SafeMalloc(bufferSize);
+   bufferSize *= 4;
+
+   buffer = Util_SafeMalloc((size_t)bufferSize);
 
    if (Posix_Getpwnam_r(username, &pwd, buffer, bufferSize, &ppwd) != 0 ||
        NULL == ppwd) {
@@ -11364,6 +11545,10 @@ GuestAuthPasswordAuthenticateImpersonate(
    VGAuthContext *ctx = NULL;
    VGAuthError vgErr;
    VGAuthUserHandle *newHandle = NULL;
+   VGAuthExtraParams extraParams[1];
+
+   extraParams[0].name = VGAUTH_PARAM_LOAD_USER_PROFILE;
+   extraParams[0].value = VGAUTH_PARAM_VALUE_TRUE;
 
    err = VixMsg_DeObfuscateNamePassword(obfuscatedNamePassword,
                                         &username,
@@ -11388,7 +11573,9 @@ GuestAuthPasswordAuthenticateImpersonate(
       goto done;
    }
 
-   vgErr = VGAuth_Impersonate(ctx, newHandle, 0, NULL);
+   vgErr = VGAuth_Impersonate(ctx, newHandle,
+                              (int)ARRAYSIZE(extraParams),
+                              extraParams);
    if (VGAUTH_FAILED(vgErr)) {
       err = VixToolsTranslateVGAuthError(vgErr);
       goto done;
@@ -11448,6 +11635,10 @@ GuestAuthSAMLAuthenticateAndImpersonate(
    VGAuthContext *ctx = NULL;
    VGAuthError vgErr;
    VGAuthUserHandle *newHandle = NULL;
+   VGAuthExtraParams extraParams[1];
+
+   extraParams[0].name = VGAUTH_PARAM_LOAD_USER_PROFILE;
+   extraParams[0].value = VGAUTH_PARAM_VALUE_TRUE;
 
    err = VixMsg_DeObfuscateNamePassword(obfuscatedNamePassword,
                                         &token,
@@ -11504,62 +11695,19 @@ GuestAuthSAMLAuthenticateAndImpersonate(
       err = VixToolsTranslateVGAuthError(vgErr);
       goto done;
    } else {
-      VGAuthExtraParams extraParams[1];
-      VGAuthError vgErr2;
-
-      extraParams[0].name = VGAUTH_PARAM_VALIDATE_INFO_ONLY;
-      extraParams[0].value = VGAUTH_PARAM_VALUE_TRUE;
-
-      vgErr2 = VGAuth_ValidateSamlBearerToken(ctx,
-                                             token,
-                                             username,
-                                             1,
-                                             extraParams,
-                                             &newHandle);
-      // if it passes with VALIDATE_ONLY, see if its the current user (SYSTEM)
-      if (vgErr2 == VGAUTH_E_OK) {
-         gchar *tokenUser = NULL;
-
-         vgErr2 = VGAuth_UserHandleUsername(ctx, newHandle, &tokenUser);
-         if (VGAUTH_FAILED(vgErr2)) {
-            g_warning("%s: VGAuth_UserHandleUsername() failed\n", __FUNCTION__);
-            err = VixToolsTranslateVGAuthError(vgErr2);
-            goto done;
-         }
-
-         g_debug("%s: VGAuth_ValidateSamlBearerToken() with "
-                 "VGAUTH_PARAM_VALIDATE_INFO_ONLY:  user is %s, "
-                 "toolsd user is %s\n",
-                 __FUNCTION__, tokenUser, gCurrentUsername);
-
-         /*
-          * If VGAUTH_PARAM_VALIDATE_INFO_ONLY passed, and the
-          * username matches, bypass impersonation.  Be sure
-          * to do a case-less comparison.
-          */
-         if (Unicode_CompareIgnoreCase(tokenUser, gCurrentUsername) == 0) {
-            g_message("%s: User '%s' matched; bypassing impersonation\n",
-                      __FUNCTION__, gCurrentUsername);
-
-            // set the impersonation token to the magic value
-            *userToken = PROCESS_CREATOR_USER_TOKEN;
-            gImpersonatedUsername = Util_SafeStrdup("_CONSOLE_USER_NAME_");
-            currentUserHandle = newHandle;
-            err = VIX_OK;
-         } else {
-            g_message("%s: User '%s' mismatch with process user '%s'\n",
-                      __FUNCTION__, tokenUser, gCurrentUsername);
-            // use original error code
-            err = VixToolsTranslateVGAuthError(vgErr);
-         }
-         VGAuth_FreeBuffer(tokenUser);
-         goto done;
-
-      } else {
-         // use original error code
-         err = VixToolsTranslateVGAuthError(vgErr);
-         goto done;
-      }
+      /*
+       * See if we have a SAML token associated with the toolsd owner.
+       * If this returns OK, we don't bother to impersonate.
+       * If it fails, return an error.
+       */
+      err = VixToolsCheckSAMLForSystem(ctx,
+                                       vgErr,
+                                       token,
+                                       username,
+                                       gCurrentUsername,
+                                       userToken,
+                                       &currentUserHandle);
+      goto done;
    }
 #else
    if (VGAUTH_FAILED(vgErr)) {
@@ -11571,7 +11719,9 @@ GuestAuthSAMLAuthenticateAndImpersonate(
 #if ALLOW_LOCAL_SYSTEM_IMPERSONATION_BYPASS
 impersonate:
 #endif
-   vgErr = VGAuth_Impersonate(ctx, newHandle, 0, NULL);
+   vgErr = VGAuth_Impersonate(ctx, newHandle,
+                              (int)ARRAYSIZE(extraParams),
+                              extraParams);
    if (VGAUTH_FAILED(vgErr)) {
       err = VixToolsTranslateVGAuthError(vgErr);
       goto done;
@@ -11767,4 +11917,41 @@ TheVGAuthContext(VGAuthContext **ctx) // OUT
    *ctx = vgaCtx;
    return vgaCode;
 }
-#endif
+
+
+#ifdef _WIN32
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * GuestAuthUnloadUserProfileAndToken --
+ *
+ *    Unload user profile and close user token.
+ *
+ *    Helper to handle StartProgram cleanup.
+ *
+ * Return value:
+ *    None
+ *
+ * Side effects:
+ *    None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+GuestAuthUnloadUserProfileAndToken(HANDLE hToken,
+                                   HANDLE hProfile)
+{
+   if (GuestAuthEnabled()) {
+      g_debug("%s: special-case profile unload %p\n", __FUNCTION__, hProfile);
+      if (!UnloadUserProfile(hToken, hProfile)) {
+         g_warning("%s: UnloadUserProfile() failed %d\n",
+                    __FUNCTION__, GetLastError());
+      }
+      CloseHandle(hToken);
+   }
+}
+#endif // _WIN32
+
+#endif // SUPPORT_VGAUTH
+

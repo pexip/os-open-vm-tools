@@ -1,3 +1,20 @@
+################################################################################
+### Copyright (C) 2008-2018 VMware, Inc.  All rights reserved.
+###
+### This program is free software; you can redistribute it and/or modify
+### it under the terms of version 2 of the GNU General Public License as
+### published by the Free Software Foundation.
+###
+### This program is distributed in the hope that it will be useful,
+### but WITHOUT ANY WARRANTY; without even the implied warranty of
+### MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+### GNU General Public License for more details.
+###
+### You should have received a copy of the GNU General Public License
+### along with this program; if not, write to the Free Software
+### Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+################################################################################
+
 all: modules
 
 .PHONY: modules $(MODULES)
@@ -15,21 +32,6 @@ if FREEBSD_CUSTOM_SYSDIR
 EXTRA_ARGS =
 EXTRA_ARGS += "SYSDIR=@SYSDIR@"
 endif
-
-if LINUX
-export LINUXINCLUDE := @LINUXINCLUDE@
-export vmblockdir := $(MODULES_DIR)/fs/vmblock
-export vmcidir := $(MODULES_DIR)/drivers/misc
-export vmhgfsdir := $(MODULES_DIR)/fs/vmhgfs
-export vmsyncdir := $(MODULES_DIR)/drivers/misc
-export vmxnetdir := $(MODULES_DIR)/drivers/net
-export vsockdir := $(MODULES_DIR)/net/vsock
-if WITH_ROOT_PRIVILEGES
-export DEPMOD := depmod -a $(KERNEL_RELEASE)
-endif WITH_ROOT_PRIVILEGES
-
-include_HEADERS = $(top_srcdir)/lib/include/vmci_sockets.h
-endif LINUX
 
 if SOLARIS
 export vmhgfsdir := $(MODULES_DIR)
@@ -68,14 +70,6 @@ if FREEBSD
 	   $(INSTALL) -m644 $(modulesrc)/$(MODULES_OS)/$$MOD.ko                \
 	      $(DESTDIR)$(MODULES_DIR);                                        \
 	done
-endif
-if LINUX
-	for MOD in $(MODULES); do                                              \
-	   $(INSTALL) -d $(DESTDIR)`eval echo '$$'$${MOD}dir`;                 \
-	   $(INSTALL) -m644 $(modulesrc)/$(MODULES_OS)/$$MOD/$$MOD.ko          \
-	      $(DESTDIR)`eval echo '$$'$${MOD}dir`;                            \
-	done
-	eval "$$DEPMOD"
 endif
 
 uninstall-hook:

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -25,14 +25,11 @@
 #ifndef _FILE_H_
 #define _FILE_H_
 
-#ifdef __cplusplus
-extern "C"{
-#endif
-
-#include <stdio.h>
 #define INCLUDE_ALLOW_USERLEVEL
 #define INCLUDE_ALLOW_VMCORE
 #include "includeCheck.h"
+
+#include <stdio.h>
 
 #include "fileIO.h"
 #include "unicodeTypes.h"
@@ -52,8 +49,13 @@ extern "C"{
 #define FILE_MAXPATH	PATH_MAX
 #endif
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 #define FILE_SEARCHPATHTOKEN ";"
 
+#define FILE_UNLINK_DEFAULT_WAIT_MS 2000
 
 /*
  * Opaque, platform-specific stucture for supporting the directory walking API.
@@ -85,43 +87,26 @@ typedef char *File_MakeTempCreateNameFunc(uint32 num,
                                           void *data);
 
 #if defined(__APPLE__)
-typedef enum {
-   FILEMACOS_UNMOUNT_SUCCESS,
-   FILEMACOS_UNMOUNT_SUCCESS_ALREADY,
-   FILEMACOS_UNMOUNT_ERROR,
-} FileMacosUnmountStatus;
-
-FileMacosUnmountStatus FileMacos_UnmountDev(char const *bsdDev,
-                                            Bool wholeDev,
-                                            Bool eject,
-                                            Bool su);
-
-void FileMacos_MountDevAsyncNoResult(char const *bsdDev,
-                                     Bool su);
-
-Bool FileMacos_IsOnExternalDevice(int fd);
 Bool FileMacos_IsOnSparseDmg(int fd);
-Bool FileMacos_IsSliceDevice(char const *bsdDev);
 
-char *FileMacos_DiskDevToUserFriendlyName(char const *bsdDiskDev);
-char *FileMacos_DiskDevToVolumeName(char const *bsdDiskDev);
-
-char *FileMacos_DiskDeviceToUniqueID(char const *bsdPath);
-char *FileMacos_UniqueIDToDiskDevice(char const *identifier);
 Bool FileMacOS_MakeSecureLibraryCopies(const char   *inDir,
                                        const char  **dylibName,
                                        unsigned      numDylibs,
                                        char        **outDir);
+
 #elif defined VMX86_SERVER
 struct FS_PartitionListResult;
 
 int File_GetVMFSAttributes(const char *pathName,
                            struct FS_PartitionListResult **fsAttrs);
+
 int File_GetVMFSFSType(const char *pathName,
                        int fd,
                        uint16 *fsTypeNum);
+
 int File_GetVMFSVersion(const char *pathName,
                         uint32 *versionNum);
+
 int File_GetVMFSBlockSize(const char *pathName,
                           uint32 *blockSize);
 
@@ -151,6 +136,9 @@ int File_UnlinkDelayed(const char *pathName);
 
 int File_UnlinkNoFollow(const char *pathName);
 
+int File_UnlinkRetry(const char *pathName,
+                     uint32 maxWaitTimeMilliSec);
+
 void File_SplitName(const char *pathName,
                     char **volume,
                     char **dir,
@@ -168,9 +156,12 @@ char *File_PathJoin(const char *dirName,
 Bool File_CreateDirectory(const char *pathName);
 
 Bool File_CreateDirectoryEx(const char *pathName,
-                            int mask);
+                            int mode);
 
 Bool File_EnsureDirectory(const char *pathName);
+
+Bool File_EnsureDirectoryEx(const char *pathName,
+                            int mode);
 
 Bool File_DeleteEmptyDirectory(const char *pathName);
 
@@ -178,7 +169,7 @@ Bool File_CreateDirectoryHierarchy(const char *pathName,
                                    char **topmostCreated);
 
 Bool File_CreateDirectoryHierarchyEx(const char *pathName,
-                                     int mask,
+                                     int mode,
                                      char **topmostCreated);
 
 Bool File_DeleteDirectoryContent(const char *pathName);
@@ -211,6 +202,8 @@ Bool File_IsFile(const char *pathName);
 
 Bool File_IsSymLink(const char *pathName);
 
+Bool File_ContainSymLink(const char *pathName);
+
 Bool File_IsCharDevice(const char *pathName);
 
 Bool File_GetParent(char **canPath);
@@ -241,12 +234,16 @@ int File_MakeTempEx2(const char *dir,
                      char **presult);
 
 char *File_MakeSafeTempDir(const char *prefix);
+char *File_MakeSafeTempSubdir(const char *safeDir, const char *subdirName);
 
 int64 File_GetModTime(const char *pathName);
 
 char *File_GetModTimeString(const char *pathName);
 
 char *File_GetUniqueFileSystemID(const char *pathName);
+
+char *File_GetMountPath(const char *pathName,
+                        Bool checkEntirePath);
 
 #ifdef _WIN32
 char *File_GetVolumeGUID(const char *pathName);
@@ -340,43 +337,6 @@ int64 File_GetSizeByPath(const char *pathName);
 
 int64 File_GetSizeAlternate(const char *pathName);
 
-/* file change notification module */
-typedef void (*CbFunction)(void *clientData);
-
-typedef void (*NotifyCallback)(const char *pathName,
-                               int err,
-                               void *data);
-
-typedef void (*PollTimeout) (CbFunction f,
-                             void *clientData,
-                             int delay);
-
-typedef void (*PollRemoveTimeout) (CbFunction f,
-                                   void *clientData);
-
-void File_PollInit(PollTimeout pt,
-                   PollRemoveTimeout prt);
-
-void File_PollExit(void);
-
-void File_PollImpersonateOnCheck(Bool check);
-
-Bool File_PollAddFile(const char *pathName,
-                      uint32 pollPeriod,
-                      NotifyCallback callback,
-                      void *data,
-                      Bool fPeriodic);
-
-Bool File_PollAddDirFile(const char *pathName,
-                         uint32 pollPeriod,
-                         NotifyCallback callback,
-                         void *data,
-                         Bool fPeriodic);
-
-Bool File_PollRemoveFile(const char *pathName,
-                         uint32 pollPeriod,
-                         NotifyCallback callback);
-
 Bool File_IsSameFile(const char *path1,
                      const char *path2);
 
@@ -401,13 +361,43 @@ char *File_ExpandAndCheckDir(const char *dirName);
 
 char *File_GetSafeTmpDir(Bool useConf);
 
+char *File_GetSafeRandomTmpDir(Bool useConf);
+
 int File_MakeSafeTemp(const char *tag,
                       char **presult);
 
 Bool File_DoesVolumeSupportAcls(const char *pathName);
 
-#ifdef __cplusplus
-} // extern "C" {
+/*
+ *---------------------------------------------------------------------------
+ *
+ * File_IsDirsep --
+ *
+ *      Is the argument character a directory separator?
+ *
+ * Results:
+ *     TRUE   Yes
+ *     FALSE  No
+ *
+ * Side effects:
+ *      None
+ *
+ *---------------------------------------------------------------------------
+ */
+
+static INLINE Bool
+File_IsDirsep(int c)  // IN:
+{
+#if defined(_WIN32)
+   return (c == '/') || (c == '\\');  // Until util.h dependencies work out
+#else
+   return c == '/';
+#endif
+}
+
+
+#if defined(__cplusplus)
+}  // extern "C"
 #endif
 
 #endif // ifndef _FILE_H_

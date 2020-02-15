@@ -1,5 +1,5 @@
 ################################################################################
-### Copyright (C) 2009-2016 VMware, Inc.  All rights reserved.
+### Copyright (C) 2009-2018 VMware, Inc.  All rights reserved.
 ###
 ### This program is free software; you can redistribute it and/or modify
 ### it under the terms of version 2 of the GNU General Public License as
@@ -22,18 +22,16 @@ plugin_LTLIBRARIES = libguestInfo.la
 
 libguestInfo_la_CPPFLAGS =
 libguestInfo_la_CPPFLAGS += @PLUGIN_CPPFLAGS@
+libguestInfo_la_CPPFLAGS += @XDR_CPPFLAGS@
 
 libguestInfo_la_LDFLAGS =
 libguestInfo_la_LDFLAGS += @PLUGIN_LDFLAGS@
 
 libguestInfo_la_LIBADD =
 libguestInfo_la_LIBADD += @VMTOOLS_LIBS@
-libguestInfo_la_LIBADD += @PROCPS_LIBS@
 libguestInfo_la_LIBADD += @XDR_LIBS@
 
-if HAVE_DNET
-   libguestInfo_la_LIBADD += @DNET_LIBS@
-endif
+libguestInfo_la_LIBADD += @DNET_LIBS@
 
 libguestInfo_la_SOURCES =
 libguestInfo_la_SOURCES += guestInfoServer.c

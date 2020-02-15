@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -25,13 +25,13 @@
 #ifndef _UUID_H_
 #define _UUID_H_
 
-#ifdef __cplusplus
-extern "C"{
-#endif
-
 #define INCLUDE_ALLOW_USERLEVEL
 #define INCLUDE_ALLOW_VMCORE
 #include "includeCheck.h"
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
 #define UUID_SIZE 16
 #define UUID_STRSIZE (2*UUID_SIZE + 1)
@@ -56,14 +56,10 @@ typedef enum {
 } UUIDStyle;
 
 /* Scheme control */
-#define UUID_CREATE_WS4     0  /* the "original", WS4 and earlier scheme */
-#define UUID_CREATE_WS5     1  /* the WS5 scheme */
-#define UUID_CREATE_WS6     2  /* the WS6 scheme - "native" path */
-#define UUID_CREATE_ESX50   3  /* the scheme to allow location generated using
-                                  host UUID with wrong endianness as reported by
-                                  pre-ESX 5.0 U2. See PR 861271 for details. */
-#define UUID_CREATE_WS65    4  /* the WS65 scheme - UTF-8 path */
-#define UUID_CREATE_CURRENT 4  /* the current scheme - always the latest */
+#define UUID_CREATE_WS6      0  /* the WS6 scheme - "native" path */
+#define UUID_CREATE_WS65     1  /* the WS65 scheme - UTF-8 path */
+#define UUID_CREATE_ESXi2018 2  /* UTF-8 path, no host UUID for >= 2018 ESXi */
+#define UUID_CREATE_CURRENT  2  /* the current scheme - always the latest */
 
 
 /*
@@ -142,26 +138,51 @@ struct {
 #include "vmware_pack_end.h"
 EFIGUID;
 
+Bool UUID_ConvertPackedToBin(EFIGUID *destID,
+                             const char *text);
 
-Bool UUID_ConvertToBin(uint8 dest_id[UUID_SIZE], const char *text);
+Bool UUID_ConvertToBin(uint8 dest_id[UUID_SIZE],
+                       const char *text);
+
 char *UUID_ConvertToText(const uint8 id[UUID_SIZE]);
-void UUID_ConvertToTextBuf(const uint8 id[UUID_SIZE], char *buffer, size_t len);
-char *UUID_Create(const char *configFileFullPath, int schemeControl);
-char *UUID_CreateRandom(void);
-void UUID_CreateRandomRFC4122V4(UUIDRFC4122 *id);
-void UUID_CreateRandomEFI(EFIGUID *id);
-char *UUID_CreateRandomVpxStyle(uint8 vpxdId, UUIDStyle);
 
-Bool UUID_IsUUIDGeneratedByThatVpxd(const uint8 *id, int vpxdInstanceId);
-char *UUID_PackText(const char *text, char *pack, int packLen);
+void UUID_ConvertToTextBuf(const uint8 id[UUID_SIZE],
+                           char *buffer,
+                           size_t len);
+
+char *UUID_CreateLocation(const char *configFileFullPath,
+                          int schemeControl);
+
+char *UUID_CreateRandom(void);
+
+Bool UUID_CreateRandomRFC4122V4(UUIDRFC4122 *id);
+
+Bool UUID_CreateRandomEFI(EFIGUID *id);
+
+char *UUID_CreateRandomVpxStyle(uint8 vpxdId,
+                                UUIDStyle);
+
+Bool UUID_IsUUIDGeneratedByThatVpxd(const uint8 *id,
+                                    int vpxdInstanceId);
+
+char *UUID_PackText(const char *text,
+                    char *pack,
+                    size_t packLen);
+
 char *UUID_ProperHostUUID(void);
+
 char *UUID_GetHostUUID(void);
+
 UUIDStyle UUID_GetStyle(const uint8 *id);
-/* like UUID_GetHostUUID, except gets actual host UUID */
+
+Bool UUID_Equal(const uint8 id1[UUID_SIZE],
+                const uint8 id2[UUID_SIZE]);
+
+/* Like UUID_GetHostUUID, except gets actual host UUID */
 char *UUID_GetRealHostUUID(void);
 
-#ifdef __cplusplus
-} // extern "C" {
+#if defined(__cplusplus)
+}  // extern "C"
 #endif
 
 #endif
