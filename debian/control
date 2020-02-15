@@ -15,7 +15,7 @@ Standards-Version: 3.9.6
 Homepage: https://github.com/vmware/open-vm-tools
 Vcs-Git: https://github.com/bzed/pkg-open-vm-tools.git
 Vcs-Browser: https://github.com/bzed/pkg-open-vm-tools
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ stretch
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 Package: open-vm-tools
 Architecture: amd64 i386
