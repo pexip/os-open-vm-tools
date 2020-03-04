@@ -1,20 +1,18 @@
-diff -Naurp open-vm-tools.orig/configure.ac open-vm-tools/configure.ac
---- a/open-vm-tools.orig/configure.ac	2013-08-20 09:02:03.196589281 +0100
-+++ b/open-vm-tools/configure.ac	2013-08-20 09:11:48.772582870 +0100
-@@ -1193,7 +1193,6 @@ AC_CONFIG_FILES([                      \
-    services/plugins/hgfsServer/Makefile \
+--- a/open-vm-tools/configure.ac
++++ b/open-vm-tools/configure.ac
+@@ -1663,7 +1663,6 @@
     services/plugins/powerOps/Makefile  \
     services/plugins/resolutionSet/Makefile \
+    services/plugins/resolutionKMS/Makefile \
 -   services/plugins/timeSync/Makefile  \
     services/plugins/vix/Makefile       \
     services/plugins/vmbackup/Makefile  \
     services/plugins/deployPkg/Makefile  \
-diff -Naurp open-vm-tools.orig/services/plugins/Makefile.am open-vm-tools/services/plugins/Makefile.am
---- a/open-vm-tools.orig/services/plugins/Makefile.am	2013-08-20 09:02:03.260589282 +0100
-+++ b/open-vm-tools/services/plugins/Makefile.am	2013-08-20 09:12:07.144585017 +0100
-@@ -28,7 +28,6 @@ SUBDIRS += powerOps
- if HAVE_X11
-    SUBDIRS += resolutionSet
+--- a/open-vm-tools/services/plugins/Makefile.am
++++ b/open-vm-tools/services/plugins/Makefile.am
+@@ -42,7 +42,6 @@
+ endif
+ SUBDIRS += resolutionKMS
  endif
 -SUBDIRS += timeSync
  SUBDIRS += vix
