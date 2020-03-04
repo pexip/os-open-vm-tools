@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -31,17 +31,24 @@
 #include "deployPkg/linuxDeployment.h"
 #endif
 
+#include "file.h"
+#include "str.h"
+#include "util.h"
+#include "unicodeBase.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-   #include "vm_assert.h"
-   #include "file.h"
-   #include "str.h"
-   #include "util.h"
-   #include "unicodeBase.h"
    #include "vmware/tools/plugin.h"
+   #include "vmware/tools/threadPool.h"
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+// deployPkg.c is compiled using c++ in Windows.
+// For c++, LogLevel enum is defined in ImgCustCommon namespace.
+using namespace ImgCustCommon;
 #endif
 
 static char *DeployPkgGetTempDir(void);
@@ -76,7 +83,7 @@ DeployPkgDeployPkgInGuest(const char* pkgFile, // IN: the package filename
    DeployPkgLog_Open();
    DeployPkg_SetLogger(DeployPkgLog_Log);
 
-   DeployPkgLog_Log(0, "Deploying %s", pkgFile);
+   DeployPkgLog_Log(log_debug, "Deploying %s", pkgFile);
 
 #ifdef _WIN32
    /*
@@ -90,7 +97,7 @@ DeployPkgDeployPkgInGuest(const char* pkgFile, // IN: the package filename
    if (tempFileName == NULL) {
       Str_Snprintf(errBuf, errBufSize,
                    "Package deploy failed in Unicode_GetAllocBytes");
-      DeployPkgLog_Log(3, errBuf);
+      DeployPkgLog_Log(log_error, errBuf);
       ret = TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED;
       goto ExitPoint;
    }
@@ -100,11 +107,11 @@ DeployPkgDeployPkgInGuest(const char* pkgFile, // IN: the package filename
    if (0 != DeployPkg_DeployPackageFromFile(pkgFile)) {
       Str_Snprintf(errBuf, errBufSize,
                    "Package deploy failed in DeployPkg_DeployPackageFromFile");
-      DeployPkgLog_Log(3, errBuf);
+      DeployPkgLog_Log(log_error, errBuf);
       ret = TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED;
       goto ExitPoint;
    }
-   DeployPkgLog_Log(0, "Ran DeployPkg_DeployPackageFromFile successfully");
+   DeployPkgLog_Log(log_debug, "Ran DeployPkg_DeployPackageFromFile successfully");
 
 ExitPoint:
    free(tempFileName);
@@ -149,15 +156,76 @@ DeployPkg_TcloBegin(RpcInData *data)   // IN
 
 
 /*
+ * ---------------------------------------------------------------------------
+ * DeployPkgExecDeploy --
+ *
+ *    Start the deploy execution in a new thread.
+ *
+ * Return Value:
+ *    None.
+ *
+ * Side effects:
+ *    None.
+ *
+ * ---------------------------------------------------------------------------
+ */
+
+void
+DeployPkgExecDeploy(ToolsAppCtx *ctx,   // IN: app context
+                    void *pkgName)      // IN: pkg file name
+{
+   char errMsg[2048];
+   ToolsDeployPkgError ret;
+   gchar *msg;
+   char *pkgNameStr = (char *) pkgName;
+
+   g_debug("%s: Deploypkg deploy task started.\n", __FUNCTION__);
+
+   /* Unpack the package and run the command. */
+   ret = DeployPkgDeployPkgInGuest(pkgNameStr, errMsg, sizeof errMsg);
+   if (ret != TOOLSDEPLOYPKG_ERROR_SUCCESS) {
+      msg = g_strdup_printf("deployPkg.update.state %d %d %s",
+                            TOOLSDEPLOYPKG_DEPLOYING,
+                            TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED,
+                            errMsg);
+      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
+         g_warning("%s: failed to send error code %d for state TOOLSDEPLOYPKG_DEPLOYING\n",
+                   __FUNCTION__,
+                   TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
+      }
+      g_free(msg);
+      g_warning("DeployPkgInGuest failed, error = %d\n", ret);
+   }
+
+   /* Attempt to delete the package file and tempdir. */
+   g_debug("Deleting file %s\n", pkgNameStr);
+   if (File_Unlink(pkgNameStr) == 0) {
+      char *vol, *dir, *path;
+      File_SplitName(pkgNameStr, &vol, &dir, NULL);
+      path = Str_Asprintf(NULL, "%s%s", vol, dir);
+      if (path != NULL) {
+         g_debug("Deleting directory %s\n", path);
+         File_DeleteEmptyDirectory(path);
+         free(path);
+      }
+      free(vol);
+      free(dir);
+   } else {
+      g_warning("Unable to delete the file: %s\n", pkgNameStr);
+   }
+}
+
+
+/*
  *-----------------------------------------------------------------------------
  *
- * DeployPkgTcloDeploy --
+ * DeployPkg_TcloDeploy --
  *
  *    TCLO handler for "deployPkg.deploy". Start image guest package deployment.
  *
  * Return value:
  *    TRUE if success
- *    FALSE if anything failed
+ *    FALSE if pkg file path is not valid
  *
  * Side effects:
  *    None
@@ -168,9 +236,7 @@ DeployPkg_TcloBegin(RpcInData *data)   // IN
 gboolean
 DeployPkg_TcloDeploy(RpcInData *data)  // IN
 {
-   char errMsg[2048];
-   ToolsDeployPkgError ret;
-   char *argCopy, *pkgStart, *pkgEnd;
+   char *argCopy, *pkgStart, *pkgEnd, *pkgName;
    const char *white = " \t\r\n";
 
    /* Set state to DEPLOYING. */
@@ -179,8 +245,8 @@ DeployPkg_TcloDeploy(RpcInData *data)  // IN
 
    msg = g_strdup_printf("deployPkg.update.state %d",
                          TOOLSDEPLOYPKG_DEPLOYING);
-   if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg) + 1, NULL, NULL)) {
-      g_warning("%s: failed update state to TOOLSDEPLOYPKG_DEPLOYING\n",
+   if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
+      g_warning("%s: failed to update state to TOOLSDEPLOYPKG_DEPLOYING\n",
                 __FUNCTION__);
    }
    g_free(msg);
@@ -203,45 +269,32 @@ DeployPkg_TcloDeploy(RpcInData *data)  // IN
                             TOOLSDEPLOYPKG_DEPLOYING,
                             TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED,
                             pkgStart);
-      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg) + 1, NULL, NULL)) {
-         g_warning("%s: failed update state to TOOLSDEPLOYPKG_DEPLOYING\n",
-                   __FUNCTION__);
+      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
+         g_warning("%s: failed to send error code %d for state TOOLSDEPLOYPKG_DEPLOYING\n",
+                   __FUNCTION__,
+                   TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
       }
       g_free(msg);
       g_warning("Package file '%s' doesn't exist!!\n", pkgStart);
-      goto ExitPoint;
+
+      free(argCopy);
+      return RPCIN_SETRETVALS(data, "failed to get package file", FALSE);
    }
 
-   /* Unpack the package and run the command. */
-   ret = DeployPkgDeployPkgInGuest(pkgStart, errMsg, sizeof errMsg);
-   if (ret != TOOLSDEPLOYPKG_ERROR_SUCCESS) {
+   pkgName = Util_SafeStrdup(pkgStart);
+   if (!ToolsCorePool_SubmitTask(ctx, DeployPkgExecDeploy, pkgName, free)) {
+      g_warning("%s: failed to start deploy execution thread\n",
+                __FUNCTION__);
       msg = g_strdup_printf("deployPkg.update.state %d %d %s",
                             TOOLSDEPLOYPKG_DEPLOYING,
                             TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED,
-                            errMsg);
-      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg) + 1, NULL, NULL)) {
-         g_warning("%s: failed update state to TOOLSDEPLOYPKG_DEPLOYING\n",
-                   __FUNCTION__);
+                            "failed to spawn deploy execution thread");
+      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
+         g_warning("%s: failed to send error code %d for state TOOLSDEPLOYPKG_DEPLOYING\n",
+                   __FUNCTION__,
+                   TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
       }
       g_free(msg);
-      g_warning("DeployPkgInGuest failed, error = %d\n", ret);
-   }
-
- ExitPoint:
-
-   /* Attempt to delete the package file and tempdir. */
-   Log("Deleting file %s\n", pkgStart);
-   if (File_Unlink(pkgStart) == 0) {
-      char *vol, *dir, *path;
-      File_SplitName(pkgStart, &vol, &dir, NULL);
-      path = Str_Asprintf(NULL, "%s%s", vol, dir);
-      if (path != NULL) {
-         Log("Deleting directory %s\n", path);
-         File_DeleteEmptyDirectory(path);
-         free(path);
-      }
-      free(vol);
-      free(dir);
    }
 
    free(argCopy);
@@ -272,13 +325,35 @@ DeployPkgGetTempDir(void)
    char *dir = NULL;
    char *newDir = NULL;
    Bool found = FALSE;
+#ifndef _WIN32
+   /*
+    * PR 2115630. On Linux, use /var/run or /run directory
+    * to hold the package.
+    */
+   const char *runDir = "/run";
+   const char *varRunDir = "/var/run";
+
+   if (File_IsDirectory(varRunDir)) {
+      dir = strdup(varRunDir);
+      if (dir == NULL) {
+         g_warning("%s: strdup failed\n", __FUNCTION__);
+         goto exit;
+      }
+   } else if (File_IsDirectory(runDir)) {
+      dir = strdup(runDir);
+      if (dir == NULL) {
+         g_warning("%s: strdup failed\n", __FUNCTION__);
+         goto exit;
+      }
+   }
+#endif
 
    /*
     * Get system temporary directory.
     */
 
-   if ((dir = File_GetSafeTmpDir(TRUE)) == NULL) {
-      g_warning("%s: File_GetSafeTmpDir failed\n", __FUNCTION__);
+   if (dir == NULL && (dir = File_GetSafeRandomTmpDir(TRUE)) == NULL) {
+      g_warning("%s: File_GetSafeRandomTmpDir failed\n", __FUNCTION__);
       goto exit;
    }
 

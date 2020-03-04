@@ -1,25 +1,331 @@
+open-vm-tools (2:10.3.10-1+deb10u2) buster; urgency=medium
+
+  * [d512626] Fix memory leaks and error handling.
+    From the upstream stable-10.3.10-vix-memory-leaks branch:
+    commit 26b9edbeb79d1c67b9ae73a0c97c48999c1fb503
+        Fix leaks in ListAliases and ListMappedAliases
+    commit 7b874f37f970aab2adddb063a8363594f47abf70
+        End VGAuth impersonation in the case of error.
+    commit 015db4c06a8be65eb96cf62421e8b5366993452f
+        Fix memory leaks in 'vix' tools plugin.
+    Thanks to Oliver Kurth (Closes: #941955)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 09 Oct 2019 14:18:48 +0200
+
+open-vm-tools (2:10.3.10-1+deb10u1) buster; urgency=medium
+
+  * [efb4df1] Fix guest OS reporting for Debian/Buster.
+    Without this fix, open-vm-tools report other4xLinux64Guest instead of
+    Debian/Buster.
+    Reason is the output of lsb_release, which outputs:
+    $ lsb_release -sd
+    Debian GNU/Linux 10 (buster)
+    But the code in open-vm-tools expects '10.'.
+    Thanks to Oliver Kurth (Closes: #934005)
+  * [2308b74] Updating gbp.conf for buster.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 07 Aug 2019 21:09:29 +0200
+
+open-vm-tools (2:10.3.10-1) unstable; urgency=high
+
+  * [122e511] Update upstream source from tag 'upstream/10.3.10'
+    Update to upstream version '10.3.10'
+    with Debian dir fb12c7cfc99a9497795475c29306e78d08cc3712
+    - Closes: #925940
+    - Bugfix release for the 10.3 series.
+      - Correct and/or improve handling of certain quiesced
+        snapshot failures (shipped as patch in 2:10.3.5-6).
+      - Fix some bad derefs in primary NIC gather code
+      - Fix possible security issue with the permissions of the
+        intermediate staging directory and path.
+        Closes: #925959
+      - CONSTANT_EXPRESSION_RESULT in TimeUtil_StringToDate()
+        Found by coverity.
+      - Deploypkg log files of linux should not be world readable.
+        They might contain sensitive data.
+      - General code clean-up:
+        - Treat local variables "len" consistently as "size_t"
+          type in Posix_Getmntent_r()
+        - Improve readability of error handling logic in
+          ShrinkDoWipeAndShrink() and remove another line of dead code.
+        - Setting "errno" to ENOENT when there is no passwd entry
+          for the user.
+      - Fix NULL pointer dereference and remove three lines of dead code.
+    - Other changes/fixes, not related to Debian:
+      - Update copyright years
+      - Fix CentOS 7.6 detection
+      - Include vmware/tools/log.h to define g_info (fix for SLES)
+      - Special-case profile loading for StartProgram
+        (Win32 only)
+      - Changes to common source files not applicable to
+        open-vm-tools. (Code used by other vmware tools, unrelated
+        to open-vm-tools).
+      - Bump up the SYSIMAGE_VERSION for VMware tools 10.3.10
+      
+  * [18de70f] Removing backported patches, shipped in 10.3.10.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 29 Mar 2019 11:58:17 +0100
+
+open-vm-tools (2:10.3.5-8) unstable; urgency=medium
+
+  [ Jean-Baptiste Lallement ]
+  * [0f35aee] Add modaliases to open-vm-tools-desktop.
+    Added Modaliases to open-vm-tools-desktop to auto-discover and
+    auto-install the driver on Ubuntu via ubuntu-drivers. The driver is then
+    installed at installation time and available on first boot for an
+    improved user experience (LP: #1819207)
+
+  [ Bernd Zeimetz ]
+  * [dc4e1ce] Load vmwgfx module before vmtoolsd starts.
+    As discussed on github in vmware/open-vm-tools#214
+    we need to load the vmwgfx module before starting vmtoolsd
+    for desktop users. Otherwise it is not able to retrieve the KMS
+    resolutions and resizing the VM desktop fails.
+    Thanks to @thomashvmw @rhertzog (Closes: #924518)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 13 Mar 2019 22:15:22 +0100
+
+open-vm-tools (2:10.3.5-7) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [71b468f] make vgauth service execution more reliable.
+    Since d3d47039 "Start vgauth before vmtoolsd" there is a potential race
+    of starting vgauth so early that it might have issues. This was
+    discussed back in the day in [1] to [2], but confirmed to be ok by
+    VMWare.
+    We were all somewhat convinced by this, but a bad feeling remained not
+    only with me but also with Bernd [4].
+    A recent SRU review denial made me rethink all of it and I think we can
+    make it safer without thwarting the purpose of the original change.
+    Note: Disambiguation of service names used below:
+    vgauth     - open-vm-tools.vgauth.service
+    vmtoolsd   - open-vm-tools.service
+    fs         - systemd-remount-fs.service
+    tmp        - systemd-tmpfiles-setup.service
+    cloud-init - cloud-init-local.service
+    Currently we have these dependency requirements:
+    - vgauth should be before vmtoolsd
+    - cloud init should be before vmtoolsd
+    - cloud init has to be really early in general
+      - therefore this is using DefaultDependencies=No
+    That lead to this graph:
+     fs / tmp -> vmtoolsd -> cloud-init
+    And d3d47039 added it to be like:
+     fs / tmp -> vmtoolsd -> cloud-init
+                   ^
+     vgauth      --|
+    But there is no need to have vgauth without any pre-dependencies at all.
+    It is only needed to be "before" vmtoolsd, therefore we can make it:
+     fs / tmp -> vgauth -> vmtoolsd -> cloud-init
+    That will make execution of vgauth much less error-prone (even though I
+    have no hard issue to report) while at the same time holding up all
+    known required ordering constraints.
+    [1]: https://bugs.launchpad.net/ubuntu/+source/open-vm-tools/+bug/1804287/comments/3
+    [2]: https://bugs.launchpad.net/ubuntu/+source/open-vm-tools/+bug/1804287/comments/12
+    [3]: https://bugs.launchpad.net/ubuntu/+source/open-vm-tools/+bug/1804287/comments/25
+    [4]: https://github.com/bzed/pkg-open-vm-tools/pull/15#issuecomment-447237910
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 04 Mar 2019 20:02:52 +0100
+
+open-vm-tools (2:10.3.5-6) unstable; urgency=medium
+
+  * [43ec618] Correct and/or improve handling of certain quiesced
+    snapshot failures.
+    Thanks to Oliver Kurth (Closes: #921470)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 11 Feb 2019 14:58:28 +0100
+
+open-vm-tools (2:10.3.5-5) unstable; urgency=medium
+
+  * [54cce3e] Start vmtoolsd after apparmor.service.
+    Github issue #17
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 31 Jan 2019 13:13:06 +0100
+
+open-vm-tools (2:10.3.5-4) unstable; urgency=medium
+
+  [ Alf Gaida ]
+  * [e13792d] udevadm trigger should not fail (Closes: #917642)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 29 Dec 2018 23:00:37 +0100
+
+open-vm-tools (2:10.3.5-3) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [d3d4703] Start vgauth before vmtoolsd.
+    VGAuthService needs to be ready when vmtoolsd runs. Certain cases - e.g.
+    Site Recovery Manager failover - will need vgauth to be up.
+    Therefore add an After=vgauth.service dependency to open-vm-tools.service
+    To have vgauth be able start early - and not pull cloud-init back late - it
+    is also required to drop default dependencies which according to VMware is
+    fine to do so.
+    (LP: #1804287)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 14 Dec 2018 09:55:04 +0100
+
+open-vm-tools (2:10.3.5-2) unstable; urgency=medium
+
+  [ Raphaël Hertzog ]
+  * [db2a364] Ensure vmwgfx module is loaded before start of vmtoolsd.
+    This avoids a failure to start the resolutionKMS plugin and it's
+    achieved through a drop-in snippet extending open-vm-tools.service
+    adding an ExecStartPre directive loading the module prior to
+    the start of the service. (Closes: #915031)
+
+  [ Christian Ehrhardt ]
+  * [e6e0ab8] d/rules: fix dangling symlink of vmware-user.
+    Back in 2:9.4.0-1280544-6 vmware-user* was moved to the
+    open-vm-tools-desktop package and some follow on fixes moved bits that
+    were forgotten like the man page.
+    (LP: #1807441)
+    There still is a symlink in /usr/bin/vmware-user that is forgotten in
+    the base package and broken unless open-vm-tools-desktop is installed.
+    Change d/rules to move the symlink as well.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+  * [13d22e5] Breaks and Replaces for moving vmware-user.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+  * [d56826a] Bump breaks and replaces to next version to be released.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+
+  [ Bernd Zeimetz ]
+  * [e4697c7] Fix race condition between open-vm-tools and systemd-tmpfiles-setup.
+    Thanks to Jean-Louis Dupond (Closes: #914910)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 11 Dec 2018 20:40:48 +0100
+
+open-vm-tools (2:10.3.5-1) unstable; urgency=medium
+
+  * [7061cb7] Update upstream source from tag 'upstream/10.3.5'
+    Update to upstream version '10.3.5'
+    with Debian dir 9315f58cab8ba1356c1e4aa77d714257dc0651f2
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 09 Nov 2018 11:32:15 +0100
+
+open-vm-tools (2:10.3.0-1) unstable; urgency=medium
+
+  * [16acbc3] Remove PrivateTmp=yes.
+    Thanks to Christian Ehrhardt (Closes: #905170)
+  * [72aabb2] Add RequiresMountsFor=/tmp.
+    Thanks to Christopher Odenbach (Closes: #900566)
+  * [96bf0c5] Update upstream source from tag 'upstream/10.3.0'
+    Update to upstream version '10.3.0'
+    with Debian dir ace0137b2d17e039ddac188fdcd15f882119925a
+  * [e5a9b82] Re-add .travis.yml
+  * [83e043f] Refreshing patches
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 07 Aug 2018 23:41:00 +0200
+
+open-vm-tools (2:10.2.5-1) unstable; urgency=medium
+
+  * [ea03a58] Update upstream source from tag 'upstream/10.2.5'
+    Update to upstream version '10.2.5'
+    with Debian dir 74e96286320224bb6d5b717034930169514dbd51
+  * [c1c18d3] Refreshing patches.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 06 Apr 2018 11:18:50 +0200
+
+open-vm-tools (2:10.2.0-3) unstable; urgency=medium
+
+  * [47e50a1] Fix debhelper dep for backports
+  * [34538a5] Make tools.conf useful.
+    Thanks to Dariusz Gadomski (Closes: #889884)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 14 Feb 2018 17:22:52 +0100
+
+open-vm-tools (2:10.2.0-2) unstable; urgency=medium
+
+  * [249d54c] Fix wayland segfault.
+    Adding a patch from Fedora to fix a wayland/gnome related segfault.
+    Thanks to Oliver Kurth (Closes: #887755)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 23 Jan 2018 23:50:17 +0100
+
+open-vm-tools (2:10.2.0-1) unstable; urgency=medium
+
+  * [f0bf956] Add .travis.yml which was removed by gbp.
+  * [892e2f6] Build with gtk3.
+  * [03a655b] Check if debhelper handles \ in systemd units.
+    Thanks to Oliver Kurth (Closes: #886191)
+  * [5bf9301] Drop -dkms package.
+    Thanks to Christian Ehrhardt (Closes: #884656)
+  * [236cdba] Update upstream source from tag 'upstream/10.2.0'
+    Update to upstream version '10.2.0'
+    with Debian dir d5190e486b6beb65ee7ed31c0c23a789b8f60cab
+    (Closes: #884496)
+  * [692beff] snapshot changelog.
+  * [45aa743] Add .travis.yml which was removed by gbp.
+  * [aabeded] Fix dpkg --compare-versions call
+  * [0697425] Better debhelper version parsing.
+  * [390ec09] fix even more makefile bugs.
+  * [6e5fa38] Refreshing patches.
+    Dropping kernel-module related patches.
+  * [cbfec05] Drop dh_autoreconf, not needed anymore.
+  * [d5fef50] autotools-dev is done by dh now.
+  * [b66ab14] use dh_installsystemd
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 19 Jan 2018 12:52:49 +0100
+
+open-vm-tools (2:10.1.15-1) unstable; urgency=medium
+
+  * [78a17f1] Remove fixed CXX std setting.
+  * [f96f479] Updated version 10.1.15 from 'upstream/10.1.15'
+    with Debian dir c44394c71e055f4cfd3a15ee578fc9895d64ebb1
+  * [682790b] Refreshing patches.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 21 Oct 2017 15:02:46 +0200
+
+open-vm-tools (2:10.1.10-3) unstable; urgency=medium
+
+  * [00bc9bb] Build with CXXFLAGS=-std=c++14.
+    Thanks to Rene Engelhard and Oliver Kurth (Closes: #876121)
+  * [6b61376] Re-add .travis.yml.
+    Seems it went missing with the last merge.
+  * [bf07ae8] Work around dh_systemd escaping bugs again.
+    Seems the unit escaping changed with a new dh version.
+    Work around the known and reported fails again.
+    Thanks to Christian Ehrhardt (Closes: #875657)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 21 Sep 2017 13:24:08 +0200
+
+open-vm-tools (2:10.1.10-2) unstable; urgency=medium
+
+  [ Shota Aratono ]
+  * [5ab87bd] Fix scsi timeout setting error on debian stretch
+  * [c0847eb] Fix attempting change setting to unintentional target
+
+  [ Raphaël Hertzog ]
+  * [dc2e27f] Add patch to support resolution switching with KMS.
+    This is needed for proper support of Wayland sessions. (Closes: #872779)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 29 Aug 2017 23:32:32 +0200
+
+open-vm-tools (2:10.1.10-1) unstable; urgency=medium
+
+  * Drop the extra part of the version string.
+    Easier to handle in the short variant.
+  * [6be6a49] Updating watch file.
+    Use tags from github.
+  * [8c25235] Updated version 10.1.10 from 'upstream/10.1.10'
+    with Debian dir 3dddea7985f21457b294b5f554d5ecdf32aabfff
+  * [195cead] Refreshing patches.
+    Removing cve-2015-5191.patch as it is part of the upstream release.
+  * [e6b3fd5] Build using libssl-dev and libxmlsec1-dev. (Closes: #859416)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 12 Aug 2017 23:57:40 +0200
+
+open-vm-tools (2:10.1.5-5055683-5) unstable; urgency=high
+
+  * [dec8df6] Upstream fix for CVE-2015-5191 (Closes: #869633)
+  * [718133e] Enable PrivateTmp for the open-vm-tools.service.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 25 Jul 2017 10:46:40 +0200
+
 open-vm-tools (2:10.1.5-5055683-4+deb9u2pexip1) pexip; urgency=medium
 
   * New upstream release
 
  -- Vincent Sanders <vince@pexip.com>  Fri, 22 Nov 2019 16:34:37 +0000
-
-open-vm-tools (2:10.1.5-5055683-4+deb9u2) stable; urgency=medium
-
-  * [34db05f] /tmp/VMwareDnD permissions security fix.
-    Fix possible security issue with the permissions of the intermediate
-    staging directory and path
-    /tmp/VMwareDnD is a staging directory used for DnD and CnP.  It should be
-    a regular directory, but malicious code or user may create the /tmp/VMwareDnD
-    as a symbolic link which points elsewhere on the system.  This may provide
-    user access to user B's files.
-    Do not set the permission of the root directory if the root directory
-    already exists and has the wrong permission.  The permission of the directory
-    must be 1777 if it is created by the VMToolsi.  If not, then the directory
-    has been created or modified by malicious code or user, so just cancel the
-    host to guest DnD or CnP operation. (Closes: #925959)
-
- -- Bernd Zeimetz <bzed@debian.org>  Fri, 05 Apr 2019 23:10:04 +0200
 
 open-vm-tools (2:10.1.5-5055683-4+deb9u1pexip1) pexip; urgency=medium
 
@@ -31,13 +337,6 @@ open-vm-tools (2:10.1.5-5055683-4+deb9u1pexip1) pexip; urgency=medium
   * debian/patches/freezeflag.patch: refresh
 
  -- John-Mark Bell <jmb@pexip.com>  Fri, 13 Jul 2018 09:19:52 +0100
-
-open-vm-tools (2:10.1.5-5055683-4+deb9u1) stretch; urgency=medium
-
-  * [dec8df6] Upstream fix for CVE-2015-5191 (Closes: #869633)
-  * [ff10dcb] Update gbp.conf for stretch.
-
- -- Bernd Zeimetz <bzed@debian.org>  Tue, 25 Jul 2017 11:40:02 +0200
 
 open-vm-tools (2:10.1.5-5055683-4) unstable; urgency=medium
 

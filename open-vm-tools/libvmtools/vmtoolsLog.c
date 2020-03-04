@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -49,11 +49,12 @@
 #  include <dbghelp.h>
 #  include "coreDump.h"
 #  include "w32Messages.h"
-#  include "win32u.h"
+#  include "windowsu.h"
 #endif
 #include "str.h"
 #include "system.h"
 #include "vmware/tools/log.h"
+#include "err.h"
 
 #define LOGGING_GROUP         "logging"
 
@@ -112,14 +113,6 @@
    }                                               \
 } while (0)
 
-
-#if defined(G_PLATFORM_WIN32)
-static void
-VMToolsLogOutputDebugString(const gchar *domain,
-                            GLogLevelFlags level,
-                            const gchar *message,
-                            gpointer _data);
-#endif
 
 typedef struct LogHandler {
    GlibLogger    *logger;
@@ -239,6 +232,44 @@ VMToolsAsprintf(gchar **string,
 
 
 /**
+ * VMTools_GetTimeAsString --
+ *
+ *    Returns the current UTC timestamp information
+ *
+ *    Ex: "2018-02-22T21:17:38.517Z"
+ *
+ *    The caller must free the return value using g_free
+ *
+ * @return Properly formatted string that contains the timestamp.
+ *         NULL if the timestamp cannot be retrieved.
+ */
+
+gchar *
+VMTools_GetTimeAsString(void)
+{
+   gchar *timePrefix = NULL;
+   GDateTime *utcTime = g_date_time_new_now_utc();
+
+   if (utcTime != NULL) {
+      gchar *dateFormat = g_date_time_format(utcTime, "%FT%T");
+
+      if (dateFormat != NULL) {
+         gint msec = g_date_time_get_microsecond(utcTime) / 1000;
+
+         timePrefix = g_strdup_printf("%s.%03dZ", dateFormat, msec);
+
+         g_free(dateFormat);
+         dateFormat = NULL;
+      }
+
+      g_date_time_unref(utcTime);
+   }
+
+   return timePrefix;
+}
+
+
+/**
  * Creates a formatted message to be logged. The format of the message will be:
  *
  *    [timestamp] [domain] [level] Log message
@@ -265,7 +296,7 @@ VMToolsLogFormat(const gchar *message,
    size_t len = 0;
    gboolean shared = TRUE;
    gboolean addsTimestamp = TRUE;
-   char *tstamp;
+   gchar *tstamp;
 
    if (domain == NULL) {
       domain = gLogDomain;
@@ -313,7 +344,7 @@ VMToolsLogFormat(const gchar *message,
       addsTimestamp = data->logger->addsTimestamp;
    }
 
-   tstamp = System_GetTimeAsString();
+   tstamp = VMTools_GetTimeAsString();
 
    if (!addsTimestamp) {
       if (shared) {
@@ -346,7 +377,7 @@ VMToolsLogFormat(const gchar *message,
       }
    }
 
-   free(tstamp);
+   g_free(tstamp);
 
    /*
     * The log messages from glib itself (and probably other libraries based
@@ -523,6 +554,38 @@ exit:
 
 /*
  *******************************************************************************
+ * VMToolsDefaultLogFilePath --                                               */ /**
+ *
+ * @brief Creates a default log file path
+ *
+ * @param[in] domain    Domain name.
+ *
+ * @return Default path for the log file. Caller is responsibe to g_free() it.
+ *
+ *******************************************************************************
+ */
+
+static gchar *
+VMToolsDefaultLogFilePath(const gchar *domain)
+{
+   gchar *path;
+#ifdef WIN32
+   gchar winDir[MAX_PATH];
+
+   Win32U_ExpandEnvironmentStrings(DEFAULT_LOGFILE_DIR,
+                                   (LPSTR) winDir, sizeof winDir);
+   path = g_strdup_printf("%s%sTemp%s%s-%s.log",
+                          winDir, DIRSEPS, DIRSEPS,
+                          DEFAULT_LOGFILE_NAME_PREFIX, domain);
+#else
+   path = g_strdup_printf("%s-%s.log", DEFAULT_LOGFILE_NAME_PREFIX, domain);
+#endif
+   return path;
+}
+
+
+/*
+ *******************************************************************************
  * VMToolsGetLogFilePath --                                               */ /**
  *
  * @brief Fetches sanitized path for the log file.
@@ -547,18 +610,7 @@ VMToolsGetLogFilePath(const gchar *key,
 
    path = g_key_file_get_string(cfg, LOGGING_GROUP, key, NULL);
    if (path == NULL) {
-#ifdef WIN32
-      gchar winDir[MAX_PATH];
-
-      Win32U_ExpandEnvironmentStrings(DEFAULT_LOGFILE_DIR,
-                                      (LPSTR) winDir, sizeof winDir);
-      path = g_strdup_printf("%s%sTemp%s%s-%s.log",
-                             winDir, DIRSEPS, DIRSEPS,
-                             DEFAULT_LOGFILE_NAME_PREFIX, domain);
-#else
-      path = g_strdup_printf("%s-%s.log", DEFAULT_LOGFILE_NAME_PREFIX, domain);
-#endif
-      return path;
+      return VMToolsDefaultLogFilePath(domain);
    }
 
    len = strlen(path);
@@ -777,6 +829,12 @@ VMToolsConfigLogDomain(const gchar *domain,
       handler = g_strdup(DEFAULT_HANDLER);
    }
 
+   if (confData == NULL) {
+      if ((g_strcmp0(handler, "file") == 0) || (g_strcmp0(handler, "file+") == 0)) {
+         confData = VMToolsDefaultLogFilePath(domain);
+      }
+   }
+
    /* Parse the log level configuration, and build the mask. */
    if (strcmp(level, "error") == 0) {
       levelsMask = G_LOG_LEVEL_ERROR;
@@ -817,13 +875,13 @@ VMToolsConfigLogDomain(const gchar *domain,
       const char *oldtype = oldDefault != NULL ? oldDefault->type : NULL;
       const char *oldData = oldDefault != NULL ? oldDefault->confData : NULL;
 
-      if (oldtype != NULL && strcmp(oldtype, "file+") == 0) {
+      if (g_strcmp0(oldtype, "file+") == 0) {
          oldtype = "file";
       }
 
-      if (isDefault && oldtype != NULL && strcmp(oldtype, handler) == 0) {
-         // check for a filename change
-         if (oldData && strcmp(oldData, confData) == 0) {
+      if (isDefault && g_strcmp0(oldtype, handler) == 0) {
+         /* check for a filename change */
+         if (g_strcmp0(oldData, confData) == 0) {
             data = oldDefault;
          }
       } else if (oldDomains != NULL) {
@@ -831,7 +889,8 @@ VMToolsConfigLogDomain(const gchar *domain,
          for (i = 0; i < oldDomains->len; i++) {
             LogHandler *old = g_ptr_array_index(oldDomains, i);
             if (old != NULL && !old->inherited && strcmp(old->domain, domain) == 0) {
-               if (strcmp(old->type, handler) == 0) {
+               if (g_strcmp0(old->type, handler) == 0 &&
+                   g_strcmp0(old->confData, confData) == 0) {
                   data = old;
                   oldDomains->pdata[i] = NULL;
                }
@@ -1374,7 +1433,12 @@ Debug(const char *fmt, ...)
    if (gGuestSDKMode) {
       GuestSDK_Debug(fmt, args);
    } else {
-      VMToolsLogWrapper(G_LOG_LEVEL_DEBUG, fmt, args);
+      /*
+       * Preserve errno/lastError.
+       * This keeps compatibility with bora/lib Log(), preventing
+       * Log() calls in bora/lib code from clobbering errno/lastError.
+       */
+      WITH_ERRNO(err, VMToolsLogWrapper(G_LOG_LEVEL_DEBUG, fmt, args));
    }
    va_end(args);
 }
@@ -1394,7 +1458,12 @@ Log(const char *fmt, ...)
    if (gGuestSDKMode) {
       GuestSDK_Log(fmt, args);
    } else {
-      VMToolsLogWrapper(G_LOG_LEVEL_INFO, fmt, args);
+      /*
+       * Preserve errno/lastError.
+       * This keeps compatibility with bora/lib Log(), preventing
+       * Log() calls in bora/lib code from clobbering errno/lastError.
+       */
+      WITH_ERRNO(err, VMToolsLogWrapper(G_LOG_LEVEL_INFO, fmt, args));
    }
    va_end(args);
 }
@@ -1443,7 +1512,12 @@ LogV(uint32 routing,
       glevel = G_LOG_LEVEL_DEBUG;
    }
 
-   VMToolsLogWrapper(glevel, fmt, args);
+   /*
+    * Preserve errno/lastError.
+    * This keeps compatibility with bora/lib Log(), preventing
+    * Log() calls in bora/lib code from clobbering errno/lastError.
+    */
+   WITH_ERRNO(err, VMToolsLogWrapper(glevel, fmt, args));
 }
 
 
@@ -1509,7 +1583,12 @@ Warning(const char *fmt, ...)
    if (gGuestSDKMode) {
       GuestSDK_Warning(fmt, args);
    } else {
-      VMToolsLogWrapper(G_LOG_LEVEL_WARNING, fmt, args);
+      /*
+       * Preserve errno/lastError.
+       * This keeps compatibility with bora/lib Log(), preventing
+       * Log() calls in bora/lib code from clobbering errno/lastError.
+       */
+      WITH_ERRNO(err, VMToolsLogWrapper(G_LOG_LEVEL_WARNING, fmt, args));
    }
    va_end(args);
 }

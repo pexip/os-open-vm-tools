@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,7 +35,6 @@
 typedef DWORD MXUserThreadID;
 #define MXUSER_INVALID_OWNER 0xFFFFFFFF
 #else
-#include "safetime.h"
 #include <pthread.h>
 typedef pthread_t MXUserThreadID;
 #endif
@@ -527,7 +526,7 @@ MXUserCondVar *MXUserCreateCondVar(MXUserHeader *header,
 void MXUserWaitCondVar(MXUserHeader *header,
                        MXRecLock *lock,
                        MXUserCondVar *condVar,
-                       uint32 msecWait);
+                       uint32 waitTimeMsec);
 
 
 typedef struct {

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -73,12 +73,13 @@
 #include "dndFileList.hh"
 #include "guestDnDCPMgr.hh"
 #include "tracer.hh"
+#include "vmblock.h"
+#include "fcntl.h"
+#include "file.h"
+#include "dnd.h"
+#include "dndMsg.h"
 
 extern "C" {
-   #include "vmblock.h"
-   #include "file.h"
-   #include "dnd.h"
-   #include "dndMsg.h"
    #include "dndClipboard.h"
    #include "cpName.h"
    #include "cpNameUtil.h"
@@ -128,6 +129,7 @@ CopyPasteUIX11::CopyPasteUIX11()
    mClipTime(0),
    mPrimTime(0),
    mLastTimestamp(0),
+   mThread(0),
    mHGGetFileStatus(DND_FILE_TRANSFER_NOT_STARTED),
    mBlockAdded(false),
    mBlockCtrl(0),
@@ -135,10 +137,24 @@ CopyPasteUIX11::CopyPasteUIX11()
    mTotalFileSize(0),
    mGetTimestampOnly(false)
 {
+   TRACE_CALL();
    GuestDnDCPMgr *p = GuestDnDCPMgr::GetInstance();
    ASSERT(p);
    mCP = p->GetCopyPasteMgr();
    ASSERT(mCP);
+
+   mThreadParams.fileBlockCondExit = false;
+   pthread_mutex_init(&mThreadParams.fileBlockMutex, NULL);
+   pthread_cond_init(&mThreadParams.fileBlockCond, NULL);
+   mThreadParams.cp = this;
+   int ret = pthread_create(&mThread,
+                            NULL,
+                            FileBlockMonitorThread,
+                            (void *)&(this->mThreadParams));
+   if (ret != 0) {
+      Warning("%s: Create thread failed, errno:%d.\n", __FUNCTION__, ret);
+      mThread = 0;
+   }
 }
 
 
@@ -164,6 +180,7 @@ CopyPasteUIX11::Init()
 {
    TRACE_CALL();
    if (mInited) {
+      g_debug("%s: mInited is true\n", __FUNCTION__);
       return true;
    }
 
@@ -226,11 +243,15 @@ CopyPasteUIX11::~CopyPasteUIX11()
    if (mBlockAdded) {
       g_debug("%s: removing block for %s\n", __FUNCTION__, mHGStagingDir.c_str());
       /* We need to make sure block subsystem has not been shut off. */
+      mBlockAdded = false;
       if (DnD_BlockIsReady(mBlockCtrl)) {
          mBlockCtrl->RemoveBlock(mBlockCtrl->fd, mHGStagingDir.c_str());
       }
-      mBlockAdded = false;
    }
+
+   TerminateThread();
+   pthread_mutex_destroy(&mThreadParams.fileBlockMutex);
+   pthread_cond_destroy(&mThreadParams.fileBlockCond);
 }
 
 
@@ -266,7 +287,7 @@ CopyPasteUIX11::VmxCopyPasteVersionChanged(RpcChannel *chan,    // IN
  * CopyPasteUIX11::GetLocalClipboard --
  *
  *    Retrives the data from local clipboard and sends it to host. Send empty
- *    data back if there is no data or can not get data successfully. For 
+ *    data back if there is no data or can not get data successfully. For
  *    guest->host copy/paste.
  *
  * Results:
@@ -313,7 +334,7 @@ CopyPasteUIX11::GetLocalClipboard(void)
  *
  * CopyPasteUIX11::GetCurrentTime --
  *
- *    Get current time in microseconds. 
+ *    Get current time in microseconds.
  *
  * Results:
  *    Time in microseconds.
@@ -361,20 +382,6 @@ CopyPasteUIX11::LocalGetFileRequestCB(Gtk::SelectionData& sd,        // IN:
                                       guint info)                    // IN:
 {
    g_debug("%s: enter.\n", __FUNCTION__);
-   VmTimeType curTime;
-
-   curTime = GetCurrentTime();
-
-   /*
-    * Some applications may ask for clipboard contents right after clipboard
-    * owner changed. So HG FCP will return nothing for some time after switch
-    * from guest OS to host OS.
-    */
-   if ((curTime - mHGGetListTime) < FCP_COPY_DELAY) {
-      g_debug("%s: time delta less than FCP_COPY_DELAY, returning.\n",
-            __FUNCTION__);
-      return;
-   }
 
    if (!mIsClipboardOwner || !mCP->IsCopyPasteAllowed()) {
       g_debug("%s: not clipboard ownder, or copy paste not allowed, returning.\n",
@@ -403,7 +410,7 @@ CopyPasteUIX11::LocalGetFileRequestCB(Gtk::SelectionData& sd,        // IN:
       utf::string post;
       size_t index = 0;
 
-      hgStagingDir = static_cast<utf::string>(mCP->SrcUIRequestFiles());
+      hgStagingDir = utf::CopyAndFree(DnD_CreateStagingDirectory());
       g_debug("%s: Getting files. Staging dir: %s", __FUNCTION__,
             hgStagingDir.c_str());
 
@@ -419,6 +426,13 @@ CopyPasteUIX11::LocalGetFileRequestCB(Gtk::SelectionData& sd,        // IN:
          g_debug("%s: add block for %s.\n",
                __FUNCTION__, hgStagingDir.c_str());
          mBlockAdded = true;
+         pthread_mutex_lock(&mThreadParams.fileBlockMutex);
+         mThreadParams.fileBlockCondExit = false;
+         mThreadParams.fileBlockName = VMBLOCK_FUSE_NOTIFY_ROOT;
+         mThreadParams.fileBlockName += DIRSEPS;
+         mThreadParams.fileBlockName += GetLastDirName(hgStagingDir);
+         pthread_cond_signal(&mThreadParams.fileBlockCond);
+         pthread_mutex_unlock(&mThreadParams.fileBlockMutex);
       } else {
          g_debug("%s: unable to add block for %s.\n",
                __FUNCTION__, hgStagingDir.c_str());
@@ -546,7 +560,8 @@ CopyPasteUIX11::LocalGetTextOrRTFRequestCB(Gtk::SelectionData& sd, // IN/OUT
          __FUNCTION__, target.c_str());
 
    if (target == TARGET_NAME_APPLICATION_RTF ||
-       target == TARGET_NAME_TEXT_RICHTEXT) {
+       target == TARGET_NAME_TEXT_RICHTEXT ||
+       target == TARGET_NAME_TEXT_RTF) {
       if (0 == mHGRTFData.size()) {
          g_debug("%s: Can not get valid RTF data\n", __FUNCTION__);
          return;
@@ -753,13 +768,18 @@ again:
    /* Try to get RTF data from clipboard. */
    bool haveRTF = false;
    if (refClipboard->wait_is_target_available(TARGET_NAME_APPLICATION_RTF)) {
-      g_debug("%s: RTF is available\n", __FUNCTION__);
+      g_debug("%s: APP RTF is available\n", __FUNCTION__);
       format = TARGET_NAME_APPLICATION_RTF;
       haveRTF = true;
    }
    if (refClipboard->wait_is_target_available(TARGET_NAME_TEXT_RICHTEXT)) {
       g_debug("%s: RICHTEXT is available\n", __FUNCTION__);
       format = TARGET_NAME_TEXT_RICHTEXT;
+      haveRTF = true;
+   }
+   if (refClipboard->wait_is_target_available(TARGET_NAME_TEXT_RTF)) {
+      g_debug("%s: TEXT_RTF is available\n", __FUNCTION__);
+      format = TARGET_NAME_TEXT_RTF;
       haveRTF = true;
    }
 
@@ -993,7 +1013,7 @@ CopyPasteUIX11::LocalGetSelectionFileList(const Gtk::SelectionData& sd)      // 
    while ((newPath = DnD_UriListGetNextFile(source.c_str(),
                                             &index,
                                             &newPathLen)) != NULL) {
-#if defined(linux)
+#if defined(__linux__)
       if (DnD_UriIsNonFileSchemes(newPath)) {
          /* Try to get local file path for non file uri. */
          GFile *file = g_file_new_for_uri(newPath);
@@ -1177,6 +1197,13 @@ CopyPasteUIX11::GetRemoteClipboardCB(const CPClipboard *clip) // IN
       return;
    }
 
+   if (mBlockAdded) {
+      mBlockAdded = false;
+      if (DnD_BlockIsReady(mBlockCtrl)) {
+         mBlockCtrl->RemoveBlock(mBlockCtrl->fd, mHGStagingDir.c_str());
+      }
+   }
+
    /* Clear the clipboard contents if we are the owner. */
    if (mIsClipboardOwner) {
       refClipboard->clear();
@@ -1200,9 +1227,11 @@ CopyPasteUIX11::GetRemoteClipboardCB(const CPClipboard *clip) // IN
       if (CPClipboard_GetItem(clip, CPFORMAT_RTF, &buf, &sz)) {
          g_debug("%s: RTF data, size %" FMTSZ "u.\n", __FUNCTION__, sz);
          Gtk::TargetEntry appRtf(TARGET_NAME_APPLICATION_RTF);
-         Gtk::TargetEntry textRtf(TARGET_NAME_TEXT_RICHTEXT);
+         Gtk::TargetEntry textRichText(TARGET_NAME_TEXT_RICHTEXT);
+         Gtk::TargetEntry textRtf(TARGET_NAME_TEXT_RTF);
 
          targets.push_back(appRtf);
+         targets.push_back(textRichText);
          targets.push_back(textRtf);
          mHGRTFData = std::string((const char *)buf);
          mIsClipboardOwner = true;
@@ -1523,10 +1552,10 @@ CopyPasteUIX11::GetLocalFilesDone(bool success)
    if (mBlockAdded) {
       g_debug("%s: removing block for %s\n", __FUNCTION__, mHGStagingDir.c_str());
       /* We need to make sure block subsystem has not been shut off. */
+      mBlockAdded = false;
       if (DnD_BlockIsReady(mBlockCtrl)) {
          mBlockCtrl->RemoveBlock(mBlockCtrl->fd, mHGStagingDir.c_str());
       }
-      mBlockAdded = false;
    }
 
    mHGGetFileStatus = DND_FILE_TRANSFER_FINISHED;
@@ -1593,4 +1622,110 @@ CopyPasteUIX11::Reset(void)
 {
    TRACE_CALL();
    /* Cancel any pending file transfer. */
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * CopyPasteUIX11::FileBlockMonitorThread --
+ *
+ *    This thread monitors the access to the files in the clipboard which owns
+ *    by VMTools by using the notification mechanism of VMBlock.
+ *    If any access to the file is detected, then this thread requests the file
+ *    transfer from host to guest.
+ *
+ * Results:
+ *    Always return NULL
+ *
+ * Side effects:
+ *    None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void*
+CopyPasteUIX11::FileBlockMonitorThread(void *arg)   // IN
+{
+   TRACE_CALL();
+   ThreadParams *params = (ThreadParams *)arg;
+   pthread_mutex_lock(&params->fileBlockMutex);
+   while (true) {
+      g_debug("%s: waiting signal\n", __FUNCTION__);
+      pthread_cond_wait(&params->fileBlockCond, &params->fileBlockMutex);
+      g_debug("%s: received signal. Exit:%d\n",
+              __FUNCTION__,
+              params->fileBlockCondExit);
+      if (params->fileBlockCondExit) {
+         break;
+      }
+      if (params->fileBlockName.bytes() == 0) {
+        continue;
+      }
+
+      int fd = open(params->fileBlockName.c_str(), O_RDONLY);
+      if (fd <= 0) {
+         g_debug("%s: Failed to open %s\n",
+                 __FUNCTION__,
+                 params->fileBlockName.c_str());
+         continue;
+      }
+
+      char buf[sizeof(VMBLOCK_FUSE_READ_RESPONSE)];
+      ssize_t size;
+      size = read(fd, buf, sizeof(VMBLOCK_FUSE_READ_RESPONSE));
+      /*
+       * The current thread will block in read function until
+       * any other application accesses the file params->fileBlockName
+       * or the block on the file params->fileBlockName is removed.
+       * Currently we don't need to check the response in buf, so
+       * just ignore it.
+       */
+
+      if (params->cp->IsBlockAdded()) {
+         g_debug("%s: Request files\n", __FUNCTION__);
+         params->cp->RequestFiles();
+      } else {
+         g_debug("%s: Block is not added\n", __FUNCTION__);
+      }
+   }
+   pthread_mutex_unlock(&params->fileBlockMutex);
+   return NULL;
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * CopyPasteUIX11::TerminateThread --
+ *
+ *    This is called when the monitor thread is asked to exit.
+ *    Sets the global state and signals the monitor thread to exit and wait
+ *    for the monitor thread to exit.
+ *
+ * Results:
+ *    None
+ *
+ * Side effects:
+ *    None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+CopyPasteUIX11::TerminateThread()
+{
+   TRACE_CALL();
+   if (mThread == 0) {
+      return;
+   }
+
+   pthread_mutex_lock(&mThreadParams.fileBlockMutex);
+   mThreadParams.fileBlockCondExit = true;
+   pthread_cond_signal(&mThreadParams.fileBlockCond);
+   pthread_mutex_unlock(&mThreadParams.fileBlockMutex);
+
+   pthread_join(mThread, NULL);
+
+   mThread = 0;
 }

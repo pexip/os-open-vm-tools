@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008,2014-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008,2014-2016,2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -125,6 +125,15 @@ typedef void (*RpcChannelResetCb)(RpcChannel *chan,
                                   gboolean success,
                                   gpointer data);
 
+/**
+ * Signature for the application callback function when unable to establish
+ * an RpcChannel connection.
+ *
+ * @param[in]  _state     Client data.
+ */
+typedef void (*RpcChannelFailureCb)(gpointer _state);
+
+
 gboolean
 RpcChannel_Start(RpcChannel *chan);
 
@@ -144,12 +153,34 @@ RpcChannel_Send(RpcChannel *chan,
 void
 RpcChannel_Free(void *ptr);
 
+#if !defined(USE_RPCI_ONLY)
 gboolean
 RpcChannel_BuildXdrCommand(const char *cmd,
                            void *xdrProc,
                            void *xdrData,
                            char **result,
                            size_t *resultLen);
+gboolean
+RpcChannel_Dispatch(RpcInData *data);
+
+void
+RpcChannel_Setup(RpcChannel *chan,
+                 const gchar *appName,
+                 GMainContext *mainCtx,
+                 gpointer appCtx,
+                 RpcChannelResetCb resetCb,
+                 gpointer resetData,
+                 RpcChannelFailureCb failureCb,
+                 guint maxFailures);
+
+void
+RpcChannel_RegisterCallback(RpcChannel *chan,
+                            RpcChannelCallback *rpc);
+
+void
+RpcChannel_UnregisterCallback(RpcChannel *chan,
+                              RpcChannelCallback *rpc);
+#endif
 
 RpcChannel *
 RpcChannel_Create(void);
@@ -161,21 +192,6 @@ gboolean
 RpcChannel_Destroy(RpcChannel *chan);
 
 gboolean
-RpcChannel_Dispatch(RpcInData *data);
-
-void
-RpcChannel_Setup(RpcChannel *chan,
-                 const gchar *appName,
-                 GMainContext *mainCtx,
-                 gpointer appCtx,
-                 RpcChannelResetCb resetCb,
-                 gpointer resetData);
-
-void
-RpcChannel_RegisterCallback(RpcChannel *chan,
-                            RpcChannelCallback *rpc);
-
-gboolean
 RpcChannel_SetRetVals(RpcInData *data,
                       char const *result,
                       gboolean retVal);
@@ -184,10 +200,6 @@ gboolean
 RpcChannel_SetRetValsF(RpcInData *data,
                        char *result,
                        gboolean retVal);
-
-void
-RpcChannel_UnregisterCallback(RpcChannel *chan,
-                              RpcChannelCallback *rpc);
 
 gboolean
 RpcChannel_SendOneRaw(const char *data,
