@@ -2,6 +2,7 @@ open-vm-tools (2:10.3.10-1+deb10u2pexip1) pexip; urgency=medium
 
   * Migrate to Buster
   * Refresh debian/patches/notimesync.patch
+  * Remove unwanted build dependancies on libdrm-dev libudev-dev
 
  -- Vincent Sanders <vince@pexip.com>  Wed, 04 Mar 2020 11:09:37 +0000
 
