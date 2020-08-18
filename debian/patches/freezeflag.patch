@@ -16,7 +16,7 @@ index 81d16e8..520f143 100644
     SyncDriverErr err = SD_SUCCESS;
 +   FileIOResult status;
 +   FileIODescriptor tmpFD;
-+   const char *touchPath = "/tmp/vm_frozen";
++   const char *touchPath = "/run/pexip/vm_frozen";
  
     DynBuf_Init(&fds);
  
