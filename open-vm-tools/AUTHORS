@@ -37,6 +37,36 @@ Ed Schouten     Use standard SYSCTL_ADD_OID() macro to access the
 Steve Wills     Fix vmmemctl.ko driver build for supported FreeBSD releases.
                 - https://github.com/vmware/open-vm-tools/pull/140
 
+John Eismeier   Propose fix some spelling.
+                - https://github.com/vmware/open-vm-tools/pull/264
+
+Josh Paetzel    Additional changes to vmmemctl.ko for FreeBSD 12.0 API changes.
+                - https://github.com/vmware/open-vm-tools/pull/286
+
 [Code]Ai        Highlighted a potential NULL pointer dereference and four
                 pieces of dead code.
                 - https://github.com/vmware/open-vm-tools/pull/247
+
+Haruki Tsurumoto        Fix Asianux identification
+                - https://github.com/vmware/open-vm-tools/pull/325
+
+MilhouseVH      stop systemd-243 udev complaints
+                - https://github.com/vmware/open-vm-tools/pull/371
+
+Josh Paetzel    Changes to vmmemctl.ko and vmblock.ko for FreeBSD 13.0 API changes.
+                - https://github.com/vmware/open-vm-tools/pull/398
+
+Josh Paetzel    FreeBSD has removed some vnops flags that have never been used.
+                - https://github.com/vmware/open-vm-tools/pull/403
+
+Alexey Shabalin Add recognition of ALT Linux distributions
+                - https://github.com/vmware/open-vm-tools/pull/431
+
+Thom Leggett    Propagate new gdk-pixbuf-xlib include location
+                - https://github.com/vmware/open-vm-tools/pull/438
+
+Alexey Shabalin Adding vmtools library dependency to deploypkg library.
+                - https://github.com/vmware/open-vm-tools/pull/432
+
+Christian Ehrhardt   Build: fix propagation of libtirpc flags
+                - https://github.com/vmware/open-vm-tools/pull/469

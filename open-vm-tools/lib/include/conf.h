@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2002-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2002-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -27,8 +27,6 @@
 #ifndef __CONF_H__
 #define __CONF_H__
 
-#include "guestApp.h"
-
 #define CONF_FILE         "tools.conf"
 
 #if ! defined(_WIN32)
@@ -53,6 +51,158 @@
 #define CONFNAME_DISABLETOOLSVERSION      "disable-tools-version"
 #define CONFNAME_HIDETOOLSVERSION         "hide-tools-version"
 #define CONFNAME_DISABLEPMTIMERWARNING    "disable-pmtimerwarning"
+#define CONFGROUPNAME_VMTOOLS             "vmtools"
+
+/*
+ ******************************************************************************
+ * BEGIN AppInfo goodies.
+ */
+
+/**
+ * Defines the string used for the AppInfo config file group.
+ */
+#define CONFGROUPNAME_APPINFO "appinfo"
+
+/**
+ * Define a custom AppInfo poll interval (in seconds).
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * poll interval.
+ *
+ * @param int   User-defined poll interval.  Set to 0 to disable polling.
+ */
+#define CONFNAME_APPINFO_POLLINTERVAL "poll-interval"
+
+/**
+ * Defines the configuration to publish the application information or not.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * value.
+ *
+ * @param boolean Set to TRUE to disable publishing.
+ *                Set to FALSE to enable publishing.
+ */
+#define CONFNAME_APPINFO_DISABLED "disabled"
+
+/**
+ * Defines the configuration to use the WMI for getting the application
+ * version information.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * value.
+ *
+ * @param boolean Set to TRUE to use WMI.
+ *                Set to FALSE to use native Win32 APIs.
+ */
+#define CONFNAME_APPINFO_USE_WMI "useWMI"
+
+/*
+ * END AppInfo goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN ServiceDiscovery goodies.
+ */
+
+/**
+ * Defines the string used for the ServiceDiscovery config file group.
+ */
+#define CONFGROUPNAME_SERVICEDISCOVERY "servicediscovery"
+
+/**
+ * Defines the configuration to perform service discovery or not.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * value.
+ *
+ * @param boolean Set to TRUE to disable publishing.
+ *                Set to FALSE to enable publishing.
+ */
+#define CONFNAME_SERVICEDISCOVERY_DISABLED "disabled"
+
+/*
+ * END ServiceDiscovery goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN GuestStore upgrader goodies.
+ ******************************************************************************
+ */
+
+/**
+ * Defines the string used for the GuestStore upgrade config file group.
+ */
+#define CONFGROUPNAME_GSUPGRADE "gueststoreupgrade"
+
+/**
+ * Defines the value for GuestStore upgrade feature to be enabled or not.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * value.
+ *
+ * @param string  Set to "off" no tools upgrade from GuestStore.
+ *                Set to "manual" tools upgrade from GuestStore manual start.
+ *                Set to "immediate" tools upgrade from GuestStore start
+ *                autoCONFNAME_GSUPGRADE_RESOURCEmatically checking on the poll-interval frequency.
+ *                Set to "powercycle" tools upgrade from GuestStore on system
+ *                power on.
+ */
+#define CONFNAME_GSUPGRADE_POLICY "policy"
+
+/**
+ * Define a custom GuestStore check poll interval (in seconds).
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * poll interval.
+ *
+ * @param int   User-defined poll interval.  Set to 0 to disable polling.
+ */
+#define CONFNAME_GSUPGRADE_POLLINTERVAL "poll-interval"
+
+/**
+ * Define a custom GuestStore periodic Upgrade interval (in seconds).
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * upgrade interval.
+ *
+ * @param int   User-defined upgrade interval.  Set to 0 to disable polling.
+ */
+#define CONFNAME_GSUPGRADE_UPGRADEINTERVAL "upgrade-interval"
+
+/**
+ * Define a custom GuestStore content path prefix.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * resource path.
+ *
+ * @param string  User-defined GuestStore resource path.
+ */
+#define CONFNAME_GSUPGRADE_RESOURCE "resource"
+
+/**
+ * Define a custom GuestStore content vmtools key.
+ *
+ * @note Illegal values result in a @c g_warning and fallback to the default
+ * vmtools key.
+ *
+ * @param string  User-defined GuestStore vmtools key.
+ *                Set to "vmtools" for the latest version.
+ *                Suggested examples for earlier versions are:
+ *                Set to "vmtools-11.0.0" for "vmtools-11.0.0/"
+ *                Set to "vmtools-11.1.0" for "vmtools-11.1.0/"
+ *                Set to "vmtools-11.2.0" for "vmtools-11.2.0/"
+ *                Set to "vmtools-11.3.0" for "vmtools-11.3.0/"
+ */
+#define CONFNAME_GSUPGRADE_VMTOOLS_VERSION "vmtools-version-key"
+
+/*
+ * END GuestStore upgrader goodies.
+ ******************************************************************************
+ */
 
 
 /*
@@ -163,6 +313,29 @@
  */
 #define CONFNAME_DISKINFO_INCLUDERESERVED "diskinfo-include-reserved"
 
+/**
+ * Report UUID of disks for vmdk mapping via vim.
+ *
+ * @param boolean Set to true to report UUID to VMX.
+ */
+#define CONFNAME_DISKINFO_REPORT_UUID "diskinfo-report-uuid"
+
+/**
+ * Avoid buggy USB driver when querying disks for UUID.
+ * Turning this on can result in a major delay if the vmdk is
+ * being replicated.  See PR 2575285, 26539.
+ *
+ * @param boolean Set to true to work around buggy 3rd party driver.
+ */
+#define CONFNAME_DISKINFO_DRIVER_WORKAROUND "diskinfo-usb-workaround"
+
+/**
+ * Report Linux disk device for vmdk mapping via vim.
+ *
+ * @param boolean Set to true to report devices to VMX.
+ */
+#define CONFNAME_DISKINFO_REPORT_DEVICE "diskinfo-report-device"
+
 /*
  * END GuestInfo goodies.
  ******************************************************************************
@@ -233,10 +406,130 @@
  */
 
 
+/*
+ ******************************************************************************
+ * BEGIN deployPkg goodies.
+ */
+
+/**
+ * Defines the string used for the deployPkg config file group.
+ */
+#define CONFGROUPNAME_DEPLOYPKG "deployPkg"
+
+/**
+ * Lets users configure the process timeout value in deployPkg
+ * Valid value range: 0x01 ~ 0xFF
+ */
+#define CONFNAME_DEPLOYPKG_PROCESSTIMEOUT "process-timeout"
+
+/**
+ * The guest customization is allowed or not
+ * Valid value: true / false
+ */
+#define CONFNAME_DEPLOYPKG_ENABLE_CUST "enable-customization"
+
+/*
+ * END deployPkg goodies.
+ ******************************************************************************
+ */
+
+
 /** Where to find Tools data in the Win32 registry. */
 #define CONF_VMWARE_TOOLS_REGKEY    "Software\\VMware, Inc.\\VMware Tools"
 
 /* Wait 5 seconds between polls to see if the conf file has changed */
 #define CONF_POLL_TIME     5
 
+/*
+ ******************************************************************************
+ * BEGIN upgrader goodies.
+ */
+
+#define CONFGROUPNAME_AUTOUPGRADE "autoupgrade"
+
+#define CONFNAME_AUTOUPGRADE_ALLOW_UPGRADE "allow-upgrade"
+#define CONFNAME_AUTOUPGRADE_ALLOW_ADD_FEATURE "allow-add-feature"
+#define CONFNAME_AUTOUPGRADE_ALLOW_REMOVE_FEATURE "allow-remove-feature"
+
+/*
+ * END upgrader goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN logging goodies.
+ */
+
+/**
+ * Defines the string used for the logging config file group.
+ */
+#define CONFGROUPNAME_LOGGING "logging"
+
+#define CONFNAME_LOGGING_INSTALL_VMXGUESTLOGDISABLED "install-vmxGuestLogDisabled"
+
+/*
+ * END logging goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN environment goodies.
+ */
+
+/**
+ * Defines the strings used for setenvironment and unsetenvironment
+ * config groups.
+ *
+ * These config groups are used for setting and unsetting environment
+ * variables for the service. The keys in this config group can be
+ * specified in following 2 formats:
+ *
+ * 1. <variableName> = <value>
+ * 2. <serviceName>.<variableName> = <value>
+ *
+ * Variables specified in format #1 are applied to all services reading
+ * the config file whereas variables specified in format #2 are applied
+ * only to the specified service.
+ */
+#define CONFGROUPNAME_SET_ENVIRONMENT "setenvironment"
+#define CONFGROUPNAME_UNSET_ENVIRONMENT "unsetenvironment"
+
+/*
+ * END environment goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN gitray goodies.
+ */
+
+#define CONFGROUPNAME_GITRAY "gitray"
+
+/*
+ * END gitray goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN CarbonBlack helper plugin goodies.
+ */
+
+/**
+ * Define the string used for cbhelper config file group
+ */
+#define CONFGROUPNAME_CBHELPER "cbhelper"
+
+/**
+ * Defines user-defined polling interval in seconds.
+ */
+#define CONFNAME_CBHELPER_POLLINTERVAL "poll-interval"
+
+/*
+ ******************************************************************************
+ * END CarbonBlack helper plugin goodies.
+ */
 #endif /* __CONF_H__ */

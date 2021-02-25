@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -49,15 +49,6 @@
 #else
 #  include <signal.h>
 #  include <sys/time.h>
-#endif
-
-
-/* Work around a glib limitation: it doesn't set G_INLINE_FUNC on Win32. */
-#if defined(G_PLATFORM_WIN32)
-#  if defined(G_INLINE_FUNC)
-#     undef G_INLINE_FUNC
-#  endif
-#  define G_INLINE_FUNC static __inline
 #endif
 
 #ifndef ABS
@@ -115,6 +106,14 @@ VMTools_LoadConfig(const gchar *path,
                    time_t *mtime);
 
 gboolean
+VMTools_AddConfig(GKeyFile *srcConfig,
+                  GKeyFile *dstConfig);
+
+gboolean
+VMTools_CompareConfig(GKeyFile *config1,
+                      GKeyFile *config2);
+
+gboolean
 VMTools_WriteConfig(const gchar *path,
                     GKeyFile *config,
                     GError **err);
@@ -168,19 +167,10 @@ GSource *
 VMTools_CreateTimer(gint timeout);
 
 void
-VMTools_SetGuestSDKMode(void);
-
-void
 VMTools_AcquireLogStateLock(void);
 
 void
 VMTools_ReleaseLogStateLock(void);
-
-void
-VMTools_StopLogging(void);
-
-void
-VMTools_RestartLogging(void);
 
 gchar *
 VMTools_GetTimeAsString(void);

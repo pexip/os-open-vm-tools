@@ -1,10 +1,10 @@
 Source: open-vm-tools
 Section: admin
-Priority: extra
+Priority: optional
 Maintainer: Bernd Zeimetz <bzed@debian.org>
 Build-Depends:
- debhelper (>= 11~), autotools-dev, doxygen, libcunit1-dev,
- libdumbnet-dev, libfuse-dev, libgtkmm-3.0-dev, libgtk-3-dev,
+ debhelper-compat (= 12), doxygen, libcunit1-dev,
+ libfuse-dev, libgtkmm-3.0-dev, libgtk-3-dev,
  libicu-dev, libnotify-dev, libpam0g-dev, libprocps-dev, libx11-dev,
  libxinerama-dev, libxss-dev, libxtst-dev,
  libmspack-dev,
@@ -12,15 +12,18 @@ Build-Depends:
  libxmlsec1-dev,
  libudev-dev,
  libdrm-dev,
-Standards-Version: 3.9.6
+ liblzma-dev,
+ libgdk-pixbuf-xlib-2.0-dev,
+Standards-Version: 4.4.1
 Homepage: https://github.com/vmware/open-vm-tools
-Vcs-Git: https://github.com/bzed/pkg-open-vm-tools.git
-Vcs-Browser: https://github.com/bzed/pkg-open-vm-tools
+Vcs-Git: https://salsa.debian.org/vmware-packaging-team/pkg-open-vm-tools.git
+Vcs-Browser: https://salsa.debian.org/vmware-packaging-team/pkg-open-vm-tools
 
 Package: open-vm-tools
 Architecture: amd64 i386
-Depends: ${misc:Depends}, ${shlibs:Depends}, pciutils, iproute2
-Recommends: ethtool, zerofree, fuse, lsb-release
+Depends: ${misc:Depends}, ${shlibs:Depends}, pciutils, iproute2, lsb-release,
+ net-tools
+Recommends: ethtool, zerofree, fuse
 Suggests: open-vm-tools-desktop, cloud-init
 Breaks: open-vm-tools-desktop (<< 2:10.3.5-2~)
 Replaces: open-vm-tools-desktop (<< 2:10.0.7-3227872-2~)
@@ -36,11 +39,12 @@ Package: open-vm-tools-desktop
 Architecture: amd64 i386
 Depends: ${misc:Depends}, ${shlibs:Depends},
  open-vm-tools (= ${binary:Version}),
- fuse
+ fuse,
+ kmod,
 Breaks: open-vm-tools (<< 2:10.3.5-2~)
 Replaces: open-vm-tools (<< 2:10.3.5-2~)
 Recommends:
- xauth, xserver-xorg-input-vmmouse,
+ xauth,
  xserver-xorg-video-vmware
 Suggests: xdg-utils
 XB-Modaliases: ${modaliases}
@@ -52,6 +56,19 @@ Description: Open VMware Tools for virtual machines hosted on VMware (GUI)
  .
  This package contains the user-space programs and libraries that are essential
  for improved user experience of VMware virtual machines.
+
+Package: open-vm-tools-sdmp
+Architecture: amd64 i386
+Depends: ${misc:Depends}, ${shlibs:Depends},
+ open-vm-tools (= ${binary:Version}), iproute2, procps, gawk
+Description: Open VMware Tools for VMs hosted on VMware (Service Discovery Plugin)
+ The Open Virtual Machine Tools (open-vm-tools) project is an open source
+ implementation of VMware Tools. It is a suite of virtualization utilities and
+ drivers to improve the functionality, user experience and administration of
+ VMware virtual machines.
+ .
+ This package contains service discover plugin required to discover services
+ then used to build relationships between VMs in vRealiize.
 
 Package: open-vm-tools-dev
 Section: devel

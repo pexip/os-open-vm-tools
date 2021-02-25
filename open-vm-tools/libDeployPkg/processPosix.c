@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <stdlib.h>
 
 #include "util.h"
 
@@ -46,6 +47,7 @@ typedef enum _ReadStatus {
    READSTATUS_UNDEFINED,
    READSTATUS_DONE,
    READSTATUS_PENDING,
+   READSTATUS_WAITING_EOF,
    READSTATUS_ERROR
 } ReadStatus;
 
@@ -67,13 +69,26 @@ ProcessError
 Process_Create(ProcessHandle *h, char *args[], void *logPtr)
 {
    int i, numArgs;
+   int err = -1;
    ProcessInternal *p;
    LogFunction log = (LogFunction)logPtr;
-   log(log_info, "sizeof ProcessInternal is %d\n", sizeof(ProcessInternal));
-   p = Util_SafeMalloc(sizeof(ProcessInternal));
-   p->stdoutStr = Util_SafeMalloc(sizeof(char));
+   log(log_info, "sizeof ProcessInternal is %d", sizeof(ProcessInternal));
+   p = (ProcessInternal*) calloc(1, sizeof(ProcessInternal));
+   if (p == NULL) {
+      log(log_error, "Error allocating memory for process");
+      goto error;
+   }
+   p->stdoutStr = malloc(sizeof(char));
+   if (p->stdoutStr == NULL) {
+      log(log_error, "Error allocating memory for process stdout");
+      goto error;
+   }
    p->stdoutStr[0] = '\0';
-   p->stderrStr = Util_SafeMalloc(sizeof(char));
+   p->stderrStr = malloc(sizeof(char));
+   if (p->stderrStr == NULL) {
+      log(log_error, "Error allocating memory for process stderr");
+      goto error;
+   }
    p->stderrStr[0] = '\0';
 
    p->stdoutFd = -1;
@@ -84,13 +99,30 @@ Process_Create(ProcessHandle *h, char *args[], void *logPtr)
       numArgs++;
    }
 
-   p->args = Util_SafeMalloc((1 + numArgs) * sizeof(char*));
-   for (i = 0; i < numArgs; i++) {
-      p->args[i] = Util_SafeStrdup(args[i]);
+   p->args = malloc((1 + numArgs) * sizeof(char*));
+   if (p->args == NULL) {
+      log(log_error, "Error allocating memory for process args");
+      goto error;
    }
-   p->args[numArgs] = (char*)0;
+   for (i = 0; i < numArgs; i++) {
+      p->args[i] = strdup(args[i]);
+      if (p->args[i] == NULL) {
+         log(log_error, "Error allocating memory for duplicate args");
+         goto error;
+      }
+   }
+   p->args[numArgs] = NULL;
    p->log = log;
    *h = (ProcessHandle)p;
+   err = 0;
+
+error:
+   if (err != 0) {
+      if (p != NULL) {
+         Process_Destroy((ProcessHandle)p);
+      }
+      exit(1);
+   }
    return PROCESS_SUCCESS;
 }
 
@@ -123,6 +155,8 @@ Process_RunToComplete(ProcessHandle h, unsigned long timeoutSec)
    ReadStatus res_stdout = READSTATUS_UNDEFINED;
    ReadStatus res_stderr = READSTATUS_UNDEFINED;
 
+   Bool processExitedAbnormally = FALSE;
+
    p = (ProcessInternal*)h;
 
    stdout[0] = stdout[1] = 0;
@@ -150,12 +184,16 @@ Process_RunToComplete(ProcessHandle h, unsigned long timeoutSec)
    } else if (p->pid == 0) {
       // we're in the child. close the read ends of the pipes and exec
       close(stdout[0]);
-      close(stderr[0]);  
+      close(stderr[0]);
       dup2(stdout[1], STDOUT_FILENO);
       dup2(stderr[1], STDERR_FILENO);
       execv(p->args[0], p->args);
+      p->log(log_error, "execv failed to run (%s), errno=(%d), "
+             "error message:(%s)", p->args[0], errno, strerror(errno));
 
       // exec failed
+      close(stdout[1]);
+      close(stderr[1]);
       exit(127);
    }
 
@@ -165,11 +203,17 @@ Process_RunToComplete(ProcessHandle h, unsigned long timeoutSec)
 
    p->stdoutFd = stdout[0];
    flags = fcntl(p->stdoutFd, F_GETFL);
-   fcntl(p->stdoutFd, F_SETFL, flags | O_NONBLOCK);
+   if (fcntl(p->stdoutFd, F_SETFL, flags | O_NONBLOCK) == -1) {
+      p->log(log_warning, "Failed to set stdoutFd status flags, (%s)",
+             strerror(errno));
+   }
 
    p->stderrFd = stderr[0];
    flags = fcntl(p->stderrFd, F_GETFL);
-   fcntl(p->stderrFd, F_SETFL, flags | O_NONBLOCK);
+   if (fcntl(p->stderrFd, F_SETFL, flags | O_NONBLOCK) == -1) {
+      p->log(log_warning, "Failed to set stderrFd status flags, (%s)",
+             strerror(errno));
+   }
 
    elapsedTimeLoopSleeps = 0;
 
@@ -190,6 +234,7 @@ Process_RunToComplete(ProcessHandle h, unsigned long timeoutSec)
                    "Process exited abnormally after %d sec, uncaught signal %d",
                    elapsedTimeLoopSleeps * LoopSleepMicrosec / OneSecMicroSec,
                    WTERMSIG(processStatus));
+            processExitedAbnormally = TRUE;
          }
 
          break;
@@ -218,18 +263,20 @@ Process_RunToComplete(ProcessHandle h, unsigned long timeoutSec)
    }
 
    // Process completed. Now read all the output to EOF.
-   ProcessRead(p, &res_stdout, TRUE, TRUE);
+   // PR 2367614, set readToEof to TRUE only if process exits normally.
+   // Otherwise just empty the pipe to avoid being blocked by read operation.
+   ProcessRead(p, &res_stdout, TRUE, !processExitedAbnormally);
    if (res_stdout == READSTATUS_ERROR) {
-      p->log(log_error, "Error while reading process output, killing...");
+      p->log(log_error, "Error while reading process stdout, killing...");
    }
 
-   ProcessRead(p, &res_stderr, FALSE, TRUE);
+   ProcessRead(p, &res_stderr, FALSE, !processExitedAbnormally);
    if (res_stderr == READSTATUS_ERROR) {
-      p->log(log_error, "Error while reading process output, killing...");
+      p->log(log_error, "Error while reading process stderr, killing...");
    }
 
-   close(stdout[1]);
-   close(stderr[1]);
+   close(stdout[0]);
+   close(stderr[0]);
    return PROCESS_SUCCESS;
 }
 
@@ -259,7 +306,6 @@ ProcessRead(ProcessInternal *p, ReadStatus *status, Bool stdout, Bool readToEof)
 {
    char buf[1024];
    size_t currSize, newSize;
-   ssize_t count;
    char** saveTo;
    int fd;
    char* stdstr = stdout ? "stdout" : "stderr";
@@ -270,7 +316,8 @@ ProcessRead(ProcessInternal *p, ReadStatus *status, Bool stdout, Bool readToEof)
 
    // if there's output waiting, read it out. FDs should already be non-blocking
    do {
-      count = read(fd, buf, sizeof buf);
+      ssize_t count = read(fd, buf, sizeof buf);
+
       if (count > 0) {
          // save output
          currSize = strlen(*saveTo);
@@ -289,10 +336,11 @@ ProcessRead(ProcessInternal *p, ReadStatus *status, Bool stdout, Bool readToEof)
          return;
       } else if (count < 0) {
          if (errno == EAGAIN && readToEof) {
-            if (*status != READSTATUS_PENDING) {
+            if (*status != READSTATUS_WAITING_EOF) {
                // waiting for more output, sleep briefly and try again
-               p->log(log_info, "Pending output from %s, trying again", stdstr);
-               *status = READSTATUS_PENDING;
+               p->log(log_info, "Pending output from %s till EOF, trying again",
+                  stdstr);
+               *status = READSTATUS_WAITING_EOF;
             }
 
             usleep(1000);
@@ -395,10 +443,12 @@ Process_Destroy(ProcessHandle h)
    }
    free(p->stdoutStr);
    free(p->stderrStr);
-   for (i = 0; p->args[i] != NULL; i++) {
-      free(p->args[i]);
+   if (p->args != NULL) {
+      for (i = 0; p->args[i] != NULL; i++) {
+         free(p->args[i]);
+      }
+      free(p->args);
    }
-   free(p->args);
    free(p);
    return PROCESS_SUCCESS;
 }

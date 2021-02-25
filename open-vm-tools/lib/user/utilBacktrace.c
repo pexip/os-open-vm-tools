@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2013-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2013-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -43,6 +43,10 @@
 #  include <dlfcn.h>
 #endif
 
+#if defined __APPLE__
+#  include <execinfo.h>
+#endif
+
 #if defined(__linux__) && !defined(VMX86_TOOLS) && !defined(__ANDROID__)
 #  include <link.h>
 #endif
@@ -56,6 +60,8 @@
 #      define UTIL_BACKTRACE_USE_UNWIND
 #   endif
 #endif
+
+#define MAX_STACK_DEPTH_APPLE 128
 
 #ifdef UTIL_BACKTRACE_USE_UNWIND
 #include <unwind.h>
@@ -128,49 +134,6 @@ UtilLogWrapper(void *ignored,    // IN:
 /*
  *-----------------------------------------------------------------------------
  *
- * UtilBacktraceToBufferCallback --
- *
- *      Callback from _Unwind_Backtrace to add one entry to the backtrace
- *      buffer.
- *
- * Results:
- *      _URC_NO_REASON : Please continue with backtrace.
- *      _URC_END_OF_STACK : Abort backtrace, we run out of space (*).
- *
- *          (*) Caller does not care.  Anything else than NO_REASON is fatal
- *              and forces _Unwind_Backtrace to report PHASE1 error.
- *
- * Side effects:
- *      None.
- *
- *-----------------------------------------------------------------------------
- */
-
-static _Unwind_Reason_Code
-UtilBacktraceToBufferCallback(struct _Unwind_Context *ctx, // IN: Unwind context
-                              void *cbData)                // IN/OUT: Our data
-{
-   struct UtilBacktraceToBufferData *data = cbData;
-   uintptr_t cfa = _Unwind_GetCFA(ctx);
-
-   /*
-    * Stack grows down.  So if we are below basePtr, do nothing...
-    */
-   if (cfa >= data->basePtr) {
-      if (data->len) {
-         *data->buffer++ = _Unwind_GetIP(ctx);
-         data->len--;
-      } else {
-         return _URC_END_OF_STACK;
-      }
-   }
-   return _URC_NO_REASON;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
  * UtilBacktraceFromPointerCallback --
  *
  *      Callback from _Unwind_Backtrace to print one backtrace entry
@@ -225,7 +188,8 @@ UtilBacktraceFromPointerCallback(struct _Unwind_Context *ctx, // IN: Unwind cont
    return _URC_END_OF_STACK;
 }
 
-#if !defined(_WIN32) && !defined(VMX86_TOOLS) && !defined(__ANDROID__)
+
+#if !defined(_WIN32) && !defined(VMX86_TOOLS)
 /*
  *-----------------------------------------------------------------------------
  *
@@ -299,33 +263,9 @@ UtilSymbolBacktraceFromPointerCallback(struct _Unwind_Context *ctx, // IN: Unwin
 
 
 /*
- *----------------------------------------------------------------------
- *
- * Util_BacktraceFromPointer --
- *
- *      log the stack backtrace given a frame pointer
- *
- * Results:
- *
- *      void
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------
- */
-
-void
-Util_BacktraceFromPointer(uintptr_t *basePtr)  // IN:
-{
-   Util_BacktraceFromPointerWithFunc(basePtr, UtilLogWrapper, NULL);
-}
-
-
-/*
  *-----------------------------------------------------------------------------
  *
- * Util_BacktraceFromPointerWithFunc --
+ * UtilBacktraceFromPointerWithFunc --
  *
  *      Output a backtrace from the given frame porinter, using
  *      "outputFunc" as the logging function. For each line of the backtrace,
@@ -340,10 +280,10 @@ Util_BacktraceFromPointer(uintptr_t *basePtr)  // IN:
  *-----------------------------------------------------------------------------
  */
 
-void
-Util_BacktraceFromPointerWithFunc(uintptr_t *basePtr,       // IN:
-                                  Util_OutputFunc outFunc,  // IN:
-                                  void *outFuncData)        // IN:
+static void
+UtilBacktraceFromPointerWithFunc(uintptr_t *basePtr,       // IN:
+                                 Util_OutputFunc outFunc,  // IN:
+                                 void *outFuncData)        // IN:
 {
 #if defined(UTIL_BACKTRACE_USE_UNWIND)
    struct UtilBacktraceFromPointerData data;
@@ -403,55 +343,12 @@ Util_BacktraceFromPointerWithFunc(uintptr_t *basePtr,       // IN:
                                i, x[0], x[1], dli.dli_sname, dli.dli_fname,
                                 dli.dli_fbase);
       } else {
-         outFunc(outFuncData, "SymBacktrace[%d] %#08x eip %#08x \n", i, x[0], x[1]);
+         outFunc(outFuncData, "SymBacktrace[%d] %#08x eip %#08x \n", i, x[0],
+                 x[1]);
       }
       x = (uintptr_t *) x[0];
    }
 #endif
-#endif
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * Util_BacktraceToBuffer --
- *
- *      Output a backtrace from the given frame pointer to supplied buffer.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      See above.
- *
- *-----------------------------------------------------------------------------
- */
-
-void
-Util_BacktraceToBuffer(uintptr_t *basePtr,  // IN:
-                       uintptr_t *buffer,   // IN:
-                       int len)             // IN:
-{
-#if defined(UTIL_BACKTRACE_USE_UNWIND)
-   struct UtilBacktraceToBufferData data;
-
-   data.basePtr = (uintptr_t)basePtr;
-   data.buffer = buffer;
-   data.len = len;
-   _Unwind_Backtrace(UtilBacktraceToBufferCallback, &data);
-#elif !defined(VM_X86_64)
-   uintptr_t *x = basePtr;
-   int i;
-
-   for (i = 0; i < 256 && i < len; i++) {
-      if (x < basePtr ||
-	  (uintptr_t) x - (uintptr_t) basePtr > 0x8000) {
-         break;
-      }
-      buffer[i] = x[1];
-      x = (uintptr_t *) x[0];
-   }
 #endif
 }
 
@@ -498,6 +395,7 @@ Util_Backtrace(int bugNr) // IN
  *-----------------------------------------------------------------------------
  */
 
+
 void
 Util_BacktraceWithFunc(int bugNr,                // IN:
                        Util_OutputFunc outFunc,  // IN:
@@ -508,14 +406,41 @@ Util_BacktraceWithFunc(int bugNr,                // IN:
 
    options.bugNumber = bugNr;
    CoreDump_LogFullBacktraceToFunc(&options, outFunc, outFuncData);
-#else
-   uintptr_t *x = (uintptr_t *) &bugNr;
+#elif defined(__APPLE__)
+   void *callstack[MAX_STACK_DEPTH_APPLE];
+   int frames;
+   unsigned i;
+   Dl_info dli;
 
    if (bugNr == 0) {
       outFunc(outFuncData, "Backtrace:\n");
    } else {
-      outFunc(outFuncData, "Backtrace for bugNr=%d\n",bugNr);
+      outFunc(outFuncData, "Backtrace for bugNr=%d\n", bugNr);
    }
-   Util_BacktraceFromPointerWithFunc(&x[-2], outFunc, outFuncData);
+   frames = backtrace(callstack, ARRAYSIZE(callstack));
+   for (i = 0; i < frames; i++) {
+      outFunc(outFuncData, "Backtrace[%d] rip=%016lx\n", i, callstack[i]);
+   }
+   for (i = 0; i < frames; i++) {
+      if (dladdr(callstack[i], &dli)) {
+         outFunc(outFuncData, "SymBacktrace[%d] rip=%016lx in function %s "
+                              "in object %s loaded at %016lx\n",
+                 i, callstack[i], dli.dli_sname, dli.dli_fname,
+                 dli.dli_fbase);
+      } else {
+         outFunc(outFuncData, "SymBacktrace[%d] rip=%016lxn", i,
+                 callstack[i]);
+      }
+   }
+#else
+   if (bugNr == 0) {
+      outFunc(outFuncData, "Backtrace:\n");
+   } else {
+      outFunc(outFuncData, "Backtrace for bugNr=%d\n", bugNr);
+   }
+
+   UtilBacktraceFromPointerWithFunc(__builtin_frame_address(0), outFunc,
+                                    outFuncData);
 #endif
 }
+

@@ -1,5 +1,5 @@
 ################################################################################
-### Copyright (C) 2007-2016 VMware, Inc.  All rights reserved.
+### Copyright (C) 2007-2016, 2020 VMware, Inc.  All rights reserved.
 ###
 ### This program is free software; you can redistribute it and/or modify
 ### it under the terms of version 2 of the GNU General Public License as
@@ -18,13 +18,16 @@
 noinst_LTLIBRARIES = libHgfsServer.la
 
 libHgfsServer_la_SOURCES =
+libHgfsServer_la_SOURCES += hgfsCacheStub.c
 libHgfsServer_la_SOURCES += hgfsServer.c
 libHgfsServer_la_SOURCES += hgfsServerLinux.c
 libHgfsServer_la_SOURCES += hgfsServerPacketUtil.c
 libHgfsServer_la_SOURCES += hgfsDirNotifyStub.c
 libHgfsServer_la_SOURCES += hgfsServerParameters.c
 libHgfsServer_la_SOURCES += hgfsServerOplock.c
+libHgfsServer_la_SOURCES += hgfsServerOplockMonitor.c
 libHgfsServer_la_SOURCES += hgfsServerOplockLinux.c
+libHgfsServer_la_SOURCES += hgfsThreadpoolStub.c
 
 AM_CFLAGS =
 AM_CFLAGS += -DVMTOOLS_USE_GLIB

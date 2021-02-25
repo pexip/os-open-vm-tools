@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -211,13 +211,14 @@ UtilGetLegacyEncodedString(const char *path)  // IN: UTF-8
 
    if (cpath != NULL) {
       char *apath = NULL;
-      int retlen;
       WCHAR *wcpath = Unicode_GetAllocUTF16(cpath);
 
       /* First get the length of multibyte string */
       int alen = WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK, wcpath, -1,
                                      NULL, 0, NULL, NULL);
       if (alen > 0) {
+         int retlen;
+
          /* Now get the converted string */
          ret = Util_SafeMalloc(alen);
          retlen = WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK, wcpath, -1,
@@ -550,7 +551,7 @@ UtilDoTildeSubst(const char *user)  // IN: name of user
 char *
 Util_ExpandString(const char *fileName) // IN  file path to expand
 {
-   char *copy = NULL;
+   char *copy;
    char *result = NULL;
    int nchunk = 0;
    char *chunks[UTIL_MAX_PATH_CHUNKS];
@@ -719,8 +720,8 @@ Util_ExpandString(const char *fileName) // IN  file path to expand
       ASSERT(!freeChunk[i]);
       chunks[i] = expand;
       if (chunks[i] == NULL) {
-	 Log("%s: Cannot allocate memory to expand \"%s\" in \"%s\".\n",
-             __FUNCTION__, expand, fileName);
+	 Log("%s: Cannot allocate memory to expand $ in \"%s\".\n",
+             __FUNCTION__, fileName);
 	 goto out;
       }
       chunkSize[i] = strlen(expand);

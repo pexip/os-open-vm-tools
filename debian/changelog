@@ -1,20 +1,266 @@
-open-vm-tools (2:10.3.10-1+deb10u2) buster; urgency=medium
+open-vm-tools (2:11.2.5-2) unstable; urgency=medium
 
-  * [d512626] Fix memory leaks and error handling.
-    From the upstream stable-10.3.10-vix-memory-leaks branch:
-    commit 26b9edbeb79d1c67b9ae73a0c97c48999c1fb503
-        Fix leaks in ListAliases and ListMappedAliases
-    commit 7b874f37f970aab2adddb063a8363594f47abf70
-        End VGAuth impersonation in the case of error.
-    commit 015db4c06a8be65eb96cf62421e8b5366993452f
-        Fix memory leaks in 'vix' tools plugin.
-    Thanks to Oliver Kurth (Closes: #941955)
+  * [7f14954] Drop max_nic_count patch.
+    See https://github.com/vmware/open-vm-tools/issues/128 for details.
 
- -- Bernd Zeimetz <bzed@debian.org>  Wed, 09 Oct 2019 14:18:48 +0200
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 25 Feb 2021 17:49:11 +0100
 
-open-vm-tools (2:10.3.10-1+deb10u1) buster; urgency=medium
+open-vm-tools (2:11.2.5-1) unstable; urgency=medium
 
-  * [efb4df1] Fix guest OS reporting for Debian/Buster.
+  * [b54d022] New upstream version 11.2.5
+    Thanks: John Wolfe
+    Closes: #980190
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 15 Jan 2021 22:30:08 +0100
+
+open-vm-tools (2:11.2.0-2) unstable; urgency=medium
+
+  * [d5d4593] Fix building with new gcc versions
+  * [94ce968] build-depend on libgdk-pixbuf-xlib-2.0-dev
+    Closes: #978262
+    Thanks to Lucas NUssbaum for the upload reminder.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 27 Dec 2020 00:01:29 +0100
+
+open-vm-tools (2:11.2.0-1) unstable; urgency=medium
+
+  * [447d833] Update upstream source from tag 'upstream/11.2.0'
+    Update to upstream version '11.2.0'
+    with Debian dir 67243748d9ba09fc4e53f1ab4e921e119c981beb
+    Closes: #972732
+  * [704edba] remove pam-use-common-auth-account patch.
+    Not needed anymore
+  * [f792922] Use upstream pam file for Debian
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 25 Oct 2020 19:33:02 +0100
+
+open-vm-tools (2:11.1.5-1) unstable; urgency=medium
+
+  * [5515c98] Don't recommend xserver-xorg-input-vmmouse.
+    Thanks to Raphaël Hertzog (Closes: #966465)
+  * [8a31efc] Update upstream source from tag 'upstream/11.1.5'
+    Update to upstream version '11.1.5'
+    with Debian dir 62c70f15b660e7719555a78e6658ced5ca05ca35
+    Closes: #968688
+  * [09714a7] Removing patches that were applied upstream
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 20 Aug 2020 09:52:24 +0200
+
+open-vm-tools (2:11.1.0-3) unstable; urgency=medium
+
+  * [03d18b3] Fix gcc-10 related issues. (Closes: #957631)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 27 Jul 2020 22:38:58 +0200
+
+open-vm-tools (2:11.1.0-2) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [4d69c6a] d/p/lp-1877678-: fixes for the sdmp plugin that is new in 11.1.0.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+  * [38bd11e] d/control: change net-tools dependency to iproute2.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+
+  [ Bernd Zeimetz ]
+  * [c15c08d] Add net-tools as dependency again.
+    Various scripts still use ifconfig.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 19 Jun 2020 14:05:44 +0200
+
+open-vm-tools (2:11.1.0-1) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [6b7d31d] New upstream version 11.1.0
+    (Closes: #960061) (LP: #1877672)
+  * [3ece93a14] d/control, d/rules, d//*sdmp*: add service discovery plugin (sdmp)
+    (Closes: #960065) (LP: #1877678)
+    Thanks to Oliver Kurth for the initial contribution, changes in addition:
+    - d/control: improve description
+    - rules fix whitespace damage
+    - maintscripts: fixed some whihtespace damage
+    - maintscripts: fixed maintainer scripts per skeletons from dh_make
+    - maintscripts: added the service-active-before-restart check to postinst
+      as well (was only in rm)
+    - maintscripts: use deb-systemd-invoke
+    - d/control: add further dependencies used in sdmp
+  * [e0c9fbc14] remove patches applied upstream in 11.1.0
+    - d/p/4ee0bd3c8_Rectify-a-log-spew-in-vmsvc-logging-vmware-vmsvc-root.log
+    - d/p/89c0d4445_GitHub-Issue-367.-Remove-references-to-deprecated-G_INLINE_FUNC
+    - d/p/f1f0b812e_add-appinfo-plugin
+  * [f4cf14931] d/rules: drop perm fixup of vm-support as it is properly
+    in /usr/bin/ now
+  * [d71e99e33] lintian: add overrides for intentional cases
+  * [ba27a73eb] d/p/debian/vmxnet_fix_kernel_4.7.patch: drop unused patch
+  * [7488e6e2f] d/copyright: fix tab in text
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 29 May 2020 09:46:40 +0200
+
+open-vm-tools (2:11.0.5-5) unstable; urgency=medium
+
+  * [8700b5e] Revert "Run vmtoolsd with Nice=-20"
+    After discussing this issue with upstream we came to the conclusion that
+    reverting this is the best option as it is possible to start programs
+    trough vmtoolsd and they would also run with a nice level of -20.
+    Upstream will fix this issue in a sane way.
+  * [8a3a303] Add appinfo plugin.
+    Thanks to Oliver Kurth (Closes: #954958)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 09 Apr 2020 11:42:15 +0200
+
+open-vm-tools (2:11.0.5-4) unstable; urgency=medium
+
+  * [c720d18] Run vmtoolsd with Nice=-20.
+    Ensure that the watchdog is always able to answer.
+    Thanks to Aron Xu (Closes: #953346)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 09 Mar 2020 17:10:31 +0100
+
+open-vm-tools (2:11.0.5-3) unstable; urgency=medium
+
+  * [9d3c1d7] Build-Depend on liblzma-dev.
+    Thanks to Lucas Nussbaum (Closes: #951940)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sun, 23 Feb 2020 16:57:41 +0100
+
+open-vm-tools (2:11.0.5-2) unstable; urgency=medium
+
+  * [eab2f1a] Add vmtoolsd.service alias.
+    Debian's open-vm-tools.service is rather unsuaul and based on the
+    history of the package, so ship an alias.
+  * [b2977cd] Rectify a log spew in vmsvc logging.
+    Upstream commit 4ee0bd3c8ead89541ab7d196fb54e940e397420d
+    When a LSI Logic Parallel SCSI controller sits in PCI bus 0
+    (SCSI controller 0), the Linux disk device enumeration does not provide
+    a "label" file with the controller name.  This results in messages like
+    "GuestInfoGetDiskDevice: Missing disk device name; VMDK mapping
+    unavailable for "/var/log", fsName: "/dev/sda2" repeatedly appearing
+    in the vmsvc logging.  The patch converts what previously was a warning
+    message to a debug message and thus avoids the log spew.
+    Thanks to Oliver Kurth (Closes: #950888)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 11 Feb 2020 15:56:51 +0100
+
+open-vm-tools (2:11.0.5-1) unstable; urgency=medium
+
+  * [e302fbf] Depend on lsb-release instead of recommending it.
+  * [7731b26] Update upstream source from tag 'upstream/11.0.5'
+    Update to upstream version '11.0.5'
+    with Debian dir 7744f94a9026a7a3178032ef206d5d5798206fa5
+    Closes: #949011
+  * [68e74c1] snapshot changelog
+  * [6ce977f] Refreshing patches
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 16 Jan 2020 14:05:36 +0100
+
+open-vm-tools (2:11.0.1-4) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [e30fabc] d/p/lp-1855686-Avoid-vmtoolsd-crash-in-HostInfo.patch:
+    fix crash with uncommon lsb_output behavior (LP: #1855686)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 30 Dec 2019 00:56:03 +0100
+
+open-vm-tools (2:11.0.1-3) unstable; urgency=medium
+
+  * [c30953f] gitlab-ci: disable reprotest
+  * [ee6873b] Use upstream patch to fix (ignore) ZFS.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 30 Oct 2019 21:16:31 +0100
+
+open-vm-tools (2:11.0.1-2) unstable; urgency=medium
+
+  * [76c600f] Fix segfault for fs devices without /
+    See https://github.com/vmware/open-vm-tools/issues/378 for details.
+    Thanks to Mo Zhou (Closes: #942692)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 22 Oct 2019 15:48:48 +0200
+
+open-vm-tools (2:11.0.1-1) unstable; urgency=medium
+
+  * [bb36e10] Update upstream source from tag 'upstream/11.0.1'
+    Update to upstream version '11.0.1'
+    with Debian dir 60c0d512096774b9a2a7cc9e4e94556b2893ae8a
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 22 Oct 2019 09:40:50 +0200
+
+open-vm-tools (2:11.0.0-2) unstable; urgency=medium
+
+  * [4cfe383] Update Vcs-Git/Browser to point to salsa.
+  * [bc253ad] Remove .travis.yml, add debian/.gitlab-ci.yml
+  * [c92ca3a] Add add_patch.sh script to add patches from upstream.
+  * [1d9b491] Add patch to remove deprecated inline functions
+  * [3e2e307] Rename lintian-override file properly
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 15 Oct 2019 23:25:24 +0200
+
+open-vm-tools (2:11.0.0-1) unstable; urgency=medium
+
+  [ goldstar611 ]
+  * [c138871] Ensure VGAuthService starts after AppArmor
+    https://gitlab.com/apparmor/apparmor/issues/13
+
+  [ Bernd Zeimetz ]
+  * [28ef841] New upstream version 11.0.0~0
+  * [f78ed2d] New upstream version 11.0.0
+    Closes: #940853
+  * [19efc80] Revert "Revert "Removing libdumbnet-dev.""
+    This reverts commit 31177fab964d92687501ab81774440a9b8d09e39.
+  * [bc14a8b] snapshot changelog
+  * [1c5e9ea] Dropping patches that were picked from upstream
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 30 Sep 2019 14:37:27 +0200
+
+open-vm-tools (2:10.3.10-3) unstable; urgency=medium
+
+  [ Bernd Zeimetz ]
+  * [19c646a] gcc9 compatibility.
+    Upstream commit c68172ef7f2d4f116078e2aba82986a8cab0b16e (Closes: #925794)
+
+  [ Christian Ehrhardt ]
+  * [865763e] Fix other ftbfs with GCC-9
+    * d/rules: disable address-of-packed-member gcc-9 warnings for pre 11.0 code
+    (LP: #1842301)
+    * d/rules: use modern syntax for disabling deprecated-declarations
+    * d/p/gcc9-Remove-GLib-2.32-deprecated-APIs-from-tools.patch: stop using
+      outdated GLib features
+    Upstream commit a7c141fc
+    * d/p/gcc9-drop-obsolete-G_INLINE_FUNC.patch: stop using deprecated GLib
+      Macro
+    * d/p/gcc9-GStaticRecMutex.patch: stop using deprecated GStaticRecMutex
+    Upstream commit 19ca3e36
+    * d/p/gcc9-build-error-in-vmblocktest.c.patch: avoid error due to
+      stringop-truncation
+    Upstream commit 553d1283
+
+  [ Bernd Zeimetz ]
+  * [0ce2ba2] Policy 4.0.1: The extra priority has been deprecated
+  * [c8760c6] Bumping Standards-Version to 4.4.0
+  * [a6ed8ce] Don't override dh_builddeb.
+    debian-rules-should-not-use-custom-compression-settings
+  * [bdfd8b5] Remove add_patch script
+  * [be4d889] Update copyright years.
+  * [9ac710e] Remove autotools-dev dependency.
+  * [4296cf4] Fix permissions of udev rules file
+  * [ed11c19] A new lintian override
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 03 Sep 2019 18:06:54 +0200
+
+open-vm-tools (2:10.3.10-2) unstable; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [d79cc9d] d/control: fix postinst missing lsmod/modprobe.
+    Upgrades on open-vm-desktop can trigger errors like the following:
+    /var/lib/dpkg/info/open-vm-tools-desktop.postinst: 5:
+    /var/lib/dpkg/info/open-vm-tools-desktop.postinst: lsmod: not found
+    /var/lib/dpkg/info/open-vm-tools-desktop.postinst: 6:
+    /var/lib/dpkg/info/open-vm-tools-desktop.postinst: modprobe: not found
+    The reason is that kmod isn't a dependency of open-vm-tools-desktop and
+    could be missing e.g. if you installed it in a system container.
+    Once might discuss how useful open-vm-tools-desktop is in that
+    environment but a n issue to fix none the less.
+    Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
+
+  [ Bernd Zeimetz ]
+  * [4d3f25f] Fix guest OS reporting for Debian/Buster.
     Without this fix, open-vm-tools report other4xLinux64Guest instead of
     Debian/Buster.
     Reason is the output of lsb_release, which outputs:
@@ -22,9 +268,8 @@ open-vm-tools (2:10.3.10-1+deb10u1) buster; urgency=medium
     Debian GNU/Linux 10 (buster)
     But the code in open-vm-tools expects '10.'.
     Thanks to Oliver Kurth (Closes: #934005)
-  * [2308b74] Updating gbp.conf for buster.
 
- -- Bernd Zeimetz <bzed@debian.org>  Wed, 07 Aug 2019 21:09:29 +0200
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 07 Aug 2019 10:28:52 +0200
 
 open-vm-tools (2:10.3.10-1) unstable; urgency=high
 
@@ -61,7 +306,7 @@ open-vm-tools (2:10.3.10-1) unstable; urgency=high
         open-vm-tools. (Code used by other vmware tools, unrelated
         to open-vm-tools).
       - Bump up the SYSIMAGE_VERSION for VMware tools 10.3.10
-      
+
   * [18de70f] Removing backported patches, shipped in 10.3.10.
 
  -- Bernd Zeimetz <bzed@debian.org>  Fri, 29 Mar 2019 11:58:17 +0100
@@ -189,8 +434,8 @@ open-vm-tools (2:10.3.5-2) unstable; urgency=medium
     Signed-off-by: Christian Ehrhardt <christian.ehrhardt@canonical.com>
 
   [ Bernd Zeimetz ]
-  * [e4697c7] Fix race condition between open-vm-tools and systemd-tmpfiles-setup.
-    Thanks to Jean-Louis Dupond (Closes: #914910)
+  * [e4697c7] Fix race condition between open-vm-tools and
+    systemd-tmpfiles-setup. Thanks to Jean-Louis Dupond (Closes: #914910)
 
  -- Bernd Zeimetz <bzed@debian.org>  Tue, 11 Dec 2018 20:40:48 +0100
 
@@ -684,7 +929,8 @@ open-vm-tools (2:9.4.6-1770165-4) unstable; urgency=medium
 open-vm-tools (2:9.4.6-1770165-3) unstable; urgency=medium
 
   [ Bernd Zeimetz ]
-  * [b04735fa] Ensure LINUX_BACKPORT is defined in patches/kuid_t-kgid_t-fix-for-3.12.
+  * [b04735fa] Ensure LINUX_BACKPORT is defined in
+    patches/kuid_t-kgid_t-fix-for-3.12.
 
   [ Norbert Lange ]
   * [01aaa407] Fix initramfs hook for the vmxnet module
@@ -787,8 +1033,8 @@ open-vm-tools (2:9.4.0-1280544-7) unstable; urgency=medium
   * [be59923b] Do not build vsock on kernels >= 3.9
     the vsock module was included in the upstream kernel.
   * [6d36f49e] Move .desktop file into the -desktop package.
-  * [ef406f81] Move /lib/modules-load.d/open-vm-tools.conf to open-vm-tools-dkms.
-    Thanks to Jim Barber (Closes: #748187)
+  * [ef406f81] Move /lib/modules-load.d/open-vm-tools.conf to
+    open-vm-tools-dkms. Thanks to Jim Barber (Closes: #748187)
   * [56742c8c] Revert "Use /run/VMwareDnD instead of /tmp/VMwareDnD."
     This reverts commit 49dc599d453ed40a1299b9a376755cdbb43e0da2.
   * [c6df2503] Patch pam.d/vmtoolsd to use common-auth/account.
@@ -907,7 +1153,7 @@ open-vm-tools (2:9.4.0-1280544-1) unstable; urgency=low
 open-vm-tools (2:9.2.3-1031360-7) unstable; urgency=low
 
   * QA upload
-  * Fix compilation with Linux 3.10. Thanks to Zack Weinberg for the patch! 
+  * Fix compilation with Linux 3.10. Thanks to Zack Weinberg for the patch!
     (Closes: #717154)
 
  -- Moritz Mühlenhoff <muehlenhoff@univention.de>  Mon, 09 Sep 2013 05:19:44 +0200
