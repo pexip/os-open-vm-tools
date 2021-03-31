@@ -8,7 +8,9 @@ case "${1}" in
             udevadm trigger || true
         fi
         ;;
-
+    upgrade)
+        systemctl restart open-vm-tools.service
+        ;;
     abort-upgrade|abort-remove|abort-deconfigure)
 
         ;;

@@ -1,3 +1,9 @@
+open-vm-tools (2:10.3.10-1+deb10u2pexip3) pexip; urgency=medium
+
+  * Stop/restart service during upgrade.
+
+ -- Huw Jones <huw@pexip.com>  Wed, 31 Mar 2021 10:25:41 +0100
+
 open-vm-tools (2:10.3.10-1+deb10u2pexip2) pexip; urgency=medium
 
   * Move our flag file from /tmp/vm_frozen to /run/pexip/vm_frozen

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "upgrade" ]; then
+    systemctl stop open-vm-tools.service
+fi
+
+#DEBHELPER#
+
+exit 0
