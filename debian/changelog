@@ -1,3 +1,10 @@
+open-vm-tools (2:10.3.10-1+deb10u2pexip4) pexip; urgency=medium
+
+  * Take patch from upstream to disable attempted accesses to
+    VMCI. Stop the annoying "Unknown ioctl 1976" messages.
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Thu, 09 Dec 2021 15:20:14 +0000
+
 open-vm-tools (2:10.3.10-1+deb10u2pexip3) pexip; urgency=medium
 
   * Stop/restart service during upgrade.
