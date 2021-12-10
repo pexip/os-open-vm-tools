@@ -8,4 +8,5 @@ fix-buster-OS-reporting
 
 notimesync.patch
 freezeflag.patch
-block-vmci.patch
+# Causes problems, come back to this later
+# block-vmci.patch
