@@ -1,0 +1,50 @@
+Stop the kernel making noise about "unknown ioctl 1976"
+
+We know we're on a new enough kernel that we can rely on
+AF_VSOCK_LOCAL being the right answer here.
+
+diff --git a/open-vm-tools/lib/include/vmci_sockets.h b/open-vm-tools/lib/include/vmci_sockets.h
+index 29e8078..556879c 100644
+--- a/open-vm-tools/lib/include/vmci_sockets.h
++++ b/open-vm-tools/lib/include/vmci_sockets.h
+@@ -659,6 +659,7 @@ struct uuid_2_cid {
+       int fd;
+       int family = -1;
+ 
++#define AF_VSOCK_LOCAL 40
+ #if defined(__linux__)
+       /*
+        * vSockets is now in mainline kernel with address family 40.  As part
+@@ -671,7 +672,6 @@ struct uuid_2_cid {
+        *    older kernel with vSockets from Tools.
+        * 3. If that fails, then vSockets really isn't available.
+        */
+-#define AF_VSOCK_LOCAL 40
+       {
+          int s = socket(AF_VSOCK_LOCAL, SOCK_DGRAM, 0);
+          if (s != -1) {
+@@ -682,7 +682,6 @@ struct uuid_2_cid {
+             return AF_VSOCK_LOCAL;
+          }
+       }
+-#undef AF_VSOCK_LOCAL
+ #endif // linux
+ 
+       fd = open(VMCI_SOCKETS_DEFAULT_DEVICE, O_RDONLY);
+@@ -693,10 +692,15 @@ struct uuid_2_cid {
+          }
+       }
+ 
++#if 1
++      /* Disable the ioctl here for older kernels. family is *always*
++       * AF_VSOCK_LOCAL as above now...  */
++      family = AF_VSOCK_LOCAL;
++#else
+       if (ioctl(fd, VMCI_SOCKETS_GET_AF_VALUE, &family) < 0) {
+          family = -1;
+       }
+-
++#endif
+       if (family < 0) {
+          close(fd);
+       } else if (outFd) {
