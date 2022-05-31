@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -47,9 +47,8 @@
 
 #define UPT1_MAX_INTRS  (UPT1_MAX_TX_QUEUES + UPT1_MAX_RX_QUEUES)
 
-typedef
-#include "vmware_pack_begin.h"
-struct UPT1_TxStats {
+#pragma pack(push, 1)
+typedef struct UPT1_TxStats {
    uint64 TSOPktsTxOK;  /* TSO pkts post-segmentation */
    uint64 TSOBytesTxOK;
    uint64 ucastPktsTxOK;
@@ -60,13 +59,11 @@ struct UPT1_TxStats {
    uint64 bcastBytesTxOK;
    uint64 pktsTxError;
    uint64 pktsTxDiscard;
-}
-#include "vmware_pack_end.h"
-UPT1_TxStats;
+} UPT1_TxStats;
+#pragma pack(pop)
 
-typedef
-#include "vmware_pack_begin.h"
-struct UPT1_RxStats {
+#pragma pack(push, 1)
+typedef struct UPT1_RxStats {
    uint64 LROPktsRxOK;    /* LRO pkts */
    uint64 LROBytesRxOK;   /* bytes from LRO pkts */
    /* the following counters are for pkts from the wire, i.e., pre-LRO */
@@ -78,9 +75,8 @@ struct UPT1_RxStats {
    uint64 bcastBytesRxOK;
    uint64 pktsRxOutOfBuf;
    uint64 pktsRxError;
-}
-#include "vmware_pack_end.h"
-UPT1_RxStats;
+} UPT1_RxStats;
+#pragma pack(pop)
 
 /* interrupt moderation level */
 #define UPT1_IML_NONE     0 /* no interrupt moderation */
@@ -94,30 +90,34 @@ UPT1_RxStats;
 #define UPT1_RSS_HASH_TYPE_IPV6      0x04
 #define UPT1_RSS_HASH_TYPE_TCP_IPV6  0x08
 
-#define UPT1_RSS_HASH_FUNC_NONE      0x0
-#define UPT1_RSS_HASH_FUNC_TOEPLITZ  0x01
+typedef enum {
+   UPT1_RSS_HASH_FUNC_NONE      = 0x0000,
+   UPT1_RSS_HASH_FUNC_TOEPLITZ  = 0x0001,
+   UPT1_RSS_HASH_FUNC_CRC32     = 0x0002,
+
+   //upper bound on max hash functions supported
+   UPT1_RSS_HASH_FUNC_MAX       = 0xFFFF
+} Vmxnet3_RSSHashFunc;
 
 #define UPT1_RSS_MAX_KEY_SIZE        40
 #define UPT1_RSS_MAX_IND_TABLE_SIZE  128
 
-typedef 
-#include "vmware_pack_begin.h"
-struct UPT1_RSSConf {
+#pragma pack(push, 1)
+typedef struct UPT1_RSSConf {
    uint16   hashType;
    uint16   hashFunc;
    uint16   hashKeySize;
    uint16   indTableSize;
    uint8    hashKey[UPT1_RSS_MAX_KEY_SIZE];
    uint8    indTable[UPT1_RSS_MAX_IND_TABLE_SIZE];
-}
-#include "vmware_pack_end.h"
-UPT1_RSSConf;
+} UPT1_RSSConf;
+#pragma pack(pop)
 
 /* features */
 #define UPT1_F_RXCSUM      0x0001   /* rx csum verification */
 #define UPT1_F_RSS         0x0002
 #define UPT1_F_RXVLAN      0x0004   /* VLAN tag stripping */
 #define UPT1_F_LRO         0x0008
-#define UPT1_F_INNER_LRO   0x0010   /* LRO for Geneve/VXLAN encap packets */
+#define UPT1_F_INNEROFLD   0x0010   /* Geneve/VXLAN offloading */
 
 #endif

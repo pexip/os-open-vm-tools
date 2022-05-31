@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -80,12 +80,14 @@
 #include "strutil.h"
 #include "codeset.h"
 #include "unicode.h"
+#include "logToHost.h"
 
 #ifdef USERWORLD
 #include <vm_basic_types.h>
 #include <vmkuserstatus.h>
 #include <vmkusercompat.h>
 #endif
+
 
 /*
  * All signals that:
@@ -256,6 +258,7 @@ ProcMgr_ListProcesses(void)
    procList = Util_SafeCalloc(1, sizeof *procList);
    ProcMgrProcInfoArray_Init(procList, 0);
    procInfo.procCmdName = NULL;
+   procInfo.procCmdAbsPath = NULL;
    procInfo.procCmdLine = NULL;
    procInfo.procOwner = NULL;
 
@@ -267,9 +270,7 @@ ProcMgr_ListProcesses(void)
     * with the seconds since epoch that the system booted up.
     */
    if (0 == hostStartTime) {
-      FILE *uptimeFile = NULL;
-
-      uptimeFile = fopen("/proc/uptime", "r");
+      FILE *uptimeFile = fopen("/proc/uptime", "r");
       if (NULL != uptimeFile) {
          double secondsSinceBoot;
          char *realLocale;
@@ -337,7 +338,6 @@ ProcMgr_ListProcesses(void)
       unsigned long long dummy;
       unsigned long long relativeStartTime;
       char *stringBegin;
-      char *cmdNameBegin;
       Bool cmdNameLookup = TRUE;
 
       /*
@@ -384,31 +384,72 @@ ProcMgr_ListProcesses(void)
          continue;
       }
 
-      if (numRead > 0) {
+      if (snprintf(cmdFilePath,
+                   sizeof cmdFilePath,
+                   "/proc/%s/exe",
+                   ent->d_name) != -1) {
+         int exeLen;
+         char exeRealPath[1024];
+
          /*
-          * Stop before we hit the final '\0'; want to leave it alone.
+          * This readlink() call on the "exe" file of the current /proc
+          * entry is not intended as a check on the subsequent open() of
+          * the "status" file of that entry, hence no time-of-check to
+          * time-of-use issue.
           */
-         for (replaceLoop = 0 ; replaceLoop < (numRead - 1) ; replaceLoop++) {
-            if ('\0' == cmdLineTemp[replaceLoop]) {
+         /* coverity[fs_check_call] */
+         exeLen = readlink(cmdFilePath, exeRealPath, sizeof exeRealPath -1);
+         if (exeLen != -1) {
+            exeRealPath[exeLen] = '\0';
+            procInfo.procCmdAbsPath =
+               Unicode_Alloc(exeRealPath, STRING_ENCODING_DEFAULT);
+         }
+      }
+
+      if (numRead > 0) {
+         for (replaceLoop = 0 ; replaceLoop < numRead ; replaceLoop++) {
+            if ('\0' == cmdLineTemp[replaceLoop] ||
+                replaceLoop == numRead - 1) {
                if (cmdNameLookup) {
                   /*
                    * Store the command name.
                    * Find the last path separator, to get the cmd name.
                    * If no separator is found, then use the whole name.
+                   * This needs to be done only if there is an absolute
+                   * path for the binary. Else, the parsing may result
+                   * in incorrect results. Following are few examples:
+                   *
+                   *   sshd: root@pts/1
+                   *   gdm-session-worker [pam/gdm-autologin]
+                   *
                    */
-                  cmdNameBegin = strrchr(cmdLineTemp, '/');
-                  if (NULL == cmdNameBegin) {
-                     cmdNameBegin = cmdLineTemp;
-                  } else {
+                  char *cmdNameBegin = strrchr(cmdLineTemp, '/');
+                  if (NULL != cmdNameBegin && cmdLineTemp[0] == '/') {
                      /*
                       * Skip over the last separator.
                       */
                      cmdNameBegin++;
+                  } else {
+                     cmdNameBegin = cmdLineTemp;
                   }
                   procInfo.procCmdName = Unicode_Alloc(cmdNameBegin, STRING_ENCODING_DEFAULT);
+                  if (procInfo.procCmdAbsPath == NULL &&
+                      cmdLineTemp[0] == '/') {
+                     procInfo.procCmdAbsPath =
+                        Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+                  }
                   cmdNameLookup = FALSE;
                }
-               cmdLineTemp[replaceLoop] = ' ';
+
+               /*
+                * In /proc/{PID}/cmdline file, the command and the
+                * arguments are separated by '\0'. We need to replace
+                * only the intermediate '\0' with ' ' and not the trailing
+                * NUL characer.
+                */
+               if (replaceLoop < (numRead - 1)) {
+                  cmdLineTemp[replaceLoop] = ' ';
+               }
             }
          }
       } else {
@@ -462,6 +503,10 @@ ProcMgr_ListProcesses(void)
              * Store the command name.
              */
             procInfo.procCmdName = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+            if (procInfo.procCmdAbsPath == NULL &&
+                cmdLineTemp[0] == '/') {
+               procInfo.procCmdAbsPath = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+            }
          }
       }
 
@@ -481,7 +526,13 @@ ProcMgr_ListProcesses(void)
        * stat() /proc/<pid> to get the owner.  We use fileStat.st_uid
        * later in this code.  If we can't stat(), ignore and continue.
        * Maybe we don't have enough permission.
+       *
+       * This stat() call on the current /proc entry is not intended
+       * as a check on the open() near the top of the while loop which
+       * is on the cmdline file of the next entry in /proc, hence no
+       * time-of-check to time-of-use issue.
        */
+      /* coverity[fs_check_call] */
       statResult = stat(cmdFilePath, &fileStat);
       if (0 != statResult) {
          goto next_entry;
@@ -535,6 +586,17 @@ ProcMgr_ListProcesses(void)
        * Store the command line string pointer in dynbuf.
        */
       if (cmdLineTemp) {
+         int i;
+
+         /*
+          * Chop off the trailing whitespace characters.
+          */
+         for (i = strlen(cmdLineTemp) - 1 ;
+              i >= 0 && cmdLineTemp[i] == ' ' ;
+              i--) {
+            cmdLineTemp[i] = '\0';
+         }
+
          procInfo.procCmdLine = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
       } else {
          procInfo.procCmdLine = Unicode_Alloc("", STRING_ENCODING_UTF8);
@@ -564,13 +626,21 @@ ProcMgr_ListProcesses(void)
       if (!ProcMgrProcInfoArray_Push(procList, procInfo)) {
          Warning("%s: failed to expand DynArray - out of memory\n",
                  __FUNCTION__);
+         free(cmdLineTemp);
+         free(cmdStatTemp);
          goto abort;
       }
       procInfo.procCmdName = NULL;
+      procInfo.procCmdAbsPath = NULL;
       procInfo.procCmdLine = NULL;
       procInfo.procOwner = NULL;
 
 next_entry:
+      free(procInfo.procCmdName);
+      procInfo.procCmdName = NULL;
+      free(procInfo.procCmdAbsPath);
+      procInfo.procCmdAbsPath = NULL;
+
       free(cmdLineTemp);
       free(cmdStatTemp);
    } // while readdir
@@ -583,6 +653,7 @@ abort:
    closedir(dir);
 
    free(procInfo.procCmdName);
+   free(procInfo.procCmdAbsPath);
    free(procInfo.procCmdLine);
    free(procInfo.procOwner);
 
@@ -1187,6 +1258,9 @@ ProcMgr_FreeProcList(ProcMgrProcInfoArray *procList)
    for (i = 0; i < procCount; i++) {
       ProcMgrProcInfo *procInfo = ProcMgrProcInfoArray_AddressOf(procList, i);
       free(procInfo->procCmdName);
+#if defined(__linux__)
+      free(procInfo->procCmdAbsPath);
+#endif
       free(procInfo->procCmdLine);
       free(procInfo->procOwner);
    }
@@ -1311,7 +1385,7 @@ ProcMgr_ExecSyncWithExitCode(char const *cmd,                  // IN: UTF-8 comm
                              Bool *validExitCode,              // OUT: exit code is valid
                              int *exitCode)                    // OUT: exit code
 {
-   Bool result = FALSE;
+   Bool result;
 
    ASSERT(exitCode != NULL && validExitCode != NULL);
 
@@ -1582,8 +1656,6 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
    ProcMgr_AsyncProc *asyncProc = NULL;
    pid_t pid;
    int fds[2];
-   Bool validExitCode = FALSE;
-   int exitCode;
    pid_t resultPid;
    int readFd, writeFd;
 
@@ -1608,6 +1680,8 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
       int i, maxfd;
       Bool status = TRUE;
       pid_t childPid = -1;
+      Bool validExitCode = FALSE;
+      int exitCode = -1;
 
       /*
        * Child
@@ -1817,7 +1891,7 @@ ProcMgrKill(pid_t pid,      // IN
 {
    if (kill(pid, sig) == -1) {
       int savedErrno = errno;
-      Warning("Error trying to kill process %"FMTPID" with signal %d: %s\n",
+      Warning("Error trying to cancel process %"FMTPID" with signal %d: %s\n",
               pid, sig, Msg_ErrString());
       errno = savedErrno;
       return 0;
@@ -1864,7 +1938,7 @@ ProcMgrKill(pid_t pid,      // IN
    /*
     * timed out -- system/process is incredibly unresponsive or unkillable
     */
-   Warning("%s: timed out trying to kill pid %"FMTPID" with signal %d\n",
+   Warning("%s: timed out trying to cancel pid %"FMTPID" with signal %d\n",
            __FUNCTION__, pid, sig);
    return -1;
 }
@@ -2238,13 +2312,15 @@ ProcMgr_ImpersonateUserStart(const char *user,  // IN: UTF-8 encoded user name
    ret = setresgid(ppw->pw_gid, ppw->pw_gid, root_gid);
 #endif
    if (ret < 0) {
-      Warning("Failed to set gid for user %s\n", user);
+      WarningToGuest("Failed to set gid for user %s\n", user);
+      WarningToHost("Failed to set gid\n");
       return FALSE;
    }
 #ifndef USERWORLD
    ret = initgroups(ppw->pw_name, ppw->pw_gid);
    if (ret < 0) {
-      Warning("Failed to initgroups() for user %s\n", user);
+      WarningToGuest("Failed to initgroups() for user %s\n", user);
+      WarningToHost("Failed to initgroups()\n");
       goto failure;
    }
 #endif
@@ -2257,7 +2333,8 @@ ProcMgr_ImpersonateUserStart(const char *user,  // IN: UTF-8 encoded user name
    ret = setresuid(ppw->pw_uid, ppw->pw_uid, 0);
 #endif
    if (ret < 0) {
-      Warning("Failed to set uid for user %s\n", user);
+      WarningToGuest("Failed to set uid for user %s\n", user);
+      WarningToHost("Failed to set uid\n");
       goto failure;
    }
 

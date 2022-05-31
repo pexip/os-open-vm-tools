@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -32,9 +32,11 @@
 #endif
 
 #include "file.h"
+#include "random.h"
 #include "str.h"
 #include "util.h"
 #include "unicodeBase.h"
+#include "conf.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +52,9 @@ extern "C" {
 // For c++, LogLevel enum is defined in ImgCustCommon namespace.
 using namespace ImgCustCommon;
 #endif
+
+// Using 3600s as the upper limit of timeout value in tools.conf.
+#define MAX_TIMEOUT_FROM_TOOLCONF 3600
 
 static char *DeployPkgGetTempDir(void);
 
@@ -72,12 +77,16 @@ static char *DeployPkgGetTempDir(void);
  */
 
 static ToolsDeployPkgError
-DeployPkgDeployPkgInGuest(const char* pkgFile, // IN: the package filename
+DeployPkgDeployPkgInGuest(ToolsAppCtx *ctx,    // IN: app context
+                          const char* pkgFile, // IN: the package filename
                           char* errBuf,        // OUT: buffer for msg on fail
                           int errBufSize)      // IN: size of errBuf
 {
    char *tempFileName = NULL;
    ToolsDeployPkgError ret = TOOLSDEPLOYPKG_ERROR_SUCCESS;
+#ifndef _WIN32
+   int processTimeout;
+#endif
 
    /* Init the logger */
    DeployPkgLog_Open();
@@ -102,6 +111,32 @@ DeployPkgDeployPkgInGuest(const char* pkgFile, // IN: the package filename
       goto ExitPoint;
    }
    pkgFile = tempFileName;
+#else
+   /*
+    * Get processTimeout from tools.conf.
+    * Only when we get valid 'timeout' value from tools.conf, we will call
+    * DeployPkg_SetProcessTimeout to over-write the processTimeout in deployPkg
+    * Using 0 as the default value of CONFNAME_DEPLOYPKG_PROCESSTIMEOUT in tools.conf
+    */
+   processTimeout =
+        VMTools_ConfigGetInteger(ctx->config,
+                                 CONFGROUPNAME_DEPLOYPKG,
+                                 CONFNAME_DEPLOYPKG_PROCESSTIMEOUT,
+                                 0);
+   if (processTimeout > 0 && processTimeout <= MAX_TIMEOUT_FROM_TOOLCONF) {
+      DeployPkgLog_Log(log_debug, "[%s] %s in tools.conf: %d",
+                       CONFGROUPNAME_DEPLOYPKG,
+                       CONFNAME_DEPLOYPKG_PROCESSTIMEOUT,
+                       processTimeout);
+      DeployPkg_SetProcessTimeout(processTimeout);
+   } else if (processTimeout != 0) {
+      DeployPkgLog_Log(log_debug, "Invalid value %d from tools.conf [%s] %s",
+                       processTimeout,
+                       CONFGROUPNAME_DEPLOYPKG,
+                       CONFNAME_DEPLOYPKG_PROCESSTIMEOUT);
+      DeployPkgLog_Log(log_debug, "The valid timeout value range: 1 ~ %d",
+                       MAX_TIMEOUT_FROM_TOOLCONF);
+   }
 #endif
 
    if (0 != DeployPkg_DeployPackageFromFile(pkgFile)) {
@@ -141,12 +176,13 @@ ExitPoint:
 gboolean
 DeployPkg_TcloBegin(RpcInData *data)   // IN
 {
-   static char resultBuffer[FILE_MAXPATH];
    char *tempDir = DeployPkgGetTempDir();
 
    g_debug("DeployPkgTcloBegin got call\n");
 
    if (tempDir) {
+      static char resultBuffer[FILE_MAXPATH];
+
       Str_Strcpy(resultBuffer, tempDir, sizeof resultBuffer);
       free(tempDir);
       return RPCIN_SETRETVALS(data, resultBuffer, TRUE);
@@ -176,25 +212,57 @@ DeployPkgExecDeploy(ToolsAppCtx *ctx,   // IN: app context
 {
    char errMsg[2048];
    ToolsDeployPkgError ret;
-   gchar *msg;
    char *pkgNameStr = (char *) pkgName;
+   Bool enableCust;
 
    g_debug("%s: Deploypkg deploy task started.\n", __FUNCTION__);
 
-   /* Unpack the package and run the command. */
-   ret = DeployPkgDeployPkgInGuest(pkgNameStr, errMsg, sizeof errMsg);
-   if (ret != TOOLSDEPLOYPKG_ERROR_SUCCESS) {
-      msg = g_strdup_printf("deployPkg.update.state %d %d %s",
-                            TOOLSDEPLOYPKG_DEPLOYING,
-                            TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED,
-                            errMsg);
-      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
-         g_warning("%s: failed to send error code %d for state TOOLSDEPLOYPKG_DEPLOYING\n",
+   /*
+    * Check whether guest customization is enabled by VM Tools,
+    * by default it is enabled.
+    */
+   enableCust = VMTools_ConfigGetBoolean(ctx->config,
+                                         CONFGROUPNAME_DEPLOYPKG,
+                                         CONFNAME_DEPLOYPKG_ENABLE_CUST,
+                                         TRUE);
+   if (!enableCust) {
+      char *result = NULL;
+      size_t resultLen;
+      gchar *msg = g_strdup_printf("deployPkg.update.state %d %d %s",
+                                   TOOLSDEPLOYPKG_DEPLOYING,
+                                   TOOLSDEPLOYPKG_ERROR_CUST_DISABLED,
+                                   "Customization is disabled by guest admin");
+
+      g_warning("%s: Customization is disabled by guest admin.\n",
+                __FUNCTION__);
+
+      if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), &result, &resultLen)) {
+         g_warning("%s: failed to send error code %d for state "
+                   "TOOLSDEPLOYPKG_DEPLOYING, result: %s\n",
                    __FUNCTION__,
-                   TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
+                   TOOLSDEPLOYPKG_ERROR_CUST_DISABLED,
+                   result != NULL ? result : "");
       }
       g_free(msg);
-      g_warning("DeployPkgInGuest failed, error = %d\n", ret);
+      vm_free(result);
+   } else {
+      /* Unpack the package and run the command. */
+      ret = DeployPkgDeployPkgInGuest(ctx, pkgNameStr, errMsg, sizeof errMsg);
+      if (ret != TOOLSDEPLOYPKG_ERROR_SUCCESS) {
+         gchar *msg = g_strdup_printf("deployPkg.update.state %d %d %s",
+                                      TOOLSDEPLOYPKG_DEPLOYING,
+                                      TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED,
+                                      errMsg);
+
+         if (!RpcChannel_Send(ctx->rpc, msg, strlen(msg), NULL, NULL)) {
+            g_warning("%s: failed to send error code %d for state "
+                      "TOOLSDEPLOYPKG_DEPLOYING\n",
+                      __FUNCTION__,
+                      TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
+         }
+         g_free(msg);
+         g_warning("DeployPkgInGuest failed, error = %d\n", ret);
+      }
    }
 
    /* Attempt to delete the package file and tempdir. */
@@ -295,6 +363,7 @@ DeployPkg_TcloDeploy(RpcInData *data)  // IN
                    TOOLSDEPLOYPKG_ERROR_DEPLOY_FAILED);
       }
       g_free(msg);
+      free(pkgName);
    }
 
    free(argCopy);
@@ -325,6 +394,7 @@ DeployPkgGetTempDir(void)
    char *dir = NULL;
    char *newDir = NULL;
    Bool found = FALSE;
+   int randIndex;
 #ifndef _WIN32
    /*
     * PR 2115630. On Linux, use /var/run or /run directory
@@ -360,8 +430,13 @@ DeployPkgGetTempDir(void)
    /* Make a temporary directory to hold the package. */
    while (!found && i < 10) {
       free(newDir);
+      if (!Random_Crypto(sizeof(randIndex), &randIndex)) {
+         g_warning("%s: Random_Crypto failed\n", __FUNCTION__);
+         newDir = NULL;
+         goto exit;
+      }
       newDir = Str_Asprintf(NULL, "%s%s%08x%s",
-                            dir, DIRSEPS, rand(), DIRSEPS);
+                            dir, DIRSEPS, randIndex, DIRSEPS);
       if (newDir == NULL) {
          g_warning("%s: Str_Asprintf failed\n", __FUNCTION__);
          goto exit;
@@ -370,9 +445,10 @@ DeployPkgGetTempDir(void)
       i++;
    }
 
-   if (found == FALSE) {
+   if (!found) {
       g_warning("%s: could not create temp directory\n", __FUNCTION__);
-      goto exit;
+      free(newDir);
+      newDir = NULL;
    }
 exit:
    free(dir);

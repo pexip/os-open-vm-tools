@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -512,6 +512,7 @@ ToolsCoreLoadDirectory(ToolsAppCtx *ctx,
    dir = g_dir_open(pluginPath, 0, &err);
    if (dir == NULL) {
       g_warning("Error opening dir: %s\n", err->message);
+      g_clear_error(&err);
       goto exit;
    }
 
@@ -550,6 +551,21 @@ ToolsCoreLoadDirectory(ToolsAppCtx *ctx,
       /* Trying loading the plugins with system libraries */
       if (!LoadDependencies(path, FALSE)) {
          g_warning("Loading of library dependencies for %s failed.\n", entry);
+         goto next;
+      }
+#endif
+
+#ifdef _WIN32
+      /*
+       * Only load compatible versions of a plugin which requires that a plugin
+       * and tools product versions match.
+       * Using FALSE compares the major.minor.base components of the version.
+       * Version format is: "major.minor.base.buildnumber" e.g. "11.2.0.19761"
+       * Use TRUE for a more strict check to verify all four version components.
+       */
+      if (!ToolsCore_CheckModuleVersion(path, FALSE)) {
+         g_warning("%s: Version check of plugin '%s' failed: not loaded.\n",
+                    __FUNCTION__, path);
          goto next;
       }
 #endif
@@ -656,7 +672,7 @@ ToolsCore_LoadPlugins(ToolsServiceState *state)
 
 #ifdef USE_APPLOADER
    {
-      Bool ret = FALSE;
+      Bool ret;
       GModule *mainModule = g_module_open(NULL, G_MODULE_BIND_LAZY);
       ASSERT(mainModule);
 
