@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -68,6 +68,8 @@
 
 #define ETHER_MAX_QUEUED_PACKET 1600
 
+/* Most Ethernet equipment can support jumbo frames up to 9216 bytes. */
+#define ETHER_MAX_JUMBO_FRAME_LEN 9216
 
 /*
  * State's that a NIC can be in currently we only use this
@@ -212,7 +214,7 @@ Net_GetNumAdapters(Net_AdapterCount *counts)
       } else if (Str_Strcasecmp(adapterStr, "e1000e") == 0) {
          counts->e1000e++;
       } else {
-         LOG_ONCE(("%s: unknown adapter: %s\n", __FUNCTION__, adapterStr));
+         LOG_ONCE("%s: unknown adapter: %s\n", __FUNCTION__, adapterStr);
       }
       free(adapterStr);
    }

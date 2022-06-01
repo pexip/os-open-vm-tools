@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -50,6 +50,9 @@
 /** Reply from host when the command is not recognized. */
 #define RPCI_UNKNOWN_COMMAND      "Unknown command"
 
+/** Reply from the guest when the command is not recognized. */
+#define GUEST_RPC_UNKNOWN_COMMAND "Unknown Command"
+
 #define GUESTRPC_TCLO_VSOCK_LISTEN_PORT      975
 #define GUESTRPC_RPCI_VSOCK_LISTEN_PORT      976
 
@@ -64,16 +67,26 @@
 #define TOOLSOPTION_MAP_ROOT_HGFS_SHARE           "mapRootHgfsShare"
 #define TOOLSOPTION_LINK_ROOT_HGFS_SHARE          "linkRootHgfsShare"
 #define TOOLSOPTION_ENABLE_MESSAGE_BUS_TUNNEL     "enableMessageBusTunnel"
+#define TOOLSOPTION_GUEST_LOG_LEVEL               "guestLogLevel"
+#define TOOLSOPTION_ENABLE_APPINFO                "enableAppInfo"
 
 /*
  * Auto-upgrade commands.
  */
 
-#define AUTOUPGRADE_AVAILABLE_CMD   "vmx.capability.tools_is_upgradable"
-#define AUTOUPGRADE_START_CMD       "guest.initiateAutoUpgrade"
+#define AUTOUPGRADE_AVAILABLE_CMD       "vmx.capability.tools_is_upgradable"
+#define AUTOUPGRADE_START_CMD           "guest.initiateAutoUpgrade"
+#define AUTOUPGRADE_POWERON_POLICY_CMD  "vmx.autoupgrade.poweron_policy"
 
 /* More upgrader commands. */
 #define GUEST_UPGRADER_SEND_CMD_LINE_ARGS  "guest.upgrader_send_cmd_line_args"
+
+/*
+ * GuestStore Upgrade commands.
+ */
+
+#define GSUPGRADE_START_CMD   "guestStoreUpgrade.start"
+#define GSUPGRADE_CANCEL_CMD  "guestStoreUpgrade.cancel"
 
 /*
  * Shrink commands.
@@ -87,6 +100,20 @@
 
 #define DESKTOP_AUTOLOCK_CMD        "Autolock_Desktop"
 
+/*
+ * Guest log commands.
+ */
+
+#define GUEST_LOG_STATE_CMD "guest.log.state"
+#define GUEST_LOG_TEXT_CMD "guest.log.text"
+
+/*
+ *  Update tools health command.
+ */
+#define UPDATE_TOOLS_HEALTH_CMD "update.tools.health"
+#define TOOLS_HEALTH_NORMAL_KEY "normal"
+#define TOOLS_HEALTH_HUNG_KEY "hung"
+#define TOOLS_HEALTH_GUEST_SLOW_KEY "guest_slow"
 
 /*
  * The max selection buffer length has to be less than the
@@ -126,7 +153,8 @@ enum {
 
 enum {
    GUESTRPCPKT_FIELD_TYPE = 1,
-   GUESTRPCPKT_FIELD_PAYLOAD
+   GUESTRPCPKT_FIELD_PAYLOAD,
+   GUESTRPCPKT_FIELD_FAST_CLOSE
 };
 
 #endif /* _TCLODEFS_H_ */

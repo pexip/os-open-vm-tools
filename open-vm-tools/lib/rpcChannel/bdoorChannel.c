@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016,2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2016,2018-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -38,9 +38,13 @@ typedef struct BackdoorChannel {
 
 
 /**
- * Starts the RpcIn loop and the RpcOut channel.
+ * Starts the RpcOut channel.
  *
- * No-op if channels are already started.
+ * No-op if channels are already started. If RpcIn
+ * channel is needed, it must have been started
+ * before calling this function.
+ *
+ * In case of error, stops RpcIn.
  *
  * @param[in]  chan     The RPC channel instance.
  *
@@ -50,19 +54,25 @@ typedef struct BackdoorChannel {
 static gboolean
 BkdoorChannelStart(RpcChannel *chan)
 {
-   gboolean ret = TRUE;
+   gboolean ret;
    BackdoorChannel *bdoor = chan->_private;
 
 #if defined(NEED_RPCIN)
-   ret = chan->in == NULL || chan->inStarted;
-   if (ret) {
-      ret = RpcOut_start(bdoor->out);
-      if (!ret) {
-         if (chan->inStarted) {
-            RpcIn_stop(chan->in);
-            chan->inStarted = FALSE;
-         }
-      }
+   /*
+    * If the RpcIn channel exists, it should have been started before
+    * calling this routine.
+    */
+   ASSERT(chan->in == NULL || chan->inStarted);
+
+   ret = RpcOut_start(bdoor->out);
+   if (!ret && chan->in != NULL) {
+      /*
+       * If the output channel failed to start, stop the input channel
+       * if there is one.
+       */
+
+      RpcIn_stop(chan->in);
+      chan->inStarted = FALSE;
    }
 #else
    ret = RpcOut_start(bdoor->out);
@@ -91,30 +101,11 @@ BkdoorChannelStop(RpcChannel *chan)
    if (bdoor->out != NULL) {
       if (chan->outStarted) {
          RpcOut_stop(bdoor->out);
+         chan->outStarted = FALSE;
       }
-      chan->outStarted = FALSE;
    } else {
       ASSERT(!chan->outStarted);
    }
-}
-
-
-/**
- * Shuts down the RpcIn channel. Due to the "split brain" nature of the backdoor,
- * if this function fails, it's possible that while the "out" channel was shut
- * down the "in" one wasn't, for example, although that's unlikely.
- *
- * @param[in]  chan     The RPC channel instance.
- */
-
-static void
-BkdoorChannelShutdown(RpcChannel *chan)
-{
-   BackdoorChannel *bdoor = chan->_private;
-   BkdoorChannelStop(chan);
-   RpcOut_Destruct(bdoor->out);
-   g_free(bdoor);
-   chan->_private = NULL;
 }
 
 
@@ -207,11 +198,51 @@ exit:
 
 
 /**
+ * Callback function to destroy the Backdoor channel after
+ * it fails to start or it has been stopped.
+ *
+ * @param[in]  chan     The RPC channel instance.
+ */
+
+static void
+BkdoorChannelDestroy(RpcChannel *chan)
+{
+   BackdoorChannel *bdoor = chan->_private;
+
+   /*
+    * Channel should be stopped before destroying it.
+    */
+   ASSERT(!chan->outStarted);
+   RpcOut_Destruct(bdoor->out);
+   g_free(bdoor);
+   chan->_private = NULL;
+}
+
+
+/**
+ * Shuts down the Backdoor RpcOut channel.
+ *
+ * Due to the "split brain" nature of the backdoor, if this function
+ * fails, it's possible that while the "out" channel was shut down
+ * the "in" one wasn't, for example, although that's unlikely.
+ *
+ * @param[in]  chan     The RPC channel instance.
+ */
+
+static void
+BkdoorChannelShutdown(RpcChannel *chan)
+{
+   BkdoorChannelStop(chan);
+   BkdoorChannelDestroy(chan);
+}
+
+
+/**
  * Return the channel type.
  *
  * @param[in]  chan     RpcChannel
  *
- * @return backdoor channel type.
+ * @return RpcChannelType.
  */
 
 static RpcChannelType
@@ -237,8 +268,7 @@ BackdoorChannelSetCallbacks(RpcChannel *chan)
       NULL,
       BkdoorChannelShutdown,
       BkdoorChannelGetType,
-      NULL,
-      NULL
+      BkdoorChannelDestroy
    };
 
    ASSERT(chan);
@@ -268,9 +298,15 @@ BackdoorChannel_New(void)
    ret->inStarted = FALSE;
 #endif
    ret->outStarted = FALSE;
+   /*
+    * Backdoor channel is not mutable as it has no
+    * fallback option available.
+    */
+   ret->isMutable = FALSE;
 
    BackdoorChannelSetCallbacks(ret);
    ret->_private = bdoor;
+   g_mutex_init(&ret->outLock);
 
    return ret;
 }
@@ -280,11 +316,9 @@ BackdoorChannel_New(void)
  * Fall back to backdoor when another type of RpcChannel fails to start.
  *
  * @param[in]  chan     RpcChannel
- *
- * @return TRUE on success.
  */
 
-gboolean
+void
 BackdoorChannel_Fallback(RpcChannel *chan)
 {
    BackdoorChannel *bdoor;
@@ -298,7 +332,4 @@ BackdoorChannel_Fallback(RpcChannel *chan)
 
    BackdoorChannelSetCallbacks(chan);
    chan->_private = bdoor;
-
-   return chan->funcs->start(chan);
 }
-

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -34,7 +34,7 @@
 #ifdef VMX86_TOOLS
 extern "C" {
    #include "debug.h"
-   #define LOG(level, msg) (Debug msg)
+   #define LOG(level, ...) Debug(__VA_ARGS__)
 }
 #else
    #define LOGLEVEL_MODULE dnd
@@ -52,8 +52,12 @@ extern "C" {
  */
 
 RpcV4Util::RpcV4Util(void)
-   : mVersionMajor(4),
-     mVersionMinor(0)
+   : mRpc(NULL),
+     mVersionMajor(4),
+     mVersionMinor(0),
+     mMsgType(0),
+     mMsgSrc(0),
+     mMaxTransportPacketPayloadSize(DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4)
 {
    DnDCPMsgV4_Init(&mBigMsgIn);
    DnDCPMsgV4_Init(&mBigMsgOut);
@@ -140,7 +144,7 @@ RpcV4Util::SendMsg(RpcParams *params,
    DynBuf_Init(&buf);
 
    if (!CPClipboard_Serialize(clip, &buf)) {
-      LOG(0, ("%s: CPClipboard_Serialize failed.\n", __FUNCTION__));
+      LOG(0, "%s: CPClipboard_Serialize failed.\n", __FUNCTION__);
       goto exit;
    }
 
@@ -177,7 +181,7 @@ RpcV4Util::SendMsg(RpcParams *params,
 
    DnDCPMsgV4_Init(&shortMsg);
 
-   if (binarySize > DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4) {
+   if (binarySize > mMaxTransportPacketPayloadSize) {
       /*
        * For big message, all information should be cached in mBigMsgOut
        * because multiple packets and sends are needed.
@@ -210,6 +214,14 @@ RpcV4Util::SendMsg(RpcParams *params,
       memcpy(msgOut->binary, binary,binarySize);
    }
 
+   /*
+    * Coverity reports a potential null dereference on msgOut->binary
+    * in DnDCPMsgV4_SerializeWithInputPayloadSizeCheck, which is called
+    * from RPCV4Util::SendMsg.  However, it's a false positive, since
+    * msgOut->binary is dereferenced only if msgOut->hdr.binarySize > 0,
+    * which in turn guarantees msgOut->binary will be non-NULL.
+    */
+   /* coverity[var_deref_model] */
    ret = SendMsg(msgOut);
    /* The mBigMsgOut is destroyed when the message sending was failed. */
    if (!ret && msgOut == &mBigMsgOut) {
@@ -335,8 +347,9 @@ RpcV4Util::SendMsg(DnDCPMsgV4 *msg)
    size_t packetSize = 0;
    bool ret = false;
 
-   if (!DnDCPMsgV4_Serialize(msg, &packet, &packetSize)) {
-      LOG(1, ("%s: DnDCPMsgV4_Serialize failed. \n", __FUNCTION__));
+   if (!DnDCPMsgV4_SerializeWithInputPayloadSizeCheck(msg, &packet,
+      &packetSize, mMaxTransportPacketPayloadSize)) {
+      LOG(1, "%s: DnDCPMsgV4_Serialize failed. \n", __FUNCTION__);
       return false;
    }
 
@@ -364,7 +377,12 @@ RpcV4Util::OnRecvPacket(uint32 srcId,
                         const uint8 *packet,
                         size_t packetSize)
 {
-   DnDCPMsgPacketType packetType = DnDCPMsgV4_GetPacketType(packet, packetSize);
+   DnDCPMsgPacketType packetType = DND_CP_MSG_PACKET_TYPE_INVALID;
+
+   if (packetSize <= mMaxTransportPacketPayloadSize + DND_CP_MSG_HEADERSIZE_V4) {
+      packetType = DnDCPMsgV4_GetPacketType(packet, packetSize, mMaxTransportPacketPayloadSize);
+   }
+
    switch (packetType) {
    case DND_CP_MSG_PACKET_TYPE_SINGLE:
       HandlePacket(srcId, packet, packetSize);
@@ -375,7 +393,7 @@ RpcV4Util::OnRecvPacket(uint32 srcId,
       HandlePacket(srcId, packet, packetSize, packetType);
       break;
    default:
-      LOG(1, ("%s: invalid packet. \n", __FUNCTION__));
+      LOG(1, "%s: invalid packet. \n", __FUNCTION__);
       SendCmdReplyMsg(srcId, DNDCP_CMD_INVALID, DND_CP_MSG_STATUS_INVALID_PACKET);
       break;
    }
@@ -400,7 +418,7 @@ RpcV4Util::HandlePacket(uint32 srcId,
    DnDCPMsgV4_Init(&msgIn);
 
    if (!DnDCPMsgV4_UnserializeSingle(&msgIn, packet, packetSize)) {
-      LOG(1, ("%s: invalid packet. \n", __FUNCTION__));
+      LOG(1, "%s: invalid packet. \n", __FUNCTION__);
       SendCmdReplyMsg(srcId, DNDCP_CMD_INVALID, DND_CP_MSG_STATUS_INVALID_PACKET);
       return;
    }
@@ -428,7 +446,7 @@ RpcV4Util::HandlePacket(uint32 srcId,
                     DnDCPMsgPacketType packetType)
 {
    if (!DnDCPMsgV4_UnserializeMultiple(&mBigMsgIn, packet, packetSize)) {
-      LOG(1, ("%s: invalid packet. \n", __FUNCTION__));
+      LOG(1, "%s: invalid packet. \n", __FUNCTION__);
       SendCmdReplyMsg(srcId, DNDCP_CMD_INVALID, DND_CP_MSG_STATUS_INVALID_PACKET);
       goto cleanup;
    }
@@ -441,7 +459,7 @@ RpcV4Util::HandlePacket(uint32 srcId,
     */
    if (DND_CP_MSG_PACKET_TYPE_MULTIPLE_END != packetType) {
       if (!RequestNextPacket()) {
-         LOG(1, ("%s: RequestNextPacket failed.\n", __FUNCTION__));
+         LOG(1, "%s: RequestNextPacket failed.\n", __FUNCTION__);
          goto cleanup;
       }
       /*
@@ -480,7 +498,7 @@ RpcV4Util::HandleMsg(DnDCPMsgV4 *msgIn)
       bool ret = SendMsg(&mBigMsgOut);
 
       if (!ret) {
-         LOG(1, ("%s: SendMsg failed. \n", __FUNCTION__));
+         LOG(1, "%s: SendMsg failed. \n", __FUNCTION__);
       }
 
       /*
@@ -528,6 +546,13 @@ RpcV4Util::AddRpcReceivedListener(const DnDRpcListener *listener)
    DblLnkLst_Init(&node->l);
    node->listener = listener;
    DblLnkLst_LinkLast(&mRpcReceivedListeners, &node->l);
+
+   /*
+    * Storage of node is not leaking since the above call to
+    * DblLnkLst_LinkLast adds it to the end of the
+    * mRpcReceivedListeners list.
+    */
+   /* coverity[leaked_storage] */
    return true;
 }
 
@@ -606,6 +631,13 @@ RpcV4Util::AddRpcSentListener(const DnDRpcListener *listener)
    DblLnkLst_Init(&node->l);
    node->listener = listener;
    DblLnkLst_LinkLast(&mRpcSentListeners, &node->l);
+
+   /*
+    * Storage of node is not leaking since the above call to
+    * DblLnkLst_LinkLast adds it to the end of the
+    * mRpcSentListeners list.
+    */
+   /* coverity[leaked_storage] */
    return true;
 }
 
@@ -664,5 +696,28 @@ RpcV4Util::FireRpcSentCallbacks(uint32 cmd,
    }
 }
 
+
+/**
+ * Set the max transport packet size of RPC messages.
+ *
+ * @param[in] size the new max packet size.
+ */
+
+void
+RpcV4Util::SetMaxTransportPacketSize(const uint32 size)
+{
+   ASSERT(size > DND_CP_MSG_HEADERSIZE_V4);
+
+   uint32 newProposedPayloadSize = size - DND_CP_MSG_HEADERSIZE_V4;
+   if (newProposedPayloadSize < DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4) {
+      /*
+       * Reset the max transport packet payload size
+       * if the new size is stricter than the default one.
+       */
+      mMaxTransportPacketPayloadSize = newProposedPayloadSize;
+      LOG(1, "%s: The packet size is set to %u. \n", __FUNCTION__,
+          mMaxTransportPacketPayloadSize);
+   }
+}
 
 

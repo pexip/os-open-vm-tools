@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -36,6 +36,7 @@
 #include "wiper.h"
 #include "vmware/guestrpc/tclodefs.h"
 #include "vmware/tools/i18n.h"
+#include "vmware/tools/log.h"
 
 #ifndef _WIN32
 static void ShrinkWiperDestroy(int signal);
@@ -105,7 +106,7 @@ ShrinkGetWiperState(void)
          state = WIPER_DISABLED;
       }
    }
-   free(result);
+   ToolsCmd_FreeRPC(result);
    return state;
 }
 
@@ -234,8 +235,9 @@ ShrinkList(void)
 static int
 ShrinkDiskSendRPC(void)
 {
-   char *result;
+   char *result = NULL;
    size_t resultLen;
+   int retVal;
 
    ToolsCmd_PrintErr("\n");
 
@@ -243,11 +245,15 @@ ShrinkDiskSendRPC(void)
                         &result, &resultLen)) {
       ToolsCmd_Print("%s",
                      SU_(disk.shrink.complete, "Disk shrinking complete.\n"));
-      return EXIT_SUCCESS;
+      retVal =  EXIT_SUCCESS;
+   } else {
+      ToolsCmd_PrintErr(SU_(disk.shrink.error, "Error while shrinking: %s\n"),
+                        VM_SAFE_STR(result));
+      retVal =  EX_TEMPFAIL;
    }
 
-   ToolsCmd_PrintErr(SU_(disk.shrink.error, "Error while shrinking: %s\n"), result);
-   return EX_TEMPFAIL;
+   ToolsCmd_FreeRPC(result);
+   return retVal;
 }
 
 

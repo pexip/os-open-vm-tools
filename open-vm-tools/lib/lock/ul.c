@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -200,7 +200,7 @@ MXUserSyndrome(void)
       syndrome = Atomic_Read(&syndromeMem);
    }
 
-   ASSERT(syndrome);
+   ASSERT(syndrome != 0);
 
    return syndrome;
 }
@@ -240,7 +240,7 @@ MXUserGetSignature(MXUserObjectType objectType)  // IN:
 
    signature = (MXUserSyndrome() & 0x0FFFFFFF) | (objectType << 28);
 
-   ASSERT(signature);
+   ASSERT(signature != 0);
 
    return signature;
 }
@@ -458,7 +458,7 @@ MXUserAllocPerThread(void)
    MXUserPerThread *perThread;
    MXRecLock *perThreadLock = MXUserInternalSingleton(&perThreadLockMem);
 
-   ASSERT(perThreadLock);
+   ASSERT(perThreadLock != NULL);
 
    MXRecLockAcquire(perThreadLock,
                     NULL);          // non-stats
@@ -472,7 +472,7 @@ MXUserAllocPerThread(void)
 
    MXRecLockRelease(perThreadLock);
 
-   ASSERT(perThread);
+   ASSERT(perThread != NULL);
 
    memset(perThread, 0, sizeof *perThread);  // ensure all zeros
 
@@ -503,11 +503,11 @@ MXUserFreePerThread(MXUserPerThread *perThread)  // IN:
 {
    MXRecLock *perThreadLock;
 
-   ASSERT(perThread);
+   ASSERT(perThread != NULL);
    ASSERT(perThread->next == NULL);
 
    perThreadLock = MXUserInternalSingleton(&perThreadLockMem);
-   ASSERT(perThreadLock);
+   ASSERT(perThreadLock != NULL);
 
    MXRecLockAcquire(perThreadLock,
                     NULL);          // non-stats
@@ -563,7 +563,7 @@ MXUserGetPerThread(Bool mayAlloc)  // IN: alloc perThread if not present?
           */
 
          perThread = HashTable_LookupOrInsert(hash, tid, newEntry);
-         ASSERT(perThread);
+         ASSERT(perThread != NULL);
 
          if (perThread != newEntry) {
             MXUserFreePerThread(newEntry);
@@ -664,7 +664,7 @@ MXUserThreadRank(MXUserPerThread *perThread,  // IN:
    Bool foundOnce = TRUE;
    MX_Rank maxRank = RANK_UNRANKED;
 
-   ASSERT(perThread);
+   ASSERT(perThread != NULL);
 
    /*
     * Determine the maximum rank held. Note if the lock being acquired
@@ -813,7 +813,7 @@ MXUserAcquisitionTracking(MXUserHeader *header,  // IN:
          header = perThread->lockArray[i];
 
          node = MXUserLockTreeAdd(node, header->name,
-                                  header->bits.serialNumber, header->rank);
+                                  header->serialNumber, header->rank);
       }
 
       MXUserLockTreeRelease();
@@ -930,12 +930,12 @@ MXUserValidateHeader(MXUserHeader *header,         // IN:
 {
    uint32 expected = MXUserGetSignature(objectType);
 
-   if (header->bits.badHeader == 1) {
+   if (header->badHeader) {
       return; // No need to panic on a bad header repeatedly...
    }
 
    if (header->signature != expected) {
-      header->bits.badHeader = 1;
+      header->badHeader = TRUE;
 
       MXUserDumpAndPanic(header,
                         "%s: signature failure! expected 0x%X observed 0x%X\n",
@@ -943,8 +943,8 @@ MXUserValidateHeader(MXUserHeader *header,         // IN:
 
    }
 
-   if (header->bits.serialNumber == 0) {
-      header->bits.badHeader = 1;
+   if (header->serialNumber == 0) {
+      header->badHeader = TRUE;
 
       MXUserDumpAndPanic(header, "%s: Invalid serial number!\n",
                          __FUNCTION__);

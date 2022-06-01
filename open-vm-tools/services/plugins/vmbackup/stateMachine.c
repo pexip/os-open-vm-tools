@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -48,6 +48,7 @@
 #endif
 #include "vmware/tools/utils.h"
 #include "vmware/tools/vmbackup.h"
+#include "vmware/tools/log.h"
 #include "xdrutil.h"
 
 #if !defined(__APPLE__)
@@ -58,10 +59,14 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 #endif
 
 #if defined(__linux__)
-#include <sys/io.h>
 #include <errno.h>
 #include <string.h>
+#ifdef VM_X86_ANY
+#include <sys/io.h>
 #include "ioplGet.h"
+#else
+#define NO_IOPL
+#endif
 #endif
 
 #define VMBACKUP_ENQUEUE_EVENT() do {                                         \
@@ -164,7 +169,7 @@ VmBackupKeepAliveCallback(void *clientData)
 }
 
 
-#if defined(__linux__)
+#if defined __linux__ && !defined NO_IOPL
 static Bool
 VmBackupPrivSendMsg(gchar *msg,
                     char **result,
@@ -233,7 +238,7 @@ VmBackup_SendEventNoAbort(const char *event,
                          event, code, desc);
    g_debug("Sending vmbackup event: %s\n", msg);
 
-#if defined(__linux__)
+#if defined __linux__ && !defined NO_IOPL
    if (gBackupState->needsPriv) {
       success = VmBackupPrivSendMsg(msg, &result, &resultLen);
    } else {
@@ -281,7 +286,7 @@ VmBackup_SendEventNoAbort(const char *event,
                                NULL);
    } else {
       g_warning("Failed to send vmbackup event: %s, result: %s.\n",
-                msg, result);
+                msg, VM_SAFE_STR(result));
    }
    vm_free(result);
    g_free(msg);
@@ -335,12 +340,12 @@ VmBackupFinalize(void)
       g_source_unref(gBackupState->abortTimer);
    }
 
-   g_static_mutex_lock(&gBackupState->opLock);
+   g_mutex_lock(&gBackupState->opLock);
    if (gBackupState->currentOp != NULL) {
       VmBackup_Cancel(gBackupState->currentOp);
       VmBackup_Release(gBackupState->currentOp);
    }
-   g_static_mutex_unlock(&gBackupState->opLock);
+   g_mutex_unlock(&gBackupState->opLock);
 
    VmBackup_SendEvent(VMBACKUP_EVENT_REQUESTOR_DONE, VMBACKUP_SUCCESS, "");
 
@@ -358,7 +363,8 @@ VmBackupFinalize(void)
    if (gBackupState->completer != NULL) {
       gBackupState->completer->release(gBackupState->completer);
    }
-   g_static_mutex_free(&gBackupState->opLock);
+   g_mutex_clear(&gBackupState->opLock);
+   vm_free(gBackupState->configDir);
    g_free(gBackupState->scriptArg);
    g_free(gBackupState->volumes);
    g_free(gBackupState->snapshots);
@@ -484,25 +490,25 @@ VmBackupDoAbort(void)
 
    if (gBackupState->machineState != VMBACKUP_MSTATE_SCRIPT_ERROR &&
        gBackupState->machineState != VMBACKUP_MSTATE_SYNC_ERROR) {
-      const char *eventMsg = "Quiesce aborted.";
+      const char *eventMsg = "Quiesce canceled.";
       /* Mark the current operation as cancelled. */
-      g_static_mutex_lock(&gBackupState->opLock);
+      g_mutex_lock(&gBackupState->opLock);
       if (gBackupState->currentOp != NULL) {
          VmBackup_Cancel(gBackupState->currentOp);
          VmBackup_Release(gBackupState->currentOp);
          gBackupState->currentOp = NULL;
       }
-      g_static_mutex_unlock(&gBackupState->opLock);
+      g_mutex_unlock(&gBackupState->opLock);
 
 #ifdef __linux__
       /* If quiescing has been completed, then undo it.  */
       if (gBackupState->machineState == VMBACKUP_MSTATE_SYNC_FREEZE) {
-         g_debug("Aborting with file system already quiesced, undo quiescing "
+         g_debug("Canceling with file system already quiesced, undo quiescing "
                  "operation.\n");
          if (!gBackupState->provider->undo(gBackupState,
                                       gBackupState->provider->clientData)) {
             g_debug("Quiescing undo failed.\n");
-            eventMsg = "Quiesce could not be aborted.";
+            eventMsg = "Quiesce could not be canceled.";
          }
       }
 #endif
@@ -531,7 +537,7 @@ static gboolean
 VmBackupAbortTimer(gpointer data)
 {
    ASSERT(gBackupState != NULL);
-   g_warning("Aborting backup operation due to timeout.");
+   g_warning("Canceling backup operation due to timeout.");
    g_source_unref(gBackupState->abortTimer);
    gBackupState->abortTimer = NULL;
    VmBackupDoAbort();
@@ -559,7 +565,7 @@ VmBackupPostProcessCurrentOp(gboolean *pending)
 
    *pending = FALSE;
 
-   g_static_mutex_lock(&gBackupState->opLock);
+   g_mutex_lock(&gBackupState->opLock);
 
    if (gBackupState->currentOp != NULL) {
       g_debug("%s: checking %s\n", __FUNCTION__, gBackupState->currentOpName);
@@ -626,7 +632,7 @@ VmBackupPostProcessCurrentOp(gboolean *pending)
    }
 
 exit:
-   g_static_mutex_unlock(&gBackupState->opLock);
+   g_mutex_unlock(&gBackupState->opLock);
    return retVal;
 }
 
@@ -672,8 +678,17 @@ VmBackupAsyncCallback(void *clientData)
        * sending backup event to the host.
        */
       if (gBackupState->rpcState == VMBACKUP_RPC_STATE_ERROR) {
-         g_warning("Aborting backup operation due to RPC errors.");
+         g_warning("Canceling backup operation due to RPC errors.");
          VmBackupDoAbort();
+
+         /*
+          * Check gBackupState, since the abort could cause a transition to
+          * VMBACKUP_MSTATE_IDLE, in which case the VmBackupState structure
+          * would be freed and gBackupState would be NULL.
+          */
+         if (gBackupState == NULL) {
+            return FALSE;
+         }
          goto exit;
       }
    }
@@ -1007,7 +1022,7 @@ VmBackupStartCommon(RpcInData *data,
    gBackupState->provider = provider;
    gBackupState->completer = completer;
    gBackupState->needsPriv = FALSE;
-   g_static_mutex_init(&gBackupState->opLock);
+   g_mutex_init(&gBackupState->opLock);
    gBackupState->enableNullDriver = VMBACKUP_CONFIG_GET_BOOL(ctx->config,
                                                              "enableNullDriver",
                                                              TRUE);
@@ -1086,6 +1101,7 @@ error:
    if (gBackupState->completer) {
       gBackupState->completer->release(gBackupState->completer);
    }
+   vm_free(gBackupState->configDir);
    g_free(gBackupState->scriptArg);
    g_free(gBackupState->volumes);
    g_free(gBackupState);

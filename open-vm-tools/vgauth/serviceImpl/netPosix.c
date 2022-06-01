@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2017, 2019-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -52,9 +52,8 @@ gboolean
 ServiceNetworkCreateSocketDir(void)
 {
    gboolean bRet = TRUE;
-   char *socketDir = NULL;
+   char *socketDir = g_path_get_dirname(SERVICE_PUBLIC_PIPE_NAME);
 
-   socketDir = g_path_get_dirname(SERVICE_PUBLIC_PIPE_NAME);
    ASSERT(socketDir != NULL);
 
    /*
@@ -69,7 +68,7 @@ ServiceNetworkCreateSocketDir(void)
        g_file_test(socketDir, G_FILE_TEST_IS_SYMLINK))) {
       bRet = FALSE;
       Warning("%s: socket dir path '%s' already exists as a non-directory; "
-              "aborting\n", __FUNCTION__, socketDir);
+              "canceling\n", __FUNCTION__, socketDir);
       goto abort;
    }
 

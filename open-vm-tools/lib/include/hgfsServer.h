@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -19,18 +19,23 @@
 #ifndef _HGFS_SERVER_H_
 #define _HGFS_SERVER_H_
 
-#include "hgfs.h"             /* for HGFS_PACKET_MAX */
 #include "dbllnklst.h"
+#include "hgfs.h"             /* for HGFS_PACKET_MAX */
+#include "vm_basic_defs.h"    /* for vmx86_debug */
 
 #if defined(__cplusplus)
 extern "C" {
 #endif
 
+#define HGFS_VMX_IOV_CONTEXT_SIZE (vmx86_debug ? 112 : 96)
 typedef struct HgfsVmxIov {
    void *va;           /* Virtual addr */
    uint64 pa;          /* Physical address passed by the guest */
    uint32 len;         /* length of data; should be <= PAGE_SIZE for VMCI; arbitrary for backdoor */
-   void *context;      /* Mapping context */
+   union {
+      void *ptr;
+      char clientStorage[HGFS_VMX_IOV_CONTEXT_SIZE];
+   } context;         /* Mapping context */
 } HgfsVmxIov;
 
 typedef enum {
@@ -120,6 +125,8 @@ typedef uint32 HgfsConfigFlags;
 #define HGFS_CONFIG_VOL_INFO_MIN                     (1 << 2)
 #define HGFS_CONFIG_OPLOCK_ENABLED                   (1 << 3)
 #define HGFS_CONFIG_SHARE_ALL_HOST_DRIVES_ENABLED    (1 << 4)
+#define HGFS_CONFIG_THREADPOOL_ENABLED               (1 << 5)
+#define HGFS_CONFIG_OPLOCK_MONITOR_ENABLED           (1 << 6)
 
 typedef struct HgfsServerConfig {
    HgfsConfigFlags flags;
@@ -162,6 +169,7 @@ typedef struct HgfsServerMgrCallbacks {
 } HgfsServerMgrCallbacks;
 
 typedef enum {
+   HGFS_QUIESCE_CHANNEL_FREEZE,  /*Op sent before the channel device quiesce*/
    HGFS_QUIESCE_FREEZE,
    HGFS_QUIESCE_THAW,
 } HgfsQuiesceOp;
@@ -175,14 +183,12 @@ typedef void (*HgfsInvalidateObjectsFunc)(DblLnkLst_Links *shares);
 typedef Bool (*HgfsChannelSendFunc)(void *opaqueSession,
                                     HgfsPacket *packet,
                                     HgfsSendFlags flags);
-typedef void * (*HgfsChannelMapVirtAddrFunc)(uint64 pa, uint32 size, void **context);
-typedef void (*HgfsChannelUnmapVirtAddrFunc)(void **context);
+typedef void * (*HgfsChannelMapVirtAddrFunc)(HgfsVmxIov *iov);
+typedef void (*HgfsChannelUnmapVirtAddrFunc)(void *context);
 typedef void (*HgfsChannelRegisterThreadFunc)(void);
 typedef void (*HgfsChannelUnregisterThreadFunc)(void);
 
 typedef struct HgfsServerChannelCallbacks {
-   HgfsChannelRegisterThreadFunc registerThread;
-   HgfsChannelUnregisterThreadFunc unregisterThread;
    HgfsChannelMapVirtAddrFunc getReadVa;
    HgfsChannelMapVirtAddrFunc getWriteVa;
    HgfsChannelUnmapVirtAddrFunc putVa;

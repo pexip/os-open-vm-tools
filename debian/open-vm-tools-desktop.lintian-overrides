@@ -1,0 +1,2 @@
+# intentional setuid
+open-vm-tools-desktop: setuid-binary usr/bin/vmware-user-suid-wrapper
