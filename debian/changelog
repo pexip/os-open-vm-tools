@@ -1,3 +1,9 @@
+open-vm-tools (2:11.2.5-2pexip1) pexip; urgency=medium
+
+  * Initial bullseye build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 02 Jun 2022 14:42:39 +0100
+
 open-vm-tools (2:11.2.5-2) unstable; urgency=medium
 
   * [7f14954] Drop max_nic_count patch.
