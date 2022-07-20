@@ -12,7 +12,7 @@ Build-Depends:
  libssl1.0-dev | libssl-dev (<< 1.1),
  libxmlsec1-dev,
  libudev-dev,
- libdrm-dev,
+#libdrm-dev,
  liblzma-dev,
  libgdk-pixbuf-xlib-2.0-dev,
 Standards-Version: 4.4.1

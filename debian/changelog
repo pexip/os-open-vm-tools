@@ -1,3 +1,10 @@
+open-vm-tools (2:11.2.5-2pexip3) pexip-bullseye; urgency=medium
+
+  * Turn off --enable-resolutionkms so that we do not need to ship
+    libdrm.
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Wed, 20 Jul 2022 17:20:55 +0100
+
 open-vm-tools (2:11.2.5-2pexip2) pexip-bullseye; urgency=medium
 
   * Main bullseye build

@@ -21,6 +21,7 @@ override_dh_auto_configure:
 			--enable-xmlsec1 \
 			--with-gtk3  \
 			--enable-servicediscovery \
+			--disable-resolutionkms \
 			CFLAGS="-fPIC -Wno-error=deprecated-declarations -Wno-error=address-of-packed-member -Wno-nonnull $(CFLAGS)" \
 			CUSTOM_PROCPS_NAME=procps
 
