@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -61,6 +61,7 @@
 #  include "asyncsocket.h"
 #  include "vmci_defs.h"
 #include "dataMap.h"
+#include "vmware/guestrpc/tclodefs.h"
 #if defined(__linux__)
 #include <arpa/inet.h>
 #else
@@ -73,7 +74,6 @@
 #  include "vmware/tools/utils.h"
 #endif
 
-#include "vmware/guestrpc/tclodefs.h"
 #include "vmware.h"
 #include "message.h"
 #include "rpcin.h"
@@ -1071,6 +1071,7 @@ RpcInConnErrorHandler(int err,             // IN
                       void *clientData)    // IN
 {
    ConnInfo *conn = (ConnInfo *)clientData;
+   char const *errmsg ="RpcIn: vsocket connection error";
    RpcIn *in = conn->in;
 
    Debug("RpcIn: Error in socket %d, closing connection: %s.\n",
@@ -1079,7 +1080,7 @@ RpcInConnErrorHandler(int err,             // IN
    in->errStatus = TRUE;
 
    if (conn->connected) {
-      RpcInCloseChannel(conn->in, "RpcIn: vsocket connection error");
+      RpcInCloseChannel(conn->in, errmsg);
    } else { /* the connection never gets connected */
       RpcInCloseConn(conn);
       Debug("RpcIn: falling back to use backdoor ...\n");
@@ -1342,7 +1343,7 @@ RpcInExecRpc(RpcIn *in,            // IN
       } else {
          Debug("RpcIn: Unknown Command '%s': No matching callback\n", cmd);
          status = FALSE;
-         result = GUEST_RPC_UNKNOWN_COMMAND;
+         result = "Unknown Command";
          resultLen = strlen(result);
       }
       free(cmd);

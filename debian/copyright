@@ -1,4 +1,4 @@
-Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: open-vm-tools
 Upstream-Contact: open-vm-tools-devel@lists.sourceforge.net
 Source: http://sourceforge.net/projects/open-vm-tools/files/
@@ -29,14 +29,14 @@ License: MIT(**)
 
 Files: debian/*
 Copyright: 2007-2013 Daniel Baumann <mail@daniel-baumann.ch>
-           2014-2019 Bernd Zeimetz <bzed@debian.org>
+           2014      Bernd Zeimetz <bzed@debian.org>
 License: GPL-2+
 
 License: BSD-3
  This code is derived from software contributed to Berkeley by Chris Torek.
  .
  Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions are met:
+ modification, are permitted provided that the following conditions are	met:
  .
  1. Redistributions of source code must retain the above copyright notice, this
  list of conditions and the following disclaimer.

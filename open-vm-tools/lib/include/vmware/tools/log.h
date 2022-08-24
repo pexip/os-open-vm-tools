@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -313,8 +313,6 @@ g_warning_inline(const gchar *fmt,
 #define  vm_warning(fmt, ...)    g_warning("%s: " fmt, FUNC, ## __VA_ARGS__)
 #endif // ! (windows & glib >= 2.46)
 
-/* Checks if a string is null before it is passed in logging function  */
-#define VM_SAFE_STR(string)      (string != NULL ? string : "(NULL)")
 
 G_BEGIN_DECLS
 
@@ -327,54 +325,9 @@ VMTools_ConfigLogging(const gchar *defaultDomain,
                       gboolean force,
                       gboolean reset);
 
-void
-VMTools_UseVmxGuestLog(const gchar *appName);
-
-void
-VMTools_SetupVmxGuestLog(gboolean refreshRpcChannel, GKeyFile *cfg,
-                         const gchar *level);
-
-void
-VMTools_TeardownVmxGuestLog(void);
-
-typedef enum {
-   TO_HOST,
-   IN_GUEST
-} LogWhere;
-
-void
-VMTools_Log(LogWhere where,
-            GLogLevelFlags level,
-            const gchar *domain,
-            const gchar *fmt,
-            ...);
-
 G_END_DECLS
-
-#define host_warning(fmt, ...)                                          \
-   VMTools_Log(TO_HOST, G_LOG_LEVEL_WARNING, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define guest_warning(fmt, ...)                                         \
-   VMTools_Log(IN_GUEST, G_LOG_LEVEL_WARNING, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define host_message(fmt, ...)                                          \
-   VMTools_Log(TO_HOST, G_LOG_LEVEL_MESSAGE, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define guest_message(fmt, ...)                                         \
-   VMTools_Log(IN_GUEST, G_LOG_LEVEL_MESSAGE, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define host_info(fmt, ...)                                     \
-   VMTools_Log(TO_HOST, G_LOG_LEVEL_INFO, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define guest_info(fmt, ...)                                    \
-   VMTools_Log(IN_GUEST, G_LOG_LEVEL_INFO, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define host_debug(fmt, ...)                                            \
-   VMTools_Log(TO_HOST, G_LOG_LEVEL_DEBUG, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
-
-#define guest_debug(fmt, ...)                                           \
-   VMTools_Log(IN_GUEST, G_LOG_LEVEL_DEBUG, G_LOG_DOMAIN, fmt, ## __VA_ARGS__)
 
 /** @} */
 
 #endif /* _VMTOOLS_LOG_H_ */
+

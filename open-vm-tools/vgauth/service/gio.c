@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016,2018-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -203,9 +203,6 @@ ServiceSigtermHandler(gpointer data)
    (void) ServiceEndMainLoop(NULL);
    Service_Shutdown();
    Log("END SERVICE");
-   VMXLog_Log(VMXLOG_LEVEL_INFO, "%s END SERVICE",
-              VGAUTH_SERVICE_NAME);
-   VMXLog_Shutdown();
 
    /*
     * It's safe to just exit here, since we've been called by the glib
@@ -338,7 +335,12 @@ ServiceIOAcceptGSource(gpointer userData)
 {
    ServiceConnection *newConn = NULL;
    ServiceConnection *lConn = (ServiceConnection *) userData;
-   VGAuthError err;
+   VGAuthError err = VGAUTH_E_OK;
+#ifdef _WIN32
+   GSource *gSourceData;
+#else
+   GIOChannel *echan;
+#endif
 
    err = ServiceConnectionClone(lConn, &newConn);
    if (VGAUTH_E_OK != err) {
@@ -348,12 +350,6 @@ ServiceIOAcceptGSource(gpointer userData)
 
    err = ServiceAcceptConnection(lConn, newConn);
    if (VGAUTH_E_OK == err) {
-#ifdef _WIN32
-      GSource *gSourceData;
-#else
-      GIOChannel *echan;
-#endif
-
       VGAUTH_LOG_DEBUG("Established a new pipe connection %d on %s", newConn->connId,
                        newConn->pipeName);
 #ifdef _WIN32

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016,2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -65,8 +65,7 @@ Atomic_Ptr errStrTable;
 #endif
 
 #define NUMTABLE() HashTable_AllocOnce(&errNumTable, HASHTABLE_SIZE, \
-                                       HASH_INT_KEY | HASH_FLAG_ATOMIC, \
-                                       ErrFreeErrInfo)
+                                       HASH_INT_KEY | HASH_FLAG_ATOMIC, NULL)
 #define PTRTABLE() HashTable_AllocOnce(&errPtrTable, HASHTABLE_SIZE, \
                                        HASH_INT_KEY | HASH_FLAG_ATOMIC, NULL)
 #if defined VMX86_DEBUG && defined __linux__
@@ -74,33 +73,6 @@ Atomic_Ptr errStrTable;
                                        HASH_STRING_KEY | HASH_FLAG_ATOMIC, \
                                        NULL)
 #endif
-
-
-/*
- *----------------------------------------------------------------------
- *
- * ErrFreeErrInfo --
- *
- *      HashTableFreeEntryFn helper function to free ErrInfo struct.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------
- */
-
-static void
-ErrFreeErrInfo(void *pErrInfo) // IN
-{
-   ErrInfo *errInfo = pErrInfo;
-   if (errInfo) {
-      free(errInfo->string);
-      free(errInfo);
-   }
-}
 
 
 /*
@@ -143,7 +115,7 @@ Err_ErrString(void)
  *
  * Results:
  *      Error message string in UTF-8.
- *
+ *      
  * Side effects:
  *      None.
  *	Current error number is preserved.
@@ -251,7 +223,7 @@ Err_Errno2String(Err_Number errorNumber) // IN
  *
  * Results:
  *      Error number or ERR_INVALID.
- *
+ *      
  * Side effects:
  *      None.
  *
@@ -274,40 +246,6 @@ Err_String2Errno(const char *string) // IN
 }
 
 
-/*
- *----------------------------------------------------------------------
- *
- * Err_Exit --
- *
- *      Reclaim memory.  Useful for avoiding leaks at exit being
- *      reported by valgrind / Memory Validator.
- *
- *      Assumes that no other threads are calling into bora/lib/err.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------
- */
-
-void
-Err_Exit(void) // IN
-{
-   HashTable *numTable = NUMTABLE();
-   HashTable *ptrTable = PTRTABLE();
-#if defined VMX86_DEBUG && defined __linux__
-   HashTable *strTable = STRTABLE();
-
-   HashTable_FreeUnsafe(strTable);
-#endif
-   HashTable_FreeUnsafe(ptrTable);
-   HashTable_FreeUnsafe(numTable);
-}
-
-
 #ifdef VMX86_DEBUG
 /*
  *----------------------------------------------------------------------
@@ -321,7 +259,7 @@ Err_Exit(void) // IN
  *
  * Results:
  *      Error number or ERR_INVALID.
- *
+ *      
  * Side effects:
  *      None.
  *

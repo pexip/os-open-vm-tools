@@ -1,2 +1,8 @@
-use-debian-pam
+debian/pam-use-common-auth-account
+debian/max_nic_count
 debian/scsi-udev-rule
+fix-buster-OS-reporting
+015db4c0_Fix-memory-leaks-in-vix-tools-plugin
+7b874f37_End-VGAuth-impersonation-in-the-case-of-error
+26b9edbe_Fix-leaks-in-ListAliases-and-ListMappedAliases-9bc72f0b09702754b429115658a85223cb3058bd-from-devel
+10310-Properly-check-authorization-on-incoming-guestOps-r.patch

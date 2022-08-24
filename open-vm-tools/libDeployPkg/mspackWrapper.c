@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -32,7 +32,6 @@
 #include <mspack.h>
 #include <stdarg.h>
 #include <errno.h>
-#include "str.h"
 
 /*
  * Template functions
@@ -115,6 +114,7 @@ MspackWrapper_SetLogger(LogFunction log)
  **/
 unsigned int
 SetupPath (char* path) {
+   struct stat stats;
    char* token;
 
    // walk through the path (it employs in string replacement)
@@ -135,14 +135,14 @@ SetupPath (char* path) {
       *token = 0;
 
 #ifdef VMX86_DEBUG
-      sLog(log_debug, "Creating directory %s ", path);
+      sLog(log_debug, "Creating directory %s \n", path);
 #endif
 
-      if (mkdir(path, 0777) == -1) {
-         struct stat stats;
-         // ignore if the directory exists
-         if (!((stat(path, &stats) == 0) && S_ISDIR(stats.st_mode))) {
-            sLog(log_error, "Unable to create directory %s (%s)", path,
+      // ignore if the directory exists
+      if (!((stat(path, &stats) == 0) && S_ISDIR(stats.st_mode))) {
+         // make directory and check error
+         if (mkdir(path, 0777) == -1) {
+            sLog(log_error, "Unable to create directory %s (%s)\n", path,
                  strerror(errno));
             return LINUXCAB_ERROR;
          }
@@ -184,7 +184,7 @@ ExtractFile (struct mscab_decompressor* deflator,
    sz = strlen(destDirectory)+ 1 + strlen(fileName)+ 1;
    {
       char outCabFile[sz];
-      Str_Sprintf (outCabFile, sz,  "%s/%s", destDirectory, fileName);
+      sprintf (outCabFile, "%s/%s", destDirectory, fileName);
 
       // set up the path if it does not exist
       if (SetupPath(outCabFile) != LINUXCAB_SUCCESS) {
@@ -192,7 +192,7 @@ ExtractFile (struct mscab_decompressor* deflator,
       }
 
       #ifdef VMX86_DEBUG
-       sLog(log_info, "Extracting %s .... ", outCabFile );
+       sLog(log_info, "Extracting %s .... \n", outCabFile );
       #endif
 
       // Extract File
@@ -278,7 +278,7 @@ ExpandAllFilesInCabInt (const char* cabFileName,
       }
 
 #ifdef VMX86_DEBUG
-      sLog(log_debug, "flag = %i ", cab->flags);
+      sLog(log_debug, "flag = %i \n", cab->flags);
 #endif
 
       // move to next cab file - in case of multi file cabs
@@ -291,7 +291,7 @@ ExpandAllFilesInCabInt (const char* cabFileName,
    mspack_destroy_cab_decompressor(deflator);
 
 #ifdef VMX86_DEBUG
-   sLog(log_info, "Done extracting files. ");
+   sLog(log_info, "Done extracting files. \n");
 #endif
 
    return returnState;

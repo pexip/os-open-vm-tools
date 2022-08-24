@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -74,17 +74,12 @@ ServiceFileLoggerOpen(FileLoggerData *data)
 
    if (g_file_test(path, G_FILE_TEST_EXISTS)) {
       /* GStatBuf was added in 2.26. */
+#if GLIB_CHECK_VERSION(2, 26, 0)
       GStatBuf fstats;
+#else
+      struct stat fstats;
+#endif
 
-      /*
-       * In order to determine whether we should rotate the logs,
-       * we are calling the system call stat() to get the existing log file
-       * size.
-       * The time of check vs. time of use issue does not apply to this use
-       * case, as even the file size is increasing, it will not affect the log
-       * rotation decision. So Suppress the fs_check_call coverity warning.
-       */
-      /* coverity[fs_check_call] */
       if (g_stat(path, &fstats) > -1) {
          g_atomic_int_set(&data->logSize, (gint) fstats.st_size);
       }
@@ -96,6 +91,7 @@ ServiceFileLoggerOpen(FileLoggerData *data)
           * will always be index "0"). When not rotating, "maxFiles" is 1, so we
           * always keep one backup.
           */
+         gchar *fname;
          guint id;
          GPtrArray *logfiles = g_ptr_array_new();
 
@@ -105,8 +101,7 @@ ServiceFileLoggerOpen(FileLoggerData *data)
           * file, which may or may not exist.
           */
          for (id = 0; id < data->maxFiles; id++) {
-            gchar *fname = g_strdup_printf("%s.%d", data->path, id);
-
+            fname = g_strdup_printf("%s.%d", data->path, id);
             g_ptr_array_add(logfiles, fname);
             if (!g_file_test(fname, G_FILE_TEST_IS_REGULAR)) {
                break;
@@ -121,13 +116,6 @@ ServiceFileLoggerOpen(FileLoggerData *data)
             if (!g_file_test(dest, G_FILE_TEST_IS_DIR) &&
                 (!g_file_test(dest, G_FILE_TEST_EXISTS) ||
                  g_unlink(dest) == 0)) {
-               /*
-                * We should ignore an unlikely rename() system call failure,
-                * as we should keep our service running with non-critical errors.
-                * We cannot log the error because we are already in the log
-                * handler context to avoid crash or recursive logging loop.
-                */
-               /* coverity[check_return] */
                g_rename(src, dest);
             } else {
                g_unlink(src);
@@ -144,7 +132,6 @@ ServiceFileLoggerOpen(FileLoggerData *data)
       }
    }
 
-   /* coverity[toctou] */
    logfile = g_fopen(path, data->append ? "a" : "w");
    /*
     * Make log readable only by root/Administrator.  Just log any error;

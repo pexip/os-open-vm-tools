@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -215,7 +215,7 @@ PointerSetPos(uint16 x, // IN
    Backdoor_proto bp;
 
    bp.in.cx.halfs.low = BDOOR_CMD_SETPTRLOCATION;
-   bp.in.size = (uint32) ((x << 16) | y);
+   bp.in.size = (x << 16) | y;
    Backdoor(&bp);
 }
 
@@ -393,12 +393,13 @@ PointerUpdatePointerLoop(gpointer clientData) // IN: unused
 
    if (!CopyPaste_IsRpcCPSupported() ||
        (absoluteMouseState == ABSMOUSE_UNAVAILABLE)) {
+
+      GSource *src;
+
       CopyPasteDnDWrapper *wrapper = CopyPasteDnDWrapper::GetInstance();
       ToolsAppCtx *ctx = wrapper->GetToolsAppCtx();
-
       if (ctx) {
-         GSource *src = VMTools_CreateTimer(POINTER_UPDATE_TIMEOUT);
-
+         src = VMTools_CreateTimer(POINTER_UPDATE_TIMEOUT);
          VMTOOLSAPP_ATTACH_SOURCE(ctx, src, PointerUpdatePointerLoop, NULL, NULL);
          g_source_unref(src);
       }

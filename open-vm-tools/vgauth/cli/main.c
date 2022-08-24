@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -25,7 +25,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <locale.h>
 #ifndef _WIN32
 #include <unistd.h>
 #include <errno.h>
@@ -47,82 +46,6 @@ static gchar *appName;
 static gboolean verbose = FALSE;
 
 
-#ifdef _WIN32
-
-
-/*
- ******************************************************************************
- * GetHelp --                                                            */ /**
- *
- * Get help message for CLI on windows
- *
- * @param[in] context      The GOptionContext for generating the message
- * @param[in] paramStr     The command line operation arguments
- * @param[in] cmdOptions   The command line options for given operation
- *
- ******************************************************************************
- */
-
-static gchar *
-GetHelp(GOptionContext *context,
-        const char *paramStr,
-        const GOptionEntry *cmdOptions)
-{
-   gchar *helpMsg;
-   const gchar *lUsage = SU_(cmdline.help.usage, "Usage");
-   const gchar *lHelpOption = SU_(cmdline.help.helpoption, "Help Options");
-   const gchar *lAppOption = SU_(cmdline.help.appoption, "Application Options");
-   const gchar *lHint = SU_(cmdline.help.hint, "Show help options");
-
-   if (cmdOptions == NULL){
-      helpMsg = g_strdup_printf("%s:\n"
-                                "  %s %s\n\n"
-                                "%s\n\n"
-                                "%s:\n"
-                                "  -h, --help       %s\n",
-                                lUsage,
-                                appName, paramStr,
-                                g_option_context_get_summary(context),
-                                lHelpOption,
-                                lHint);
-   } else {
-      gchar *optionMsg;
-      GString *optStr;
-      int i;
-      optStr = g_string_new(NULL);
-      for (i = 0; cmdOptions[i].long_name != NULL; i++) {
-         g_string_append_printf(optStr,
-                                "  -%c, --%-8s    %s\n",
-                                cmdOptions[i].short_name,
-                                cmdOptions[i].long_name,
-                                cmdOptions[i].description);
-      }
-      optionMsg = g_string_free(optStr, FALSE);
-
-      helpMsg = g_strdup_printf("%s:\n"
-                                "  %s %s\n\n"
-                                "%s\n\n"
-                                "%s:\n"
-                                "  -h, --help       %s\n"
-                                "%s:\n"
-                                "%s",
-                                lUsage,
-                                appName, paramStr,
-                                g_option_context_get_summary(context),
-                                lHelpOption,
-                                lHint,
-                                lAppOption,
-                                optionMsg);
-      g_free(optionMsg);
-   }
-
-   return helpMsg;
-}
-
-#endif
-
-
-
 /*
  ******************************************************************************
  * Usage --                                                              */ /**
@@ -130,24 +53,16 @@ GetHelp(GOptionContext *context,
  * Usage message for CLI
  *
  * @param[in] optContext   The GOptionContext for generating the message
- * @param[in] paramStr     The command line operation arguments
- * @param[in] cmdOptions   The command line options for given operation
  *
  ******************************************************************************
  */
 
 static void
-Usage(GOptionContext *optContext,
-      const char *paramStr,
-      const GOptionEntry *cmdOptions)
+Usage(GOptionContext *optContext)
 {
    gchar *usage;
-#ifdef _WIN32
-   usage = GetHelp(optContext, paramStr, cmdOptions);
-#else
-   usage = g_option_context_get_help(optContext, TRUE, NULL);
-#endif
 
+   usage = g_option_context_get_help(optContext, TRUE, NULL);
    g_printerr("%s", usage);
    g_free(usage);
    exit(-1);
@@ -274,7 +189,7 @@ CliAddAlias(VGAuthContext *ctx,
             gboolean addMapped,
             const char *comment)
 {
-   gchar *pemCert;
+   gchar *pemCert = NULL;
    VGAuthError err;
    VGAuthAliasInfo ai;
 
@@ -330,7 +245,7 @@ CliRemoveAlias(VGAuthContext *ctx,
                  const char *pemFilename)
 {
    VGAuthError err;
-   gchar *pemCert;
+   gchar *pemCert = NULL;
    VGAuthSubject subj;
 
    pemCert = CliLoadPemFILE(pemFilename);
@@ -355,131 +270,6 @@ CliRemoveAlias(VGAuthContext *ctx,
    }
 
    g_free(pemCert);
-
-   return err;
-}
-
-
-/*
- ******************************************************************************
- * CliRemoveAllAlias --                                                  */ /**
- *
- * Removes aliases for given subject and [userName].
- * If userName is not provided, only remove mapped aliases.
- *
- * @param[in]  ctx                  The VGAuthContext.
- * @param[in]  subject              The associated subject.
- * @param[in]  userName             The user whose store is being changed.
- *
- * @return VGAUTH_E_OK on success, VGAuthError on failure
- *
- ******************************************************************************
- */
-
-static VGAuthError
-CliRemoveAllAlias(VGAuthContext *ctx,
-                  const char *subject,
-                  const char *userName)
-{
-   VGAuthError err;
-   gboolean fail = FALSE;
-   int num = 0;
-   int i;
-   int j;
-
-   if (NULL != userName) {
-      VGAuthUserAlias *uaList = NULL;
-
-      /* get aliases by userName */
-      err = VGAuth_QueryUserAliases(ctx, userName, 0, NULL, &num, &uaList);
-      if (VGAUTH_E_OK != err) {
-         g_printerr(SU_(list.error,
-                        "%s: Failed to list aliases for user '%s': %s.\n"),
-                    appName, userName, VGAuth_GetErrorText(err, NULL));
-         return err;
-      }
-
-      /* find matched aliases, remove */
-      for(i = 0; i < num; i++) {
-         for(j = 0; j < uaList[i].numInfos; j++) {
-            if (!g_strcmp0(subject, uaList[i].infos[j].subject.val.name)) {
-               err = VGAuth_RemoveAlias(ctx,
-                                        userName,
-                                        uaList[i].pemCert,
-                                        &(uaList[i].infos[j].subject),
-                                        0,
-                                        NULL);
-               if (VGAUTH_E_OK != err) {
-                  g_printerr(SU_(removeall.removefail,
-                                 "%s: Failed to remove alias for user '%s'"
-                                 " subject '%s' pemCert '%s': %s.\n"),
-                             appName,
-                             userName,
-                             subject,
-                             uaList[i].pemCert,
-                             VGAuth_GetErrorText(err, NULL));
-                  fail = TRUE;
-               }
-
-               break;
-            }
-         }
-
-         if (fail){
-            break;
-         }
-      }
-
-      VGAuth_FreeUserAliasList(num, uaList);
-   } else {
-      VGAuthMappedAlias *maList = NULL;
-
-      /* no userName provided, so only can get mapped aliases */
-      err = VGAuth_QueryMappedAliases(ctx, 0, NULL, &num, &maList);
-      if (VGAUTH_E_OK != err) {
-         g_printerr(SU_(listmapped.error,
-                        "%s: Failed to list mapped aliases: %s.\n"),
-                     appName, VGAuth_GetErrorText(err, NULL));
-         return err;
-      }
-
-      /* find matched aliases, remove */
-      for(i = 0; i < num; i++) {
-         for(j = 0; j < maList[i].numSubjects; j++) {
-            if (!g_strcmp0(subject, maList[i].subjects[j].val.name)){
-               err = VGAuth_RemoveAlias(ctx,
-                                        maList[i].userName,
-                                        maList[i].pemCert,
-                                        &(maList[i].subjects[j]),
-                                        0,
-                                        NULL);
-               if (VGAUTH_E_OK != err) {
-                  g_printerr(SU_(removeall.removefail,
-                                 "%s: Failed to remove alias for user '%s'"
-                                 " subject '%s' pemCert '%s': %s.\n"),
-                             appName,
-                             maList[i].userName,
-                             subject,
-                             maList[i].pemCert,
-                             VGAuth_GetErrorText(err, NULL));
-                  fail = TRUE;
-               }
-
-               break;
-            }
-         }
-
-         if (fail){
-            break;
-         }
-      }
-
-      VGAuth_FreeMappedAliasList(num, maList);
-   }
-
-   if (VGAUTH_E_OK == err && verbose) {
-      g_print(SU_(removeall.success, "%s: all aliases removed\n"), appName);
-   }
 
    return err;
 }
@@ -591,44 +381,6 @@ CliListMapped(VGAuthContext *ctx)
 
 /*
  ******************************************************************************
- * InitMsgCatalog --                                                     */ /**
- *
- * Initialize language setting according to machine locale
- *
- ******************************************************************************
- */
-
-static void
-InitMsgCatalog(void)
-{
-   PrefHandle prefs;
-   gchar *msgCatalog;
-
-   /*
-    * Do this first, so any noise from the locale setup is properly filtered.
-    */
-   VGAuth_SetLogHandler(CliLog, NULL, 0, NULL);
-
-   /*
-    * Find the location of the i18n catalogs.
-    */
-   setlocale(LC_ALL, "");
-   prefs = Pref_Init(VGAUTH_PREF_CONFIG_FILENAME);
-   msgCatalog = Pref_GetString(prefs,
-                               VGAUTH_PREF_LOCALIZATION_DIR,
-                               VGAUTH_PREF_GROUP_NAME_LOCALIZATION,
-                               VGAUTH_PREF_DEFAULT_LOCALIZATION_CATALOG);
-
-   I18n_BindTextDomain(VMW_TEXT_DOMAIN,    // domain -- base name of vmsg files
-                       NULL,               // locale -- let it figure it out
-                       msgCatalog);        // path to message catalogs
-   g_free(msgCatalog);
-   Pref_Shutdown(prefs);
-}
-
-
-/*
- ******************************************************************************
  * mainRun --                                                            */ /**
  *
  * Initializes and parses commandline args.
@@ -657,7 +409,6 @@ mainRun(int argc,
    gboolean doAdd = FALSE;
    gboolean doRemove = FALSE;
    gboolean doList = FALSE;
-   gboolean doRemoveAll = FALSE;
    gboolean addMapped = FALSE;
    gchar **argvCopy = NULL;
    int argcCopy;
@@ -665,24 +416,19 @@ mainRun(int argc,
    char *pemFilename = NULL;
    gchar *comment = NULL;
    gchar *summaryMsg;
-   gchar *noteMsg = NULL;
    gchar *subject = NULL;
-   GOptionEntry *cmdOptions = NULL;
-   const gchar *paramStr = "[add | list | remove | removeAll]\n";
    const gchar *lUsername = SU_(cmdline.summary.username, "username");
    const gchar *lSubject = SU_(cmdline.summary.subject, "subject");
    const gchar *lPEMfile = SU_(cmdline.summary.pemfile, "PEM-file");
    const gchar *lComm = SU_(cmdline.summary.comm, "comment");
-   const gchar *lNote = SU_(cmdline.summary.note,
-                            "Note: If no username is provided, "
-                            "%s removes only the mapped aliases");
-
 #if (use_glib_parser == 0)
    int i;
+   GOptionEntry *cmdOptions;
 #else
    GError *gErr = NULL;
 #endif
-
+   PrefHandle prefs;
+   gchar *msgCatalog = NULL;
    GOptionEntry listOptions[] = {
       { "username", 'u', 0, G_OPTION_ARG_STRING, &userName,
          SU_(listoptions.username,
@@ -721,16 +467,6 @@ mainRun(int argc,
          SU_(addoptions.verbose, "Verbose operation"), NULL },
       { NULL }
    };
-   GOptionEntry removeAllOptions[] = {
-      { "username", 'u', 0, G_OPTION_ARG_STRING, &userName,
-         SU_(removealloptions.username,
-             "User whose certificate store is being removed from"), NULL },
-      { "subject", 's', 0, G_OPTION_ARG_STRING, &subject,
-         SU_(removealloptions.subject, "The SAML subject"), NULL },
-      { "verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
-         SU_(removealloptions.verbose, "Verbose operation"), NULL },
-      { NULL }
-   };
    GOptionContext *context;
 
    appName = g_path_get_basename(argv[0]);
@@ -743,29 +479,42 @@ mainRun(int argc,
    argvCopy = argv;
 
    /*
+    * Do this first, so any noise form the locale setup is properly filtered.
+    */
+   VGAuth_SetLogHandler(CliLog, NULL, 0, NULL);
+
+   /*
+    * Find the location of the i18n catalogs.
+    */
+   prefs = Pref_Init(VGAUTH_PREF_CONFIG_FILENAME);
+   msgCatalog = Pref_GetString(prefs,
+                               VGAUTH_PREF_LOCALIZATION_DIR,
+                               VGAUTH_PREF_GROUP_NAME_LOCALIZATION,
+                               VGAUTH_PREF_DEFAULT_LOCALIZATION_CATALOG);
+
+   I18n_BindTextDomain(VMW_TEXT_DOMAIN,    // domain -- base name of vmsg files
+                       NULL,               // locale -- let it figure it out
+                       msgCatalog);        // path to message catalogs
+   g_free(msgCatalog);
+
+   /*
     * Set up the option parser
     */
    g_set_prgname(appName);
-   noteMsg = g_strdup_printf(lNote, "removeAll");
-   context = g_option_context_new(paramStr);
+   context = g_option_context_new("[add | list | remove]\n");
    summaryMsg = g_strdup_printf(
       "add --global --username=%s --file=%s --subject=%s "
              "[ --comment=%s ]\n"
       "remove --username=%s --file=%s [ --subject=%s ]\n"
-      "removeAll --subject=%s [ --username=%s ]\n"
-      "list [ --username=%s ]\n\n"
-      "%s",
+      "list [ --username=%s ]\n",
       lUsername, lPEMfile, lSubject, lComm,
       lUsername, lPEMfile, lSubject,
-      lSubject, lUsername,
-      lUsername,
-      noteMsg);
+      lUsername);
 
    g_option_context_set_summary(context, summaryMsg);
    g_free(summaryMsg);
-   g_free(noteMsg);
    if (argc < 2) {
-      Usage(context, paramStr, cmdOptions);
+      Usage(context);
    }
 
    /*
@@ -774,29 +523,31 @@ mainRun(int argc,
    if (strcmp(argvCopy[1], "add") == 0) {
       doAdd = TRUE;
       g_option_context_add_main_entries(context, addOptions, NULL);
+#if (use_glib_parser == 0)
       cmdOptions = addOptions;
+#endif
    } else if (strcmp(argvCopy[1], "remove") == 0) {
       doRemove = TRUE;
       g_option_context_add_main_entries(context, removeOptions, NULL);
+#if (use_glib_parser == 0)
       cmdOptions = removeOptions;
+#endif
    } else if (strcmp(argvCopy[1], "list") == 0) {
       doList = TRUE;
       g_option_context_add_main_entries(context, listOptions, NULL);
+#if (use_glib_parser == 0)
       cmdOptions = listOptions;
-   } else if (strcmp(argvCopy[1], "removeAll") == 0) {
-      doRemoveAll = TRUE;
-      g_option_context_add_main_entries(context, removeAllOptions, NULL);
-      cmdOptions = removeAllOptions;
+#endif
    } else {
-      Usage(context, paramStr, cmdOptions);
+      Usage(context);
    }
 
 #if (use_glib_parser == 0)
    /*
-    * In Windows, g_option_context_parse() does the wrong thing for the
-    * incoming Unicode cmdline.  Modern glib (2.40 or later) solves this
-    * with g_option_context_parse_strv(), but we're stuck with an older
-    * glib for now.
+    * In Windows, g_option_context_parse() does the wrong thing for locale
+    * conversion of the incoming Unicode cmdline.  Modern glib (2.40 or
+    * later) solves this with g_option_context_parse_strv(), but we're stuck
+    * with an older glib for now.
     *
     * So instead lets do it all by hand.
     *
@@ -828,14 +579,14 @@ mainRun(int argc,
                   *(gchar **) e->arg_data = argv[++i];
                   match = TRUE;
                } else {
-                  Usage(context, paramStr, cmdOptions);
+                  Usage(context);
                }
             } else if (e->arg == G_OPTION_ARG_NONE) {
                *(gboolean *) e->arg_data = TRUE;
                match = TRUE;
             }
          } else if (strncmp(longName, argv[i], len) == 0 &&
-                   (argv[i][len] == '=' || argv[i][len] == '\0')) {
+                    (argv[i][len] == '=' || argv[i][len] == '\0')) {
             gchar *val = NULL;
 
             if (e->arg == G_OPTION_ARG_STRING) {
@@ -850,7 +601,7 @@ mainRun(int argc,
                *(gboolean *) e->arg_data = TRUE;
                match = TRUE;
             } else {
-               Usage(context, paramStr, cmdOptions);
+               Usage(context);
             }
          }
          if (match) {
@@ -860,7 +611,7 @@ mainRun(int argc,
       }
 next:
       if (!match) {
-         Usage(context, paramStr, cmdOptions);
+         Usage(context);
       }
    }
 #else
@@ -876,8 +627,8 @@ next:
    /*
     * XXX pull this if we use stdin for the cert contents.
     */
-   if (((doAdd || doRemove) && !pemFilename) ||(doRemoveAll && !subject)) {
-      Usage(context, paramStr, cmdOptions);
+   if ((doAdd || doRemove) && !pemFilename) {
+      Usage(context);
    }
 
    err = VGAuth_Init(appName, 0, NULL, &ctx);
@@ -904,8 +655,6 @@ next:
       } else {
          err = CliListMapped(ctx);
       }
-   } else if (doRemoveAll) {
-      err = CliRemoveAllAlias(ctx, subject, userName);
    }
 
    VGAuth_Shutdown(ctx);
@@ -944,8 +693,6 @@ wmain(int argc,
       CHK_UTF16_TO_UTF8(argvUtf8[i], argv[i], goto end);
    }
 
-   InitMsgCatalog();
-
    retval = mainRun(argc, argvUtf8);
 
 end:
@@ -981,7 +728,6 @@ int
 main(int argc,
      char *argv[])
 {
-   InitMsgCatalog();
    return mainRun(argc, argv);
 }
 

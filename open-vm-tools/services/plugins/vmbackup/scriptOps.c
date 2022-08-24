@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,8 +33,6 @@
 #include "procMgr.h"
 #include "str.h"
 #include "util.h"
-#include "vmware/tools/log.h"
-
 
 /*
  * These are legacy scripts used before the vmbackup-based backups. To
@@ -154,9 +152,9 @@ VmBackupRunNextScript(VmBackupScriptOp *op)  // IN/OUT
    }
 
    while (index >= 0 && scripts[index].path != NULL) {
-      if (File_IsFile(scripts[index].path)) {
-         char *cmd;
+      char *cmd;
 
+      if (File_IsFile(scripts[index].path)) {
          if (op->state->scriptArg != NULL) {
             cmd = Str_Asprintf(NULL, "\"%s\" %s \"%s\"", scripts[index].path,
                                scriptOp, op->state->scriptArg);
@@ -165,8 +163,7 @@ VmBackupRunNextScript(VmBackupScriptOp *op)  // IN/OUT
                                scriptOp);
          }
          if (cmd != NULL) {
-            host_debug("Running script: %s\n", scripts[index].path);
-            guest_debug("Running script: %s\n", cmd);
+            g_debug("Running script: %s\n", cmd);
             scripts[index].proc = ProcMgr_ExecAsync(cmd, NULL);
          } else {
             g_debug("Failed to allocate memory to run script: %s\n",
@@ -345,12 +342,11 @@ exit:
 static void
 VmBackupScriptOpRelease(VmBackupOp *_op)  // IN
 {
+   size_t i;
    VmBackupScriptOp *op = (VmBackupScriptOp *) _op;
 
    if (op->type != VMBACKUP_SCRIPT_FREEZE && op->state->scripts != NULL) {
-      size_t i;
       VmBackupScript *scripts = op->state->scripts;
-
       for (i = 0; scripts[i].path != NULL; i++) {
          free(scripts[i].path);
          if (scripts[i].proc != NULL) {
@@ -437,7 +433,7 @@ VmBackup_NewScriptOp(VmBackupScriptType type, // IN
 {
    Bool fail = FALSE;
    char **fileList = NULL;
-   char *scriptDir;
+   char *scriptDir = NULL;
    int numFiles = 0;
    size_t i;
    VmBackupScriptOp *op = NULL;

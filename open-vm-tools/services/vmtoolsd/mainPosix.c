@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,7 +35,6 @@
 #include "system.h"
 #include "unicode.h"
 #include "util.h"
-#include "vmcheck.h"
 #include "vmware/tools/log.h"
 #include "vmware/tools/i18n.h"
 #include "vmware/tools/utils.h"
@@ -104,12 +103,9 @@ ToolsCoreSigUsrHandler(const siginfo_t *info,
 {
    ToolsCore_DumpState(&gState);
 
+   g_info("Shutting down guestrpc on signal USR1 ...\n");
    if (TOOLS_IS_USER_SERVICE(&gState.ctx)) {
-      g_info("Shutting down guestrpc on signal USR1 ...\n");
-      g_signal_emit_by_name(gState.ctx.serviceObj,
-                            TOOLS_CORE_SIG_NO_RPC,
-                            &gState.ctx);
-      RpcChannel_Destroy(gState.ctx.rpc);
+      RpcChannel_Shutdown(gState.ctx.rpc);
       gState.ctx.rpc = NULL;
    }
 
@@ -174,15 +170,6 @@ main(int argc,
    char **argvCopy;
    GSource *src;
 
-   /*
-    * Check that environment is a VM
-    */
-   if (!VmCheck_IsVirtualWorld()) {
-      g_printerr("Error: %s must be run inside a virtual machine"
-                 " on a VMware hypervisor product.\n", argv[0]);
-      goto exit;
-   }
-
    Unicode_Init(argc, &argv, NULL);
 
    /*
@@ -196,13 +183,7 @@ main(int argc,
    }
 
    setlocale(LC_ALL, "");
-
-   i = atexit(VMTools_TeardownVmxGuestLog);
-   ASSERT(i == 0);
-   VMTools_UseVmxGuestLog(VMTOOLS_APP_NAME);
-   VMTools_ConfigLogging(G_LOG_DOMAIN, NULL, TRUE, FALSE);
-   VMTools_SetupVmxGuestLog(FALSE, NULL, NULL);
-
+   VMTools_ConfigLogging(G_LOG_DOMAIN, NULL, FALSE, FALSE);
    VMTools_BindTextDomain(VMW_TEXT_DOMAIN, NULL, NULL);
 
    if (!ToolsCore_ParseCommandLine(&gState, argc, argvCopy)) {

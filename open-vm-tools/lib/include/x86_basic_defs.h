@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -89,8 +89,6 @@
 #define CR4_PCE        0x00000100
 #define CR4_OSFXSR     0x00000200 // CPU/OS supports SIMD insts
 #define CR4_OSXMMEXCPT 0x00000400 // #XF exception enable PIII only
-#define CR4_UMIP       0x00000800
-#define CR4_LA57       0x00001000
 #define CR4_VMXE       0x00002000
 #define CR4_SMXE       0x00004000
 #define CR4_FSGSBASE   0x00010000
@@ -99,8 +97,7 @@
 #define CR4_SMEP       0x00100000
 #define CR4_SMAP       0x00200000
 #define CR4_PKE        0x00400000
-#define CR4_CET        0x00800000
-#define CR4_RESERVED   CONST64U(0xffffffffff889000)
+#define CR4_RESERVED   CONST64U(0xffffffffff889800)
 #define CR8_RESERVED   CONST64U(0xfffffffffffffff0)
 
 /*
@@ -204,15 +201,7 @@
 #define EXC_MC           18
 #define EXC_XF           19  // SIMD exception.
 #define EXC_VE           20  // Virtualization exception - VT only.
-#define EXC_CP           21  // Control Protection exception.
-#define EXC_VC           29  // VMM communication exception (SVM / SEV-ES only).
 #define EXC_SX           30  // Security exception (SVM only).
-
-/* Bitmap of the exception vectors that have associated error codes. */
-#define EXC_WITH_ERR_CODE_MASK ((1u << EXC_DF) | (1u << EXC_TS) | \
-                                (1u << EXC_NP) | (1u << EXC_SS) | \
-                                (1u << EXC_GP) | (1u << EXC_PF) | \
-                                (1u << EXC_AC) | (1u << EXC_CP))
 
 /*
  * eflag/rflag definitions.
@@ -222,24 +211,24 @@
 
 typedef enum x86_FLAGS {
    EFLAGS_NONE         = 0,
-   EFLAGS_CF           = (1 << 0),     /* User */
-   EFLAGS_SET          = (1 << 1),
-   EFLAGS_PF           = (1 << 2),     /* User */
-   EFLAGS_AF           = (1 << 4),     /* User */
-   EFLAGS_ZF           = (1 << 6),     /* User */
-   EFLAGS_SF           = (1 << 7),     /* User */
-   EFLAGS_TF           = (1 << 8),     /* Priv */
-   EFLAGS_IF           = (1 << 9),     /* Priv */
-   EFLAGS_DF           = (1 << 10),    /* User */
-   EFLAGS_OF           = (1 << 11),    /* User */
-   EFLAGS_NT           = (1 << 14),    /* Priv */
-   EFLAGS_RF           = (1 << 16),    /* Priv */
-   EFLAGS_VM           = (1 << 17),    /* Priv */
-   EFLAGS_AC           = (1 << 18),    /* Priv */
-   EFLAGS_VIF          = (1 << 19),    /* Priv */
-   EFLAGS_VIP          = (1 << 20),    /* Priv */
+   EFLAGS_CF           = (1 << 0),     /* User */ 
+   EFLAGS_SET          = (1 << 1),                                  
+   EFLAGS_PF           = (1 << 2),     /* User */ 
+   EFLAGS_AF           = (1 << 4),     /* User */ 
+   EFLAGS_ZF           = (1 << 6),     /* User */ 
+   EFLAGS_SF           = (1 << 7),     /* User */ 
+   EFLAGS_TF           = (1 << 8),     /* Priv */ 
+   EFLAGS_IF           = (1 << 9),     /* Priv */ 
+   EFLAGS_DF           = (1 << 10),    /* User */ 
+   EFLAGS_OF           = (1 << 11),    /* User */ 
+   EFLAGS_NT           = (1 << 14),    /* Priv */ 
+   EFLAGS_RF           = (1 << 16),    /* Priv */ 
+   EFLAGS_VM           = (1 << 17),    /* Priv */ 
+   EFLAGS_AC           = (1 << 18),    /* Priv */ 
+   EFLAGS_VIF          = (1 << 19),    /* Priv */ 
+   EFLAGS_VIP          = (1 << 20),    /* Priv */ 
    EFLAGS_ID           = (1 << 21),    /* Priv */
-
+   
    EFLAGS_IOPL         = 3 << EFLAGS_IOPL_SHIFT,
    EFLAGS_ARITH        = (EFLAGS_CF | EFLAGS_PF | EFLAGS_AF | EFLAGS_ZF |
                           EFLAGS_SF | EFLAGS_OF),
@@ -251,7 +240,7 @@ typedef enum x86_FLAGS {
    EFLAGS_ALL          = (EFLAGS_CF | EFLAGS_PF | EFLAGS_AF | EFLAGS_ZF |
                           EFLAGS_SF | EFLAGS_DF | EFLAGS_OF | EFLAGS_TF |
                           EFLAGS_IF | EFLAGS_IOPL | EFLAGS_NT | EFLAGS_RF |
-                          EFLAGS_VM | EFLAGS_AC | EFLAGS_VIF | EFLAGS_VIP |
+                          EFLAGS_VM | EFLAGS_AC | EFLAGS_VIF | EFLAGS_VIP | 
                           EFLAGS_ID),
    EFLAGS_ALL_16       = EFLAGS_ALL & 0xffff,
    EFLAGS_REAL_32      = (EFLAGS_ALL & ~(EFLAGS_VIP | EFLAGS_VIF | EFLAGS_VM)),

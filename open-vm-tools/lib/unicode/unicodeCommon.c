@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2016,2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -331,10 +331,16 @@ Unicode_AllocWithLength(const void *buffer,       // IN:
       char *escapedBuffer = Unicode_EscapeBuffer(buffer, lengthInBytes,
                                                  encoding);
 
-      Panic("%s: Couldn't convert invalid buffer [%s] from %s to Unicode.\n",
-            __FUNCTION__,
-            escapedBuffer ? escapedBuffer : "(couldn't escape bytes)",
-            Unicode_EncodingEnumToName(encoding));
+      /*
+       * Log and panic on failure.
+       */
+
+      Log("%s: Couldn't convert invalid buffer [%s] from %s to Unicode.\n",
+          __FUNCTION__,
+          escapedBuffer ? escapedBuffer : "(couldn't escape bytes)",
+          Unicode_EncodingEnumToName(encoding));
+      free(escapedBuffer);
+      PANIC();
    }
 
    return result;

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -524,8 +524,10 @@ FileIO_CloseAndUnlink(FileIODescriptor *fd)  // IN:
    path = Unicode_Duplicate(fd->fileName);
 
    ret = FileIO_Close(fd);
-   if ((File_UnlinkIfExists(path) == -1) && FileIO_IsSuccess(ret)) {
-      ret = FILEIO_ERROR;
+   if (FileIO_IsSuccess(ret)) {
+      if (File_UnlinkIfExists(path) == -1) {
+         ret = FILEIO_ERROR;
+      }
    }
 
    Posix_Free(path);
@@ -695,7 +697,7 @@ FileIOResult
 FileIO_AtomicTempFile(FileIODescriptor *fileFD,  // IN:
                       FileIODescriptor *tempFD)  // OUT:
 {
-   char *tempPath;
+   char *tempPath = NULL;
    int permissions;
    FileIOResult status;
 #if !defined(_WIN32)
@@ -836,6 +838,8 @@ FileIO_AtomicUpdateEx(FileIODescriptor *newFD,   // IN/OUT: file IO descriptor
    uint32 newAccess;
    FileIOResult status;
    FileIODescriptor tmpFD;
+#else
+   int fd;
 #endif
    int savedErrno = 0;
    int ret = 0;
@@ -882,8 +886,7 @@ FileIO_AtomicUpdateEx(FileIODescriptor *newFD,   // IN/OUT: file IO descriptor
          ASSERT(isSame);
       } else {
          savedErrno = errno;
-         Log("%s: File_IsSameFile of ('%s', '%s') failed: %d\n", __FUNCTION__,
-             dirName, dstDirName, errno);
+         Log("%s: File_IsSameFile failed (errno = %d).\n", __FUNCTION__, errno);
          goto swapdone;
       }
 
@@ -907,8 +910,6 @@ FileIO_AtomicUpdateEx(FileIODescriptor *newFD,   // IN/OUT: file IO descriptor
        */
       if (savedErrno == ENOSYS || savedErrno == ENOTTY) {
          if (renameOnNFS) {
-            int fd;
-
             /*
              * NFS allows renames of locked files, even if both files
              * are locked.  The file lock follows the file handle, not
@@ -1015,8 +1016,6 @@ swapdone:
           __FUNCTION__, newPath, currPath, errno);
           savedErrno = errno;
    } else {
-      int fd;
-
       ret = TRUE;
       fd = newFD->posix;
       newFD->posix = currFD->posix;

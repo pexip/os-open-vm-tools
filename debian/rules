@@ -20,8 +20,7 @@ override_dh_auto_configure:
 			--with-pic \
 			--enable-xmlsec1 \
 			--with-gtk3  \
-			--enable-servicediscovery \
-			CFLAGS="-fPIC -Wno-error=deprecated-declarations -Wno-error=address-of-packed-member -Wno-nonnull $(CFLAGS)" \
+			CFLAGS="-fPIC -Wno-deprecated-declarations $(CFLAGS)" \
 			CUSTOM_PROCPS_NAME=procps
 
 override_dh_auto_install:
@@ -36,7 +35,6 @@ override_dh_auto_install:
 	# permissions
 	chmod 0644 debian/*/etc/pam.d/*
 	chmod 4755 debian/*/usr/bin/vmware-user-suid-wrapper
-	chmod 0644 debian/*/lib/udev/rules.d/99-vmware-scsi-udev.rules
 
 	install -D -m 0644 debian/local/xautostart.conf debian/open-vm-tools-desktop/etc/vmware-tools/xautostart.conf
 	install -D -m 0644 debian/local/tools.conf debian/open-vm-tools/etc/vmware-tools/tools.conf
@@ -75,16 +73,9 @@ override_dh_auto_install:
 	mkdir -p debian/open-vm-tools-desktop/etc/xdg/autostart
 	mv debian/open-vm-tools/etc/xdg/autostart/vmware-user.desktop debian/open-vm-tools-desktop/etc/xdg/autostart
 	rm -rf debian/open-vm-tools/etc/xdg
-
+	
 	mkdir -p debian/open-vm-tools-desktop/lib/systemd/system/open-vm-tools.service.d
 	cp debian/desktop.conf debian/open-vm-tools-desktop/lib/systemd/system/open-vm-tools.service.d/
-
-	mkdir -p debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/plugins/vmsvc/
-	mv debian/open-vm-tools/usr/lib/open-vm-tools/plugins/vmsvc/libserviceDiscovery.so debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/plugins/vmsvc/
-
-	mkdir -p debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/serviceDiscovery/scripts/
-	mv debian/open-vm-tools/usr/lib/open-vm-tools/serviceDiscovery/scripts/* debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/serviceDiscovery/scripts/
-	rm -rf debian/open-vm-tools/usr/lib/open-vm-tools/serviceDiscovery/
 
 override_dh_gencontrol:
 	if [ "${VENDOR}" = "UBUNTU" ]; \
@@ -93,11 +84,14 @@ override_dh_gencontrol:
 	else \
 		dh_gencontrol; \
 	fi
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
 
 override_dh_fixperms:
 	dh_testroot
 	find debian/open-vm-tools/etc -type f -print0 | xargs -0 chmod ugo-x
 	chmod ugo+x debian/open-vm-tools/etc/vmware-tools/scripts/vmware/*
+	chmod ugo+x debian/open-vm-tools/etc/vmware-tools/vm-support
 	chmod ugo+x debian/open-vm-tools/etc/vmware-tools/*-vm-default
 
 	dh_fixperms -Xvmware-user-suid-wrapper
@@ -114,3 +108,4 @@ override_dh_md5sums-arch:
 	dh_md5sums
 	# remove broken \ escaping from md5sums
 	sed -i -e 's,^\\,,' -e 's,\\\\,\\,' debian/open-vm-tools-desktop/DEBIAN/md5sums
+

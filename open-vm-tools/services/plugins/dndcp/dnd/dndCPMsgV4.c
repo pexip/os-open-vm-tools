@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -67,17 +67,14 @@ DnDCPMsgV4IsPacketValid(const uint8 *packet,
       return FALSE;
    }
 
-   /*
-    * For Workstation/Fusion Payload should be smaller than the whole binary
+   /* Payload should be smaller than the whole binary
     * and should not be put beyond the binary tail.
     *
     * binarySize should be smaller than DND_CP_MSG_MAX_BINARY_SIZE_V4, so that
     * integer overflow is not possible since DND_CP_MSG_MAX_BINARY_SIZE_V4 * 2
-    * is guaranteed to be less than MAX_UINT32. Horizon removes this limitation
+    * is guaranteed to be less than MAX_UINT32.
     */
-#ifndef VMX86_HORIZON_VIEW
    ASSERT_ON_COMPILE(DND_CP_MSG_MAX_BINARY_SIZE_V4 <= MAX_UINT32 / 2);
-#endif
    if (msgHdr->payloadOffset > msgHdr->binarySize ||
        msgHdr->payloadSize > msgHdr->binarySize ||
        msgHdr->payloadOffset + msgHdr->payloadSize > msgHdr->binarySize) {
@@ -122,14 +119,12 @@ DnDCPMsgV4_Destroy(DnDCPMsgV4 *msg)
  *
  * @param[in] packet
  * @param[in] packetSize
- * @param[in] allowed max packet Size
  *
  * @return DnDCPMsgPacketType
  */
 
 DnDCPMsgPacketType DnDCPMsgV4_GetPacketType(const uint8 *packet,
-                                            size_t packetSize,
-                                            const uint32 maxPacketPayloadSize)
+                                            size_t packetSize)
 {
    DnDCPMsgHdrV4 *msgHdr = NULL;
    ASSERT(packet);
@@ -139,7 +134,7 @@ DnDCPMsgPacketType DnDCPMsgV4_GetPacketType(const uint8 *packet,
    }
 
    msgHdr = (DnDCPMsgHdrV4 *)packet;
-   if (msgHdr->binarySize <= maxPacketPayloadSize) {
+   if (msgHdr->binarySize <= DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4) {
       return DND_CP_MSG_PACKET_TYPE_SINGLE;
    }
 
@@ -170,17 +165,6 @@ DnDCPMsgV4_Serialize(DnDCPMsgV4 *msg,
                      uint8 **packet,
                      size_t *packetSize)
 {
-   return DnDCPMsgV4_SerializeWithInputPayloadSizeCheck(
-      msg, packet, packetSize, DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4);
-}
-
-
-Bool
-DnDCPMsgV4_SerializeWithInputPayloadSizeCheck(DnDCPMsgV4 *msg,
-                                              uint8 **packet,
-                                              size_t *packetSize,
-                                              const uint32 maxPacketPayloadSize)
-{
    size_t payloadSize = 0;
 
    ASSERT(msg);
@@ -188,7 +172,7 @@ DnDCPMsgV4_SerializeWithInputPayloadSizeCheck(DnDCPMsgV4 *msg,
    ASSERT(packetSize);
    ASSERT(msg->hdr.binarySize >= msg->hdr.payloadOffset);
 
-   if (msg->hdr.binarySize <= maxPacketPayloadSize) {
+   if (msg->hdr.binarySize <= DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4) {
       /*
        * One single packet is enough for the message. For short message, the
        * payloadOffset should always be 0.
@@ -197,8 +181,8 @@ DnDCPMsgV4_SerializeWithInputPayloadSizeCheck(DnDCPMsgV4 *msg,
       payloadSize = msg->hdr.binarySize;
    } else {
       /* For big message, payloadOffset means binary size we already sent out. */
-      if (msg->hdr.binarySize - msg->hdr.payloadOffset > maxPacketPayloadSize) {
-         payloadSize = maxPacketPayloadSize;
+      if (msg->hdr.binarySize - msg->hdr.payloadOffset > DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4) {
+         payloadSize = DND_CP_PACKET_MAX_PAYLOAD_SIZE_V4;
       } else {
          payloadSize = msg->hdr.binarySize - msg->hdr.payloadOffset;
       }

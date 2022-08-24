@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2016-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2016-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -44,7 +44,6 @@
 #include "prefs.h"
 #include "serviceInt.h"
 #include "certverify.h"
-#include "vmxlog.h"
 
 static int gClockSkewAdjustment = VGAUTH_PREF_DEFAULT_CLOCK_SKEW_SECS;
 static xmlSchemaPtr gParsedSchemas = NULL;
@@ -94,7 +93,6 @@ XmlErrorHandler(void *ctx,
     * Treat all as warning.
     */
    g_warning("XML Error: %s", msgStr);
-   VMXLog_Log(VMXLOG_LEVEL_WARNING, "XML Error: %s", msgStr);
 }
 
 
@@ -125,20 +123,14 @@ XmlSecErrorHandler(const char *file,
                    const char *msg)
 {
    /*
-    * Treat all as warning.  */
+    * Treat all as warning.
+    */
    g_warning("XMLSec Error: %s:%s(line %d) object %s"
              " subject %s reason: %d, msg: %s",
              file, func, line,
              errorObject ? errorObject : "<UNSET>",
              errorSubject ? errorSubject : "<UNSET>",
              reason, msg);
-   VMXLog_Log(VMXLOG_LEVEL_WARNING,
-              "XMLSec Error: %s:%s(line %d) object %s"
-              " subject %s reason: %d, msg: %s",
-              file, func, line,
-              errorObject ? errorObject : "<UNSET>",
-              errorSubject ? errorSubject : "<UNSET>",
-              reason, msg);
 }
 
 
@@ -392,11 +384,6 @@ SAML_Init(void)
                   "Make sure that you have xmlsec1-openssl installed and\n"
                   "check shared libraries path\n"
                   "(LD_LIBRARY_PATH) environment variable.\n");
-        VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                   "Error: unable to load openssl xmlsec-crypto library.\n "
-                   "Make sure that you have xmlsec1-openssl installed and\n"
-                   "check shared libraries path\n"
-                   "(LD_LIBRARY_PATH) environment variable.\n");
       return VGAUTH_E_FAIL;
     }
 #endif /* XMLSEC_CRYPTO_DYNAMIC_LOADING */
@@ -427,10 +414,6 @@ SAML_Init(void)
    Log("%s: Using xmlsec1 %d.%d.%d for XML signature support\n",
        __FUNCTION__, XMLSEC_VERSION_MAJOR, XMLSEC_VERSION_MINOR,
        XMLSEC_VERSION_SUBMINOR);
-   VMXLog_Log(VMXLOG_LEVEL_WARNING,
-              "%s: Using xmlsec1 %d.%d.%d for XML signature support\n",
-              __FUNCTION__, XMLSEC_VERSION_MAJOR, XMLSEC_VERSION_MINOR,
-              XMLSEC_VERSION_SUBMINOR);
 
    return VGAUTH_E_OK;
 }
@@ -783,10 +766,6 @@ CheckTimeAttr(const xmlNodePtr node,
       g_warning("%s: FAILED SAML assertion (timeStamp %s, delta %d) %s.\n",
                 __FUNCTION__, timeAttr, (int) diff,
                 notBefore ? "is not yet valid" : "has expired");
-      VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                 "%s: FAILED SAML assertion (timeStamp %s, delta %d) %s.\n",
-                __FUNCTION__, timeAttr, (int) diff,
-                notBefore ? "is not yet valid" : "has expired");
       retVal = FALSE;
       goto done;
    }
@@ -1120,27 +1099,11 @@ BuildCertChain(xmlNodePtr x509Node,
        */
       ret = xmlSecCryptoAppKeysMngrCertLoadMemory(mgr,
                                                   pemCert,
-                                                  (xmlSecSize) strlen(pemCert),
+                                                  strlen(pemCert),
                                                   xmlSecKeyDataFormatPem,
                                                   xmlSecKeyDataTypeTrusted);
       if (ret < 0) {
-         g_warning("%s: Failed to add cert to key manager\n", __FUNCTION__);
-         g_warning("PEM cert: %s\n", pemCert);
-         VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                    "%s: Failed to add cert to key manager\n", __FUNCTION__);
-         /*
-          * XXX
-          *
-          * Certificates can have data (eg email addresses)
-          * we don't want to log those to the VMX due to privacy concerns.
-          * So let's not log to VMX at all until we have a reliable way to
-          * cleanse them -- assuming that doesn't make them worthless
-          * since the data won't match anything in the aliasStore
-          * or a SAML token.
-          */
-#if 0
-           VMXLog_Log(VMXLOG_LEVEL_WARNING, "PEM cert: %s\n", pemCert);
-#endif
+         g_warning("Failed to add cert to key manager\n");
          goto done;
       }
 
@@ -1297,22 +1260,9 @@ VerifySignature(xmlDocPtr doc,
    /*
     * Check status to verify the signature is correct.
     *
-    * This check can fail due to build issues.  If xmlSecSize is
-    * different between this layer and the xmlsec library,
-    * dsigCtx->status can be at the wrong offset.  So
-    * dump the value of status, which should be either
-    * 1 (xmlSecDSigStatusSucceeded) or 2 (xmlSecDSigStatusInvalid).
-    * If its something else, that's a sign there's a
-    * build issue and XMLSEC_NO_SIZE_T may be set at one layer but
-    * not the other.
-    *
     */
    if (dsigCtx->status != xmlSecDSigStatusSucceeded) {
-      g_warning("%s: Signature is invalid (got %d)\n",
-                __FUNCTION__, dsigCtx->status);
-      VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                 "%s: signature is invalid (got %d)\n", __FUNCTION__,
-                 dsigCtx->status);
+      g_warning("Signature is INVALID\n");
       goto done;
    }
 
@@ -1413,7 +1363,6 @@ VerifySAMLToken(const gchar *token,
    bRet = VerifySignature(doc, numCerts, certChain);
    if (FALSE == bRet) {
       g_warning("Failed to verify Signature\n");
-      // XXX Can we log the token at this point without risking security?
       goto done;
    }
 

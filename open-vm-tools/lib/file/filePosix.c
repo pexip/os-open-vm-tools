@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -53,13 +53,8 @@
 #   include <pwd.h>
 #endif
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-
 #include "vmware.h"
 #include "posix.h"
-#include "codeset.h"
 #include "file.h"
 #include "fileInt.h"
 #include "msg.h"
@@ -68,6 +63,7 @@
 #include "util.h"
 #include "timeutil.h"
 #include "dynbuf.h"
+#include "localconfig.h"
 #include "hostType.h"
 #include "vmfs.h"
 #include "hashTable.h"
@@ -100,9 +96,9 @@ static char *FilePosixNearestExistingAncestor(char const *path);
 #endif
 
 struct WalkDirContextImpl {
-   char       *dirName;
-   DIR        *dir;
-   HashTable  *hash;
+   int     cnt;
+   int     iter;
+   char  **files;
 };
 
 
@@ -111,8 +107,6 @@ struct WalkDirContextImpl {
 #define FS_NFS_ON_ESX "NFS"
 /* A string for VMFS on ESX file system type */
 #define FS_VMFS_ON_ESX "VMFS"
-/* A string for vsanD on ESX file system type */
-#define FS_VSAND_ON_ESX "vsanD"
 #define FS_VSAN_URI_PREFIX      "vsan:"
 
 #if defined __ANDROID__
@@ -994,7 +988,7 @@ File_SetFilePermissions(const char *pathName,  // IN:
  *-----------------------------------------------------------------------------
  */
 
-Bool
+static Bool
 FilePosixGetParent(char **canPath)  // IN/OUT: Canonical file path
 {
    char *pathName;
@@ -1051,7 +1045,6 @@ File_GetParent(char **canPath)  // IN/OUT: Canonical file path
 }
 
 
-#if !defined(__APPLE__) || TARGET_OS_IPHONE
 /*
  *----------------------------------------------------------------------
  *
@@ -1071,7 +1064,7 @@ File_GetParent(char **canPath)  // IN/OUT: Canonical file path
  *----------------------------------------------------------------------
  */
 
-Bool
+static Bool
 FileGetStats(const char *pathName,       // IN:
              Bool doNotAscend,           // IN:
              struct statfs *pstatfsbuf)  // OUT:
@@ -1079,7 +1072,8 @@ FileGetStats(const char *pathName,       // IN:
    Bool retval = TRUE;
    char *dupPath = NULL;
 
-   while (Posix_Statfs(dupPath ? dupPath : pathName, pstatfsbuf) == -1) {
+   while (Posix_Statfs(dupPath ? dupPath : pathName,
+                             pstatfsbuf) == -1) {
       if (errno != ENOENT || doNotAscend) {
          retval = FALSE;
          break;
@@ -1132,7 +1126,7 @@ File_GetFreeSpace(const char *pathName,  // IN: File name
    }
 
    if (FileGetStats(fullPath, doNotAscend, &statfsbuf)) {
-      ret = (uint64) statfsbuf.f_bavail * statfsbuf.f_bsize;  // available space
+      ret = (uint64) statfsbuf.f_bavail * statfsbuf.f_bsize;
    } else {
       Warning("%s: Couldn't statfs %s\n", __func__, fullPath);
       ret = -1;
@@ -1142,7 +1136,6 @@ File_GetFreeSpace(const char *pathName,  // IN: File name
 
    return ret;
 }
-#endif
 
 
 #if defined(VMX86_SERVER)
@@ -1490,10 +1483,6 @@ FileIsVMFS(const char *pathName)  // IN:
       /* We want to match anything that starts with VMFS */
       result = strncmp(fsAttrs->fsType, FS_VMFS_ON_ESX,
                        strlen(FS_VMFS_ON_ESX)) == 0;
-      if (!result) {
-         result = strncmp(fsAttrs->fsType, FS_VSAND_ON_ESX,
-                          strlen(FS_VSAND_ON_ESX)) == 0;
-      }
    } else {
       Log(LGPFX" %s: File_GetVMFSAttributes failed\n", __func__);
    }
@@ -1609,16 +1598,13 @@ File_SupportsOptimisticLock(const char *pathName)  // IN:
 }
 
 
-#if !defined(__APPLE__) || TARGET_OS_IPHONE
 /*
  *----------------------------------------------------------------------
  *
  * File_GetCapacity --
  *
- *      Return the total capacity (in bytes) of the file system that the
- *      specified file resides on. This is not be confused with the
- *      amount of free space available in the file system the specified
- *      file resides on.
+ *      Return the total capacity (in bytes) available to the user on a disk
+ *      where a file is or would be
  *
  * Results:
  *      -1 if error (reported to the user)
@@ -1642,7 +1628,7 @@ File_GetCapacity(const char *pathName)  // IN: Path name
    }
 
    if (FileGetStats(fullPath, FALSE, &statfsbuf)) {
-      ret = (uint64) statfsbuf.f_blocks * statfsbuf.f_bsize; // FS size
+      ret = (uint64) statfsbuf.f_blocks * statfsbuf.f_bsize;
    } else {
       Warning(LGPFX" %s: Couldn't statfs\n", __func__);
       ret = -1;
@@ -1652,7 +1638,6 @@ File_GetCapacity(const char *pathName)  // IN: Path name
 
    return ret;
 }
-#endif
 
 
 /*
@@ -1991,13 +1976,6 @@ retry:
                   Str_Strcpy(canPath, ptr, sizeof canPath);
                }
             } else {
-
-               /*
-                * This is coded as it is in order to document clearly that
-                * the function does not handle bind mount correctly (it
-                * always assumes rbind).
-                */
-               /* coverity[dead_error_line] */
                Str_Strcpy(canPath, ptr, sizeof canPath);
             }
 
@@ -2547,9 +2525,9 @@ FileVMKGetMaxOrSupportsFileSize(const char *pathName,  // IN:
    /*
     * Try the old way if IOCTL failed.
     */
-   LOG(0, LGPFX" %s: Failed to figure out max file size via "
-       "IOCTLCMD_VMFS_GET_MAX_FILE_SIZE. Falling back to old method.\n",
-       __func__);
+   LOG(0, (LGPFX" %s: Failed to figure out max file size via "
+           "IOCTLCMD_VMFS_GET_MAX_FILE_SIZE. Falling back to old method.\n",
+           __func__));
    maxFileSize = -1;
 
    if (File_GetVMFSAttributes(pathName, &fsAttrs) < 0) {
@@ -2858,63 +2836,126 @@ FileCreateDirectory(const char *pathName,  // IN:
  *----------------------------------------------------------------------
  */
 
-typedef struct {
-   char   **fileNames;
-   uint32   pos;
-} ListParams;
+static int
+FileKeyDispose(const char *key,   // IN:
+               void *value,       // IN:
+               void *clientData)  // IN:
+{
+   Posix_Free((void *) key);
+
+   return 0;
+}
 
 static int
-FileNameArray(const char *key,   // IN:
-              void *value,       // IN:
-              void *clientData)  // IN/OUT: ListParams pointer
+FileUnique(const char *key,   // IN:
+           void *value,       // IN:
+           void *clientData)  // IN/OUT: a DynBuf
 {
-   ListParams *params = clientData;
+   DynBuf *b = clientData;
 
-   ASSERT(value == NULL);
-
-   params->fileNames[params->pos++] = Util_SafeStrdup(key);
+   DynBuf_Append(b, &key, sizeof key);
 
    return 0;
 }
 
 int
-File_ListDirectory(const char *dirName,  // IN:
-                   char ***ids)          // OUT: relative paths
+File_ListDirectory(const char *pathName,  // IN:
+                   char ***ids)           // OUT: relative paths
 {
-   int err = 0;
-   int count = -1;
-   WalkDirContext context = File_WalkDirectoryStart(dirName);
+   int err;
+   DIR *dir;
+   int count;
+   HashTable *hash;
 
-   if (context != NULL) {
-      while (File_WalkDirectoryNext(context, NULL))
-         ;
+   ASSERT(pathName != NULL);
 
-      err = errno;
+   dir = Posix_OpenDir(pathName);
 
-      if (err == 0) {
-         count = HashTable_GetNumElements(context->hash);
-
-         if (ids) {
-            if (count == 0) {
-               *ids = NULL;
-            } else {
-               ListParams params;
-
-               params.fileNames = Util_SafeCalloc(count, sizeof(char *));
-               params.pos = 0;
-
-               HashTable_ForEach(context->hash, FileNameArray, &params);
-               *ids = params.fileNames;
-            }
-         }
-      }
-
-      File_WalkDirectoryEnd(context);
-
-      errno = err;
+   if (dir == NULL) {
+      // errno is preserved
+      return -1;
    }
 
-   return count;
+   hash = HashTable_Alloc(256, HASH_STRING_KEY, NULL);
+   count = 0;
+
+   while (TRUE) {
+      struct dirent *entry;
+
+      errno = 0;
+      entry = readdir(dir);
+      if (entry == NULL) {
+         err = errno;
+         break;
+      }
+
+      /* Strip out undesirable paths.  No one ever cares about these. */
+      if ((strcmp(entry->d_name, ".") == 0) ||
+          (strcmp(entry->d_name, "..") == 0)) {
+         continue;
+      }
+
+      /* Don't create the file list if we aren't providing it to the caller. */
+      if (ids) {
+         char *id;
+
+         if (Unicode_IsBufferValid(entry->d_name, -1,
+                                   STRING_ENCODING_DEFAULT)) {
+            id = Unicode_Alloc(entry->d_name, STRING_ENCODING_DEFAULT);
+         } else {
+            id = Unicode_EscapeBuffer(entry->d_name, -1,
+                                     STRING_ENCODING_DEFAULT);
+
+            Warning("%s: file '%s' in directory '%s' cannot be converted to "
+                    "UTF8\n", __FUNCTION__, pathName, id);
+
+            Posix_Free(id);
+
+            id = Unicode_Duplicate(UNICODE_SUBSTITUTION_CHAR
+                                   UNICODE_SUBSTITUTION_CHAR
+                                   UNICODE_SUBSTITUTION_CHAR);
+         }
+
+         /*
+          * It is possible for a directory operation to change the contents
+          * of a directory while this routine is running. If the OS decides
+          * to physically rearrange the contents of the directory it is
+          * possible for readdir to report a file more than once. Only add
+          * a file to the return data if it is unique within the return
+          * data.
+          */
+
+         if (HashTable_Insert(hash, id, NULL)) {
+            count++;
+         } else {
+            Posix_Free(id);
+         }
+      } else {
+         count++;
+      }
+   }
+
+   closedir(dir);
+
+   if (ids) {
+      ASSERT(count == HashTable_GetNumElements(hash));
+
+      if (err == 0) {
+         DynBuf b;
+
+         DynBuf_Init(&b);
+
+         HashTable_ForEach(hash, FileUnique, &b);
+         *ids = DynBuf_Detach(&b);
+         DynBuf_Destroy(&b);
+      } else {
+         HashTable_ForEach(hash, FileKeyDispose, NULL);
+      }
+   }
+
+   HashTable_Free(hash);
+
+   return (errno = err) == 0 ? count : -1;
 }
 
 
@@ -2934,29 +2975,13 @@ File_ListDirectory(const char *dirName,  // IN:
  *-----------------------------------------------------------------------------
  */
 
-static int
-FileKeyDispose(const char *key,   // IN:
-               void *value,       // IN:
-               void *clientData)  // IN:
-{
-   Posix_Free((void *) key);
-
-   return 0;
-}
-
 void
 File_WalkDirectoryEnd(WalkDirContext context)  // IN:
 {
    if (context != NULL) {
-      if (context->dir != NULL) {
-         closedir(context->dir);
+      if (context->cnt > 0) {
+         Util_FreeStringList(context->files, context->cnt);
       }
-
-      HashTable_ForEach(context->hash, FileKeyDispose, NULL);
-
-      HashTable_Free(context->hash);
-
-      Posix_Free(context->dirName);
       Posix_Free(context);
    }
 }
@@ -2986,25 +3011,19 @@ File_WalkDirectoryEnd(WalkDirContext context)  // IN:
  */
 
 WalkDirContext
-File_WalkDirectoryStart(const char *dirName)  // IN:
+File_WalkDirectoryStart(const char *parentPath)  // IN:
 {
-   WalkDirContextImpl *context;
+   WalkDirContextImpl *context = malloc(sizeof *context);
 
-   ASSERT(dirName != NULL);
+   if (context != NULL) {
+      context->files = NULL;
+      context->iter = 0;
+      context->cnt = File_ListDirectory(parentPath, &context->files);
 
-   context = Util_SafeMalloc(sizeof *context);
-
-   context->dirName = Util_SafeStrdup(dirName);
-   context->hash = HashTable_Alloc(256, HASH_STRING_KEY, NULL);
-   context->dir = Posix_OpenDir(dirName);
-
-   if (context->dir == NULL) {
-      int err = errno;
-
-      File_WalkDirectoryEnd(context);
-
-      errno = err;
-      context = NULL;
+      if (context->cnt == -1) {
+         File_WalkDirectoryEnd(context);
+         context = NULL;
+      }
    }
 
    return context;
@@ -3016,15 +3035,16 @@ File_WalkDirectoryStart(const char *dirName)  // IN:
  *
  * File_WalkDirectoryNext --
  *
- *      Get the next file name during a directory traversal started with
+ *      Get the next entry in a directory traversal started with
  *      File_WalkDirectoryStart.
  *
  * Results:
- *      TRUE   Traversal hasn't completed yet. If *fileName is not NULL,
- *             an allocated string of the file name found is returned.
- *             The caller must free the string.
- *      FALSE  The traversal has completed. Check errno; if it is zero (0),
- *             the walk completed sucessfully.
+ *      TRUE iff the traversal hasn't completed.
+ *
+ *      If TRUE, *path holds an allocated string of a directory entry that the
+ *      caller must free (see free).
+ *
+ *      If FALSE, errno is 0 iff the walk completed sucessfully.
  *
  * Side effects:
  *      None
@@ -3034,76 +3054,19 @@ File_WalkDirectoryStart(const char *dirName)  // IN:
 
 Bool
 File_WalkDirectoryNext(WalkDirContext context,  // IN:
-                       char **fileName)         // OUT/OPT:
+                       char **path)             // OUT:
 {
-   int err = 0;
-   Bool callAgain = FALSE;
+   ASSERT(context);
+   ASSERT(path != NULL);
 
-   ASSERT(context != NULL);
+   errno = 0;  // Any errors showed up at "start time".
 
-   while (TRUE) {
-      char *allocName;
-      struct dirent *entry;
-
-      errno = 0;
-      entry = readdir(context->dir);
-      if (entry == NULL) {
-         err = errno;
-         break;
-      }
-
-      /* Strip out undesirable paths. No one ever cares about these. */
-      if ((strcmp(entry->d_name, ".") == 0) ||
-          (strcmp(entry->d_name, "..") == 0)) {
-         continue;
-      }
-
-      /*
-       * It is possible for a directory operation to change the contents
-       * of a directory while this routine is running. If the OS decides
-       * to physically rearrange the contents of the directory it is
-       * possible for readdir to report a file more than once. Only add
-       * a file to the return data if it is unique within the return
-       * data.
-       */
-
-#if defined(VMX86_SERVER) || defined(__APPLE__)  // UTF8 native platforms
-      if (CodeSet_IsStringValidUTF8(entry->d_name)) {
-         allocName = Util_SafeStrdup(entry->d_name);
-#else
-      if (Unicode_IsBufferValid(entry->d_name, -1, STRING_ENCODING_DEFAULT)) {
-         allocName = Unicode_Alloc(entry->d_name, STRING_ENCODING_DEFAULT);
-#endif
-      } else {
-         char *id = Unicode_EscapeBuffer(entry->d_name, -1,
-                                         STRING_ENCODING_DEFAULT);
-
-         Warning("%s: file '%s' in directory '%s' cannot be converted to "
-                 "UTF8\n", __FUNCTION__, context->dirName, id);
-
-         Posix_Free(id);
-
-         allocName = Unicode_Duplicate(UNICODE_SUBSTITUTION_CHAR
-                                       UNICODE_SUBSTITUTION_CHAR
-                                       UNICODE_SUBSTITUTION_CHAR);
-      }
-
-      if (HashTable_Insert(context->hash, allocName, NULL)) {  // Unique - good
-         if (fileName != NULL) {
-            *fileName = Util_SafeStrdup(allocName);
-         }
-
-         callAgain = TRUE;
-         break;
-      } else {  // Duplicate - ignore
-         free(allocName);
-         continue;
-      }
+   if (context->iter < context->cnt) {
+      *path = Util_SafeStrdup(context->files[context->iter++]);
+      return TRUE;
    }
 
-   errno = err;
-
-   return callAgain;
+   return FALSE;
 }
 
 

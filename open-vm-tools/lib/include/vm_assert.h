@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -120,6 +120,7 @@ extern "C" {
 
 
 // These strings don't have newline so that a bug can be tacked on.
+#define _AssertPanicFmt            "PANIC %s:%d"
 #define _AssertAssertFmt           "ASSERT %s:%d"
 #define _AssertVerifyFmt           "VERIFY %s:%d"
 #define _AssertNotImplementedFmt   "NOT_IMPLEMENTED %s:%d"
@@ -198,6 +199,9 @@ void WarningThrottled(uint32 *count, const char *fmt, ...) PRINTF_DECL(2, 3);
 #define VERIFY_BUG(bug, cond) \
            ASSERT_IFNOT(cond, _ASSERT_PANIC_BUG_NORETURN(bug, AssertVerify))
 
+#define PANIC()        _ASSERT_PANIC(AssertPanic)
+#define PANIC_BUG(bug) _ASSERT_PANIC_BUG(bug, AssertPanic)
+
 #define ASSERT_NOT_IMPLEMENTED(cond) \
            ASSERT_IFNOT(cond, NOT_IMPLEMENTED())
 
@@ -220,15 +224,8 @@ void WarningThrottled(uint32 *count, const char *fmt, ...) PRINTF_DECL(2, 3);
 #define NOT_REACHED()            _ASSERT_PANIC(AssertNotReached)
 #endif
 
-#if !defined VMKERNEL && !defined VMKBOOT && !defined VMKERNEL_MODULE
-/*
- * PR 2621164,2624036: ASSERT_MEM_ALLOC is deprecated and should not be
- * used. Please use VERIFY where applicable, since the latter aligns
- * better with the consistency model as defined by bora/doc/assert.
- */
 #define ASSERT_MEM_ALLOC(cond) \
            ASSERT_IFNOT(cond, _ASSERT_PANIC(AssertMemAlloc))
-#endif
 
 #ifdef VMX86_DEVEL
 #define NOT_TESTED()       Warning(_AssertNotTestedFmt "\n", __FILE__, __LINE__)
@@ -244,12 +241,12 @@ void WarningThrottled(uint32 *count, const char *fmt, ...) PRINTF_DECL(2, 3);
 
 #define NOT_TESTED_1024()                                               \
    do {                                                                 \
-      static MONITOR_ONLY(PERVCPU) uint16 count = 0;                    \
+      static uint16 count = 0;                                          \
       if (UNLIKELY(count == 0)) { NOT_TESTED(); }                       \
       count = (count + 1) & 1023;                                       \
    } while (0)
 
-#define LOG_ONCE(...) DO_ONCE(Log(__VA_ARGS__))
+#define LOG_ONCE(_s) DO_ONCE(Log _s)
 
 
 /*
@@ -355,17 +352,6 @@ void WarningThrottled(uint32 *count, const char *fmt, ...) PRINTF_DECL(2, 3);
    static INLINE void name(void) {   \
       assertions                     \
    }
-
-/*
- * Avoid generating extra code due to asserts which are required by
- * Clang static analyzer, e.g. right before a statement would fail, using
- * the __clang_analyzer__ macro defined only when clang SA is parsing files.
- */
-#ifdef __clang_analyzer__
-#define ANALYZER_ASSERT(cond) ASSERT(cond)
-#else
-#define ANALYZER_ASSERT(cond) ((void)0)
-#endif
 
 #ifdef __cplusplus
 } /* extern "C" */

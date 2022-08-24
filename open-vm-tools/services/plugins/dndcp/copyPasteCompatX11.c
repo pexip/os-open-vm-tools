@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2005-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2005-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -36,8 +36,6 @@
  *    asks for selection, CopyPasteSelectionGetCB will reply with host
  *    selection text.
  */
-
-#define G_LOG_DOMAIN "dndcp"
 
 #include "dndPluginIntX11.h"
 #include <stdlib.h>
@@ -156,6 +154,7 @@ CopyPasteSelectionRemoveTarget(GtkWidget *widget,
                                GdkAtom target)
 {
    const char *selection_handler_key = "gtk-selection-handlers";
+   struct SelectionTargetList *targetList;
    GList *tempList;
    GList *selectionLists;
 
@@ -168,7 +167,7 @@ CopyPasteSelectionRemoveTarget(GtkWidget *widget,
    tempList = selectionLists;
    while (tempList) {
       /* Enumerate the list to find the selection. */
-      struct SelectionTargetList *targetList = tempList->data;
+      targetList = tempList->data;
       if (targetList->selection == selection) {
          /* Remove target. */
          gtk_target_list_remove(targetList->list, target);
@@ -580,41 +579,50 @@ CopyPasteSelectionGetCB(GtkWidget        *widget,         // IN: unused
       return;
    }
 
-   GdkAtom target;
-#ifndef GTK3
-   target = selection_data->target;
-#else
-   target = gtk_selection_data_get_target(selection_data);
-#endif
-
    /* If it is text copy paste, return gHostClipboardBuf. */
-   if (GDK_SELECTION_TYPE_STRING == target ||
-       GDK_SELECTION_TYPE_UTF8_STRING == target) {
+#ifndef GTK3
+   if (GDK_SELECTION_TYPE_STRING == selection_data->target ||
+       GDK_SELECTION_TYPE_UTF8_STRING == selection_data->target) {
+#else
+   if (GDK_SELECTION_TYPE_STRING == gtk_selection_data_get_target(selection_data) ||
+       GDK_SELECTION_TYPE_UTF8_STRING == gtk_selection_data_get_target(selection_data)) {
+#endif
       char *outBuf = gHostClipboardBuf;
-      char *outStringBuf = NULL;
       size_t len = strlen(gHostClipboardBuf);
 
       /*
        * If target is GDK_SELECTION_TYPE_STRING, assume encoding is local code
        * set. Convert from utf8 to local one.
        */
-      if (GDK_SELECTION_TYPE_STRING == target &&
+#ifndef GTK3
+      if (GDK_SELECTION_TYPE_STRING == selection_data->target &&
+#else
+      if (GDK_SELECTION_TYPE_STRING == gtk_selection_data_get_target(selection_data) &&
+#endif
           !CodeSet_Utf8ToCurrent(gHostClipboardBuf,
                                  strlen(gHostClipboardBuf),
-                                 &outStringBuf,
+                                 &outBuf,
                                  &len)) {
          g_debug("CopyPasteSelectionGetCB: can not convert to current codeset\n");
          return;
       }
 
-      if (outStringBuf != NULL) {
-         outBuf = outStringBuf;
-      }
-
-      gtk_selection_data_set(selection_data, target, 8, outBuf, len);
+#ifndef GTK3
+      gtk_selection_data_set(selection_data, selection_data->target, 8,
+#else
+      gtk_selection_data_set(selection_data, gtk_selection_data_get_target(selection_data), 8,
+#endif
+                             outBuf, len);
       g_debug("CopyPasteSelectionGetCB: Set text [%s]\n", outBuf);
 
-      free(outStringBuf);
+#ifndef GTK3
+      if (GDK_SELECTION_TYPE_STRING == selection_data->target) {
+#else
+      if (GDK_SELECTION_TYPE_STRING == gtk_selection_data_get_target(selection_data)) {
+#endif
+         free(outBuf);
+      }
+
       return;
    }
 }
@@ -680,8 +688,11 @@ void
 CopyPasteSetBackdoorSelections(void)
 {
    uint32 const *p;
+   size_t len;
+   size_t aligned_len;
    size_t primaryLen;
    size_t clipboardLen;
+   unsigned int i;
 
    primaryLen = strlen(gGuestSelPrimaryBuf);
    clipboardLen = strlen(gGuestSelClipboardBuf);
@@ -712,10 +723,7 @@ CopyPasteSetBackdoorSelections(void)
       CopyPaste_SetSelLength(0);
       g_debug("CopyPasteSetBackdoorSelections Set empty text.\n");
    } else {
-      size_t len = strlen((char *)p);
-      size_t aligned_len;
-      unsigned int i;
-
+      len = strlen((char *)p);
       g_debug("CopyPasteSetBackdoorSelections Set text [%s].\n", (char *)p);
       aligned_len = (len + 4) & ~3;
 

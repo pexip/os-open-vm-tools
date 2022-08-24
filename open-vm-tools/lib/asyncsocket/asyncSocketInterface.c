@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2016-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2016-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -234,40 +234,6 @@ AsyncSocket_GetRemoteIPStr(AsyncSocket *asock,      // IN
    if (VALID(asock, getRemoteIPStr)) {
       AsyncSocketLock(asock);
       ret = VT(asock)->getRemoteIPStr(asock, ipRetStr);
-      AsyncSocketUnlock(asock);
-   } else {
-      ret = ASOCKERR_INVAL;
-   }
-   return ret;
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncSocket_GetRemotePort --
- *
- *      Given an AsyncSocket object, returns the remote port associated
- *      with it, or an error if the request is meaningless for the underlying
- *      connection.
- *
- * Results:
- *      ASOCKERR_SUCCESS or ASOCKERR_INVAL.
- *
- * Side effects:
- *
- *
- *----------------------------------------------------------------------------
- */
-
-int
-AsyncSocket_GetRemotePort(AsyncSocket *asock,  // IN
-                          uint32 *port)        // OUT
-{
-   int ret;
-   if (VALID(asock, getRemotePort)) {
-      AsyncSocketLock(asock);
-      ret = VT(asock)->getRemotePort(asock, port);
       AsyncSocketUnlock(asock);
    } else {
       ret = ASOCKERR_INVAL;
@@ -759,7 +725,6 @@ AsyncSocket_GetOption(AsyncSocket *asyncSocket,     // IN/OUT
 int
 AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
                             SSLVerifyParam *verifyParam,          // IN/OPT
-                            const char *hostname,                 // IN/OPT
                             void *sslCtx,                         // IN
                             AsyncSocketSslConnectFn sslConnectFn, // IN
                             void *clientData)                     // IN
@@ -767,8 +732,8 @@ AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
    int ret;
    if (VALID(asock, startSslConnect)) {
       AsyncSocketLock(asock);
-      ret = VT(asock)->startSslConnect(asock, verifyParam, hostname, sslCtx,
-                                       sslConnectFn, clientData);
+      ret = VT(asock)->startSslConnect(asock, verifyParam, sslCtx, sslConnectFn,
+                                       clientData);
       AsyncSocketUnlock(asock);
    } else {
       ret = ASOCKERR_INVAL;
@@ -797,13 +762,12 @@ AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
 Bool
 AsyncSocket_ConnectSSL(AsyncSocket *asock,          // IN
                        SSLVerifyParam *verifyParam, // IN/OPT
-                       const char *hostname,        // IN/OPT
                        void *sslContext)            // IN/OPT
 {
    Bool ret;
    if (VALID(asock, connectSSL)) {
       AsyncSocketLock(asock);
-      ret = VT(asock)->connectSSL(asock, verifyParam, hostname, sslContext);
+      ret = VT(asock)->connectSSL(asock, verifyParam, sslContext);
       AsyncSocketUnlock(asock);
    } else {
       ret = FALSE;
@@ -1474,7 +1438,7 @@ AsyncSocket_SetWebSocketCookie(AsyncSocket *asock,      // IN
                                const char *path,        // IN
                                const char *sessionId)   // IN
 {
-   int ret = ASOCKERR_INVAL;
+   int ret = ASOCKERR_GENERIC;
    if (VALID(asock, setWebSocketCookie)) {
       AsyncSocketLock(asock);
       ret = VT(asock)->setWebSocketCookie(asock, clientData, path, sessionId);
@@ -1543,38 +1507,6 @@ AsyncSocket_GetWebSocketProtocol(AsyncSocket *asock)  // IN
       AsyncSocketUnlock(asock);
    } else {
       ret = NULL;
-   }
-   return ret;
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncSocket_SetDelayWebSocketUpgradeResponse --
- *
- *      Set a flag for whether or not to not automatically send the websocket
- *      upgrade response upon receiving the websocket upgrade request.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------------
- */
-
-int
-AsyncSocket_SetDelayWebSocketUpgradeResponse(AsyncSocket *asock,                  // IN
-                                             Bool delayWebSocketUpgradeResponse)  // IN
-{
-   int ret = ASOCKERR_INVAL;
-   if (VALID(asock, setDelayWebSocketUpgradeResponse)) {
-      AsyncSocketLock(asock);
-      ret = VT(asock)->setDelayWebSocketUpgradeResponse(asock,
-                                                        delayWebSocketUpgradeResponse);
-      AsyncSocketUnlock(asock);
    }
    return ret;
 }
@@ -1799,11 +1731,9 @@ AsyncSocket_WaitForReadMultiple(AsyncSocket **asock,  // IN
                                 int timeoutMS,        // IN
                                 int *outIdx)          // OUT
 {
+   int i;
    int ret;
-
    if (numSock > 0 && VALID(asock[0], waitForReadMultiple)) {
-      int i;
-
       for (i = 0; i < numSock; i++) {
          AsyncSocketLock(asock[i]);
       }

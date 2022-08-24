@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -126,7 +126,7 @@ MXUser_EnableStatsExclLock(MXUserExclLock *lock,       // IN/OUT:
                            Bool trackAcquisitionTime,  // IN:
                            Bool trackHeldTime)         // IN:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -158,7 +158,7 @@ MXUser_EnableStatsExclLock(MXUserExclLock *lock,       // IN/OUT:
 Bool
 MXUser_DisableStatsExclLock(MXUserExclLock *lock)  // IN/OUT:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -192,7 +192,7 @@ MXUser_SetContentionRatioFloorExclLock(MXUserExclLock *lock,  // IN/OUT:
 {
    Bool result;
 
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -228,7 +228,7 @@ MXUser_SetContentionCountFloorExclLock(MXUserExclLock *lock,  // IN/OUT:
 {
    Bool result;
 
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -264,7 +264,7 @@ MXUser_SetContentionDurationFloorExclLock(MXUserExclLock *lock,  // IN/OUT:
 {
    Bool result;
 
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -304,7 +304,7 @@ MXUserDumpExclLock(MXUserHeader *header)  // IN:
    Warning("\tsignature 0x%X\n", lock->header.signature);
    Warning("\tname %s\n", lock->header.name);
    Warning("\trank 0x%X\n", lock->header.rank);
-   Warning("\tserial number %"FMT64"u\n", lock->header.serialNumber);
+   Warning("\tserial number %u\n", lock->header.bits.serialNumber);
 
    Warning("\tlock count %d\n", MXRecLockCount(&lock->recursiveLock));
 
@@ -350,7 +350,7 @@ MXUser_CreateExclLock(const char *userName,  // IN:
    lock->header.signature = MXUserGetSignature(MXUSER_TYPE_EXCL);
    lock->header.name = properName;
    lock->header.rank = rank;
-   lock->header.serialNumber = MXUserAllocSerialNumber();
+   lock->header.bits.serialNumber = MXUserAllocSerialNumber();
    lock->header.dumpFunc = MXUserDumpExclLock;
 
    statsMode = MXUserStatsMode();
@@ -444,13 +444,14 @@ MXUser_DestroyExclLock(MXUserExclLock *lock)  // IN:
 void
 MXUser_AcquireExclLock(MXUserExclLock *lock)  // IN/OUT:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    MXUserAcquisitionTracking(&lock->header, TRUE);
 
    if (vmx86_stats) {
       VmTimeType value = 0;
+      MXUserHeldStats *heldStats;
       MXUserAcquireStats *acquireStats;
 
       acquireStats = Atomic_ReadPtr(&lock->acquireStatsMem);
@@ -460,7 +461,6 @@ MXUser_AcquireExclLock(MXUserExclLock *lock)  // IN/OUT:
 
       if (LIKELY(acquireStats != NULL)) {
          MXUserHisto *histo;
-         MXUserHeldStats *heldStats;
 
          MXUserAcquisitionSample(&acquireStats->data, TRUE,
                             value > acquireStats->data.contentionDurationFloor,
@@ -510,7 +510,7 @@ MXUser_AcquireExclLock(MXUserExclLock *lock)  // IN/OUT:
 void
 MXUser_ReleaseExclLock(MXUserExclLock *lock)  // IN/OUT:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (vmx86_stats) {
@@ -574,7 +574,7 @@ MXUser_TryAcquireExclLock(MXUserExclLock *lock)  // IN/OUT:
 {
    Bool success;
 
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    if (MXUserTryAcquireFail(lock->header.name)) {
@@ -628,7 +628,7 @@ MXUser_TryAcquireExclLock(MXUserExclLock *lock)  // IN/OUT:
 Bool
 MXUser_IsCurThreadHoldingExclLock(MXUserExclLock *lock)  // IN:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    return MXRecLockIsOwner(&lock->recursiveLock);
@@ -661,7 +661,7 @@ MXUser_CreateSingletonExclLockInt(Atomic_Ptr *lockStorage,  // IN/OUT:
 {
    MXUserExclLock *lock;
 
-   ASSERT(lockStorage != NULL);
+   ASSERT(lockStorage);
 
    lock = Atomic_ReadPtr(lockStorage);
 
@@ -701,7 +701,7 @@ MXUser_CreateSingletonExclLockInt(Atomic_Ptr *lockStorage,  // IN/OUT:
 MXUserCondVar *
 MXUser_CreateCondVarExclLock(MXUserExclLock *lock)
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    return MXUserCreateCondVar(&lock->header, &lock->recursiveLock);
@@ -731,7 +731,7 @@ void
 MXUser_WaitCondVarExclLock(MXUserExclLock *lock,    // IN:
                            MXUserCondVar *condVar)  // IN:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    MXUserWaitCondVar(&lock->header, &lock->recursiveLock, condVar,
@@ -763,7 +763,7 @@ MXUser_TimedWaitCondVarExclLock(MXUserExclLock *lock,    // IN:
                                 MXUserCondVar *condVar,  // IN:
                                 uint32 waitTimeMsec)     // IN:
 {
-   ASSERT(lock != NULL);
+   ASSERT(lock);
    MXUserValidateHeader(&lock->header, MXUSER_TYPE_EXCL);
 
    MXUserWaitCondVar(&lock->header, &lock->recursiveLock, condVar,

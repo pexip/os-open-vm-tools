@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -81,11 +81,6 @@ extern "C" {
 #define ASOCKERR_NETUNREACH        14
 #define ASOCKERR_ADDRUNRESV        15
 #define ASOCKERR_BUSY              16
-#define ASOCKERR_PROXY_NEEDS_AUTHENTICATION  17
-#define ASOCKERR_PROXY_CONNECT_FAILED        18
-#define ASOCKERR_WEBSOCK_UPGRADE_NOT_FOUND   19
-#define ASOCKERR_WEBSOCK_TOO_MANY_CONNECTION 20
-#define ASOCKERR_PROXY_INVALID_OR_NOT_SUPPORTED 21
 
 /*
  * Cross-platform codes for AsyncSocket_GetGenericError():
@@ -100,7 +95,6 @@ extern "C" {
 #define ASOCK_ECONNRESET        WSAECONNRESET
 #define ASOCK_ECONNABORTED      WSAECONNABORTED
 #define ASOCK_EPIPE             ERROR_NO_DATA
-#define ASOCK_EHOSTUNREACH      WSAEHOSTUNREACH
 #else
 #define ASOCK_ENOTCONN          ENOTCONN
 #define ASOCK_ENOTSOCK          ENOTSOCK
@@ -111,7 +105,6 @@ extern "C" {
 #define ASOCK_ECONNRESET        ECONNRESET
 #define ASOCK_ECONNABORTED      ECONNABORTED
 #define ASOCK_EPIPE             EPIPE
-#define ASOCK_EHOSTUNREACH      EHOSTUNREACH
 #endif
 
 /*
@@ -344,16 +337,7 @@ typedef enum {
     *
     * Default: FALSE.
     */
-   ASYNC_SOCKET_OPT_SEND_LOW_LATENCY_MODE,
-   /*
-    * This socket config option provides a way to set DSCP value
-    * on the TOS field of IP packet which is a 6 bit value.
-    * Permissible values to configure are 0x0 to 0x3F, although
-    * there are only subset of these values which are widely used.
-    *
-    * Default: 0.
-    */
-   ASYNC_SOCKET_OPT_DSCP
+   ASYNC_SOCKET_OPT_SEND_LOW_LATENCY_MODE
 } AsyncSocket_OptID;
 
 /*
@@ -389,12 +373,6 @@ int AsyncSocket_GetFd(AsyncSocket *asock);
  */
 int AsyncSocket_GetRemoteIPStr(AsyncSocket *asock,
                                const char **ipStr);
-
-/*
- * Return the remote port associated with this socket if applicable
- */
-int AsyncSocket_GetRemotePort(AsyncSocket *asock,
-                              uint32 *port);
 
 int AsyncSocket_GetLocalVMCIAddress(AsyncSocket *asock,
                                     uint32 *cid, uint32 *port);
@@ -468,18 +446,16 @@ AsyncSocket *AsyncSocket_ListenWebSocket(const char *addrStr,
                                          AsyncSocketPollParams *pollParams,
                                          void *sslCtx,
                                          int *outError);
-AsyncSocket *AsyncSocket_PrepareListenWebSocket(Bool useSSL,
-                                                 const char *protocols[],
-                                                 AsyncSocketConnectFn connectFn,
-                                                 void *clientData,
-                                                 AsyncSocketPollParams *pollParams,
-                                                 void *sslCtx,
-                                                 AsyncWebSocketHandleUpgradeRequestFn handleUpgradeRequestFn);
-AsyncSocket *AsyncSocket_RegisterListenWebSocket(AsyncSocket *asock,
-                                                 const char *addrStr,
-                                                 unsigned int port,
-                                                 AsyncSocketPollParams *pollParams,
-                                                 int *outError);
+AsyncSocket *AsyncSocket_ListenWebSocketEx(const char *addrStr,
+                                           unsigned int port,
+                                           Bool useSSL,
+                                           const char *protocols[],
+                                           AsyncSocketConnectFn connectFn,
+                                           void *clientData,
+                                           AsyncSocketPollParams *pollParams,
+                                           void *sslCtx,
+                                           AsyncWebSocketHandleUpgradeRequestFn handleUpgradeRequestFn,
+                                           int *outError);
 
 #ifndef _WIN32
 AsyncSocket *AsyncSocket_ListenWebSocketUDS(const char *pipeName,
@@ -507,14 +483,6 @@ AsyncSocket *AsyncSocket_Connect(const char *hostname,
                                  AsyncSocketConnectFlags flags,
                                  AsyncSocketPollParams *pollParams,
                                  int *error);
-AsyncSocket *AsyncSocket_ConnectWithFd(const char *hostname,
-                                       unsigned int port,
-                                       int tcpSocketFd,
-                                       AsyncSocketConnectFn connectFn,
-                                       void *clientData,
-                                       AsyncSocketConnectFlags flags,
-                                       AsyncSocketPollParams *pollParams,
-                                       int *error);
 AsyncSocket *AsyncSocket_ConnectVMCI(unsigned int cid, unsigned int port,
                                      AsyncSocketConnectFn connectFn,
                                      void *clientData,
@@ -537,13 +505,6 @@ AsyncSocket_ConnectNamedPipe(const char *pipeName,
                              AsyncSocketPollParams *pollParams,
                              int *outError);
 
-#define ASOCK_NAMEDPIPE_ALLOW_DEFAULT             (0)
-#define ASOCK_NAMEDPIPE_ALLOW_ADMIN_USER_VMWARE   (SDPRIV_GROUP_ADMIN  |   \
-                                                   SDPRIV_USER_CURRENT |   \
-                                                   SDPRIV_GROUP_VMWARE)
-#define ASOCK_NAMEDPIPE_ALLOW_ADMIN_USER          (SDPRIV_GROUP_ADMIN  |   \
-                                                   SDPRIV_USER_CURRENT)
-
 AsyncSocket*
 AsyncSocket_CreateNamedPipe(const char *pipeName,
                             AsyncSocketConnectFn connectFn,
@@ -551,12 +512,8 @@ AsyncSocket_CreateNamedPipe(const char *pipeName,
                             DWORD openMode,
                             DWORD pipeMode,
                             uint32 numInstances,
-                            DWORD accessType,
                             AsyncSocketPollParams *pollParams,
                             int *error);
-AsyncSocket *
-AsyncSocket_AttachToNamedPipe(HANDLE handle, AsyncSocketPollParams *pollParams,
-                              int *outError);
 #endif
 
 AsyncSocket *
@@ -576,11 +533,9 @@ AsyncSocket_ConnectWebSocket(const char *url,
  */
 Bool AsyncSocket_ConnectSSL(AsyncSocket *asock,
                             struct _SSLVerifyParam *verifyParam,
-                            const char *hostname,
                             void *sslContext);
 int AsyncSocket_StartSslConnect(AsyncSocket *asock,
                                 struct _SSLVerifyParam *verifyParam,
-                                const char *hostname,
                                 void *sslCtx,
                                 AsyncSocketSslConnectFn sslConnectFn,
                                 void *clientData);
@@ -686,8 +641,6 @@ int AsyncSocket_SendBlocking(AsyncSocket *asock,
  */
 int AsyncSocket_Send(AsyncSocket *asock, void *buf, int len,
                       AsyncSocketSendFn sendFn, void *clientData);
-int AsyncSocket_SendWithFd(AsyncSocket *asock, void *buf, int len, int passFd,
-                           AsyncSocketSendFn sendFn, void *clientData);
 
 int AsyncSocket_IsSendBufferFull(AsyncSocket *asock);
 int AsyncSocket_GetNetworkStats(AsyncSocket *asock,
@@ -733,10 +686,10 @@ char *AsyncSocket_GetWebSocketCookie(AsyncSocket *asock);
 /*
  * Set the Cookie  for a websocket connection
  */
-int AsyncSocket_SetWebSocketCookie(AsyncSocket *asock,
-                                   void *clientData,
-                                   const char *path,
-                                   const char *sessionId);
+int AsyncSocket_SetWebSocketCookie(AsyncSocket *asock,         // IN
+                                   void *clientData,           // IN
+                                   const char *path,           // IN
+                                   const char *sessionId);     // IN
 
 /*
  * Retrieve the close status, if received, for a websocket connection
@@ -747,19 +700,6 @@ uint16 AsyncSocket_GetWebSocketCloseStatus(AsyncSocket *asock);
  * Get negotiated websocket protocol
  */
 const char *AsyncSocket_GetWebSocketProtocol(AsyncSocket *asock);
-
-/*
- * Set the flag for whether or not to delay websocket upgrade response
- */
-int AsyncSocket_SetDelayWebSocketUpgradeResponse(AsyncSocket *asock,
-                                                 Bool delayWebSocketUpgradeResponse);
-
-/*
- * Send the websocket upgrade response
- */
-void
-AsyncSocket_WebSocketServerSendUpgradeResponse(AsyncSocket *base,
-                                               char *httpResponseTemp);
 
 /*
  * Get error code for websocket failure
@@ -773,7 +713,7 @@ const char * stristr(const char *s, const char *find);
  */
 Bool AsyncSocket_WebSocketParseURL(const char *url, char **hostname,
                                    unsigned int *port, Bool *useSSL,
-                                   char **relativeURL, char **uriHostname);
+                                   char **relativeURL);
 
 /*
  * Find and return the value for the given header key in the supplied buffer
@@ -781,55 +721,33 @@ Bool AsyncSocket_WebSocketParseURL(const char *url, char **hostname,
 char *AsyncSocket_WebSocketGetHttpHeader(const char *request,
                                          const char *webKey);
 
-unsigned AsyncSocket_WebSocketGetNumAccepted(AsyncSocket *asock);
-
-Bool AsyncSocket_SetKeepAlive(AsyncSocket *asock, int keepIdle);
-
-/*
- * Send an HTTP error code, only valid on AsyncWebSockets
- */
-void AsyncSocket_WebSocketServerSendError(AsyncSocket *asock, const char *text);
-
-
 /*
  * Some logging macros for convenience
  */
 #define ASOCKPREFIX "SOCKET "
 
-/* gcc needs special syntax to handle zero-length variadic arguments */
-#if defined(_MSC_VER)
-#define ASOCKWARN(_asock, fmt, ...)                               \
-   Warning(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-           AsyncSocket_GetFd(_asock), __VA_ARGS__)
-
-#define ASOCKLG0(_asock, fmt, ...)                            \
-   Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-       AsyncSocket_GetFd(_asock), __VA_ARGS__)
-
-#define ASOCKLOG(_level, _asock, fmt, ...)                          \
-   do {                                                             \
-      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) { \
-         Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-             AsyncSocket_GetFd(_asock), __VA_ARGS__);               \
-      }                                                             \
+#define ASOCKWARN(_asock, _warnargs)                                 \
+   do {                                                              \
+      Warning(ASOCKPREFIX "%d (%d) ",                                \
+              AsyncSocket_GetID(_asock), AsyncSocket_GetFd(_asock)); \
+      Warning _warnargs;                                             \
    } while (0)
-#else
-#define ASOCKWARN(_asock, fmt, ...)                               \
-   Warning(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-           AsyncSocket_GetFd(_asock), ##__VA_ARGS__)
 
-#define ASOCKLG0(_asock, fmt, ...)                            \
-   Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-       AsyncSocket_GetFd(_asock), ##__VA_ARGS__)
-
-#define ASOCKLOG(_level, _asock, fmt, ...)                          \
-   do {                                                             \
-      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) { \
-         Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-             AsyncSocket_GetFd(_asock), ##__VA_ARGS__);             \
-      }                                                             \
+#define ASOCKLG0(_asock, _logargs)                               \
+   do {                                                          \
+      Log(ASOCKPREFIX "%d (%d) ",                                \
+          AsyncSocket_GetID(_asock), AsyncSocket_GetFd(_asock)); \
+      Log _logargs;                                              \
    } while (0)
-#endif
+
+#define ASOCKLOG(_level, _asock, _logargs)                            \
+   do {                                                               \
+      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) {   \
+         Log(ASOCKPREFIX "%d (%d) ",                                  \
+             AsyncSocket_GetID((_asock)), AsyncSocket_GetFd(_asock)); \
+         Log _logargs;                                                \
+      }                                                               \
+   } while(0)
 
 #if defined(__cplusplus)
 }  // extern "C"

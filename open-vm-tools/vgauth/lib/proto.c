@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2012-2017, 2019-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2012-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -830,10 +830,8 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found pipeName in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
-      } else {
-         reply->replyData.sessionReq.pipeName = val;
       }
+      reply->replyData.sessionReq.pipeName = val;
       break;
 
    case PARSE_STATE_TICKET:
@@ -841,10 +839,8 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found ticket in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
-      } else {
-         reply->replyData.createTicket.ticket = val;
       }
+      reply->replyData.createTicket.ticket = val;
       break;
 
    case PARSE_STATE_TOKEN:
@@ -857,7 +853,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found token in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
 
@@ -868,7 +863,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found token in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
 
@@ -884,7 +878,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found username in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
 
@@ -897,7 +890,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found pemCert in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
    case PARSE_STATE_CERTCOMMENT:
@@ -907,7 +899,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found cert comment in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
 
@@ -932,7 +923,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found SAMLSubject in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
    case PARSE_STATE_USERHANDLETYPE:
@@ -978,7 +968,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found NamedSubject in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
    case PARSE_STATE_ANYSUBJECT:
@@ -1001,7 +990,6 @@ Proto_TextContents(GMarkupParseContext *parseContext,
                      "Found AnySubject in reply type %d",
                      reply->expectedReplyType);
       }
-      g_free(val);
       break;
    case PARSE_STATE_COMMENT:
       if (PROTO_REPLY_QUERYALIASES == reply->expectedReplyType) {
@@ -1017,13 +1005,11 @@ Proto_TextContents(GMarkupParseContext *parseContext,
          g_set_error(error, G_MARKUP_ERROR_PARSE, VGAUTH_E_INVALID_ARGUMENT,
                      "Found comment in reply type %d",
                      reply->expectedReplyType);
-         g_free(val);
       }
       break;
    default:
       g_warning("Unexpected value '%s' in unhandled parseState %d in %s\n",
                 val, reply->parseState, __FUNCTION__);
-      g_free(val);
       ASSERT(0);
    }
 }
@@ -1057,7 +1043,9 @@ static GMarkupParser wireParser = {
 ProtoReply *
 Proto_NewReply(ProtoReplyType expectedReplyType)
 {
-   ProtoReply *reply = g_malloc0(sizeof(ProtoReply));
+   ProtoReply *reply = NULL;
+
+   reply = g_malloc0(sizeof(ProtoReply));
    reply->parseState = PARSE_STATE_NONE;
    reply->complete = FALSE;
    reply->errorCode = VGAUTH_E_OK;
@@ -1212,9 +1200,10 @@ VGAuth_ReadAndParseResponse(VGAuthContext *ctx,
                             ProtoReply **wireReply)
 {
    VGAuthError err = VGAUTH_E_OK;
-   GMarkupParseContext *parseContext;
+   GMarkupParseContext *parseContext = NULL;
    gsize len;
-   ProtoReply *reply;
+   gchar *rawReply = NULL;
+   ProtoReply *reply = NULL;
    gboolean bRet;
    GError *gErr = NULL;
 
@@ -1230,8 +1219,6 @@ VGAuth_ReadAndParseResponse(VGAuthContext *ctx,
     * transport.
     */
    while (!reply->complete) {
-      gchar *rawReply = NULL;
-
       err = VGAuth_CommReadData(ctx, &len, &rawReply);
       if (0 == len) {      // EOF -- not expected
          err = VGAUTH_E_COMM;
@@ -1252,7 +1239,6 @@ VGAuth_ReadAndParseResponse(VGAuthContext *ctx,
                                           rawReply,
                                           len,
                                           &gErr);
-      g_free(rawReply);
       if (!bRet) {
          /*
           * XXX Could drain the wire here, but since this should
@@ -1268,6 +1254,7 @@ VGAuth_ReadAndParseResponse(VGAuthContext *ctx,
        * XXX need some way to break out if packet never completed
        * yet socket left valid.  timer?
        */
+      g_free(rawReply);
    }
 
 #if VGAUTH_PROTO_TRACE
@@ -1319,7 +1306,7 @@ VGAuth_SendSessionRequest(VGAuthContext *ctx,
                           const char *userName,
                           char **pipeName)                  // OUT
 {
-   VGAuthError err;
+   VGAuthError err = VGAUTH_E_OK;
    gchar *packet;
    ProtoReply *reply = NULL;
 
@@ -1413,8 +1400,6 @@ VGAuth_SendConnectRequest(VGAuthContext *ctx)
    pid = Convert_UnsignedInt32ToText(dwPid);
 #endif
 
-   /* Value of pid is always NULL on non-Windows platforms */
-   /* coverity[dead_error_line] */
    packet = g_markup_printf_escaped(VGAUTH_CONNECT_REQUEST_FORMAT,
                                     ctx->comm.sequenceNumber,
                                     pid ? pid : "");
@@ -1821,8 +1806,6 @@ VGAuth_SendCreateTicketRequest(VGAuthContext *ctx,
       Convert_UnsignedInt32ToText((unsigned int)(size_t)userHandle->token);
 #endif
 
-   /* Value of tokenInText is always NULL on non-Windows platforms */
-   /* coverity[dead_error_line] */
    packet = g_markup_printf_escaped(VGAUTH_CREATETICKET_REQUEST_FORMAT_START,
                                     ctx->comm.sequenceNumber,
                                     userHandle->userName,
@@ -2083,7 +2066,7 @@ VGAuth_SendValidateSamlBearerTokenRequest(VGAuthContext *ctx,
    *userHandle = NULL;
 
    /*
-    * ValidateSAMLBearerToken has no security restrictions, so we don't care
+    * ValidateSAMLBeraerToken has no security restrictions, so we don't care
     * what user is used.
     */
    if (!VGAuth_IsConnectedToServiceAsAnyUser(ctx)) {

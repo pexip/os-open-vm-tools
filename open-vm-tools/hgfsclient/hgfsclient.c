@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -37,9 +37,6 @@
 #include "str.h"
 #include "vmware/tools/log.h"
 #include "vmware/tools/utils.h"
-#ifdef _WIN32
-#include "vmware/tools/win32util.h"
-#endif
 
 #include "hgfsclient_version.h"
 #include "vm_version.h"
@@ -259,32 +256,32 @@ HgfsClient_PrintShares(void)
    int offset = 0;
    char escapedName[PATH_MAX + 1];
    HgfsHandle rootHandle;
+   HgfsFileName *fileName;
 
    if (!HgfsClient_Open(&rootHandle)) {
       return success;
    }
 
    while (TRUE) {
-      HgfsFileName *fileName = HgfsClient_Read(rootHandle, offset++);
-
+      fileName = HgfsClient_Read(rootHandle, offset++);
       if (fileName == NULL) {
          break;
       }
-
+  
       /* Are we done? */
       if (fileName->length == 0) {
          success = TRUE;
          break;
       }
 
-      /*
+      /* 
        * Escape this filename. If we get back a negative result, it means that
        * the escaped filename is too big, so skip this share.
        */
       if (HgfsEscape_Do(fileName->name, fileName->length,
                            sizeof escapedName, escapedName) < 0) {
-        continue;
-      }
+         continue;
+      } 
 
       /* Skip "." and ".." which can be returned. */
       if (strcmp(".", escapedName) == 0 ||
@@ -294,7 +291,7 @@ HgfsClient_PrintShares(void)
       printf("%s\n", escapedName);
 
    }
-
+   
    if (!HgfsClient_Close(rootHandle)) {
       success = FALSE;
    }
@@ -418,9 +415,6 @@ int
 main(int argc,          // IN
      char *argv[])      // IN
 {
-#ifdef _WIN32
-   WinUtil_EnableSafePathSearching(TRUE);
-#endif
    if (argc == 2 &&
        (!strncmp(argv[1], "-h", 2) ||
         !strncmp(argv[1], "--help", 6))) {

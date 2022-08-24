@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016,2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -55,6 +55,7 @@ main(int argc,
      char *argv[])
 {
    int status;
+   char op;
 
    if (argc < 2 ||
        strcmp(argv[1], "-h") == 0 ||
@@ -73,8 +74,7 @@ main(int argc,
    printf("Opened " VMBLOCK_DEVICE " as fd %d.\n", fd);
 
    while (1) {
-      char op = getchar();
-
+      op = getchar();
       if (op == 'a') {
          status = VMBLOCK_CONTROL(fd, VMBLOCK_ADD_FILEBLOCK, argv[1]);
          if (status != 0) {

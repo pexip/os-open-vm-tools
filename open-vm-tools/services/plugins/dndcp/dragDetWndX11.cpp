@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -40,32 +40,6 @@ DragDetWnd::DragDetWnd() :
 #if defined(DETWNDDEBUG)
    DebugSetAttributes();
 #endif
-
-   bool useInvisible = true;
-
-#ifdef GTK3
-   char *xdgSessionType = getenv("XDG_SESSION_TYPE");
-   if (   (xdgSessionType != NULL)
-       && (strstr(xdgSessionType, "wayland") != NULL)) {
-      useInvisible = false;
-   }
-#endif
-
-   if (useInvisible) {
-      mWnd = new DragDetWndImpl<Gtk::Invisible>();
-   } else {
-      DragDetWndImpl<Gtk::Window> *win = new DragDetWndImpl<Gtk::Window>();
-      win->set_accept_focus(false);
-      win->set_decorated(false);
-      win->set_keep_above();
-      // Makes this window transparent because we don't want user to see it.
-      win->set_opacity(0.01);
-      // Calls 'Show' to create the Gtk::Window object.
-      win->show();
-      win->hide();
-
-      mWnd = win;
-   }
 }
 
 
@@ -76,17 +50,6 @@ DragDetWnd::DragDetWnd() :
 
 DragDetWnd::~DragDetWnd()
 {
-}
-
-
-/**
- * Get the actual widget.
- */
-
-Gtk::Widget *
-DragDetWnd::GetWnd()
-{
-   return mWnd;
 }
 
 
@@ -113,7 +76,7 @@ DragDetWnd::Flush()
 void
 DragDetWnd::Show(void)
 {
-   GetWnd()->show_now();
+   show();
    Flush();
 }
 
@@ -126,7 +89,7 @@ DragDetWnd::Show(void)
 void
 DragDetWnd::Hide(void)
 {
-   GetWnd()->hide();
+   hide();
    Flush();
 }
 
@@ -139,7 +102,7 @@ DragDetWnd::Hide(void)
 void
 DragDetWnd::Raise(void)
 {
-   Glib::RefPtr<Gdk::Window> gdkwin = GetWnd()->get_window();
+   Glib::RefPtr<Gdk::Window> gdkwin = get_window();
    if (gdkwin) {
       gdkwin->raise();
    }
@@ -155,7 +118,7 @@ DragDetWnd::Raise(void)
 void
 DragDetWnd::Lower(void)
 {
-   Glib::RefPtr<Gdk::Window> gdkwin = GetWnd()->get_window();
+   Glib::RefPtr<Gdk::Window> gdkwin = get_window();
    if (gdkwin) {
       gdkwin->lower();
    }
@@ -173,7 +136,7 @@ DragDetWnd::Lower(void)
 int
 DragDetWnd::GetScreenWidth(void)
 {
-   Glib::RefPtr<Gdk::Screen> gdkscreen = GetWnd()->get_screen();
+   Glib::RefPtr<Gdk::Screen> gdkscreen = get_screen();
    return gdkscreen->get_width();
 }
 
@@ -188,7 +151,7 @@ DragDetWnd::GetScreenWidth(void)
 int
 DragDetWnd::GetScreenHeight(void)
 {
-   Glib::RefPtr<Gdk::Screen> gdkscreen = GetWnd()->get_screen();
+   Glib::RefPtr<Gdk::Screen> gdkscreen = get_screen();
    return gdkscreen->get_height();
 }
 
@@ -205,10 +168,10 @@ DragDetWnd::GetScreenHeight(void)
 void
 DragDetWnd::DebugSetAttributes(void)
 {
-   GetWnd()->set_default_size(1, 1);
-   GetWnd()->set_resizable(true);
-   GetWnd()->set_decorated(false);
-   GetWnd()->set_type_hint(Gdk::WINDOW_TYPE_HINT_DOCK);
+   set_default_size(1, 1);
+   set_resizable(true);
+   set_decorated(false);
+   set_type_hint(Gdk::WINDOW_TYPE_HINT_DOCK);
 }
 #endif
 
@@ -229,7 +192,7 @@ DragDetWnd::SetGeometry(const int x,
                         const int width,
                         const int height)
 {
-   Glib::RefPtr<Gdk::Window> gdkwin = GetWnd()->get_window();
+   Glib::RefPtr<Gdk::Window> gdkwin = get_window();
 
    if (gdkwin) {
       gdkwin->move_resize(x, y, width, height);
@@ -256,7 +219,7 @@ DragDetWnd::SetGeometry(const int x,
 void
 DragDetWnd::GetGeometry(int &x, int &y, int &width, int &height)
 {
-   Glib::RefPtr<Gdk::Window> gdkwin = GetWnd()->get_window();
+   Glib::RefPtr<Gdk::Window> gdkwin = get_window();
    if (gdkwin) {
 #ifndef GTK3
       int dummy;

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016,2018-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -142,12 +142,8 @@ VerifyCallback(int ok,
     * This is a legacy function that has some issues, but setting up a bio
     * just for a bit of debug seems overkill.
     */
-   if (NULL != curCert) {
-      X509_NAME_oneline(X509_get_subject_name(curCert), nameBuf, sizeof(nameBuf) - 1);
-      nameBuf[sizeof(nameBuf)-1] = '\0';
-   } else {
-      g_strlcpy(nameBuf, "<NO CERT SUBJECT>", sizeof nameBuf);
-   }
+   X509_NAME_oneline(X509_get_subject_name(curCert), nameBuf, sizeof(nameBuf) - 1);
+   nameBuf[sizeof(nameBuf)-1] = '\0';
    g_debug("%s: name: %s ok: %d error %d at %d depth lookup:%s\n",
            __FUNCTION__,
            nameBuf,
@@ -439,7 +435,7 @@ CertVerifyX509ToString(X509 *x)
 gchar *
 CertVerify_CertToX509String(const gchar *pemCert)
 {
-   X509 *x;
+   X509 *x = NULL;
    gchar *retVal = NULL;
 
    x = CertStringToX509(pemCert);

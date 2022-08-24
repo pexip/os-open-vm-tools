@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -49,8 +49,6 @@
 #  define G_MODULE_SUFFIX "dylib"
 #endif
 
-#define VMTOOLS_APP_NAME "vmtools"
-
 /** State of app providers. */
 typedef enum {
    TOOLS_PROVIDER_IDLE,
@@ -72,10 +70,6 @@ typedef struct ToolsServiceState {
    gchar         *name;
    gchar         *configFile;
    time_t         configMtime;
-#if defined(_WIN32)
-   GKeyFile      *globalConfig;
-   time_t         globalConfigMtime;
-#endif
    guint          configCheckTask;
    gboolean       mainService;
    gboolean       capsRegistered;
@@ -154,11 +148,6 @@ void
 ToolsCore_SetCapabilities(RpcChannel *chan,
                           GArray *caps,
                           gboolean set);
-#if defined(_WIN32)
-gboolean
-ToolsCore_CheckModuleVersion(const gchar *pluginPath,
-                             gboolean checkBuildNumber);
-#endif
 
 void
 ToolsCore_UnloadPlugins(ToolsServiceState *state);

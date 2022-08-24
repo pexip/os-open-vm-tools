@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -32,6 +32,12 @@
 #include "posix.h"
 #include "debug.h"
 
+#ifndef GTK2
+#ifndef GTK3
+#error "Gtk 2.0 or 3.0 is required"
+#endif
+#endif
+
 #include <libgen.h>
 #include <glib.h>
 #include <gtk/gtk.h>
@@ -39,11 +45,6 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <gdk-pixbuf-xlib/gdk-pixbuf-xlib.h>
-
-#if GTK_MAJOR_VERSION < 2
-#error "Gtk 2.0 or 3.0 is required"
-#endif
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -339,13 +340,7 @@ tryingOtherExts:
          pixbuf = gtk_icon_info_load_icon(iconInfo, NULL);
 
          if (!pixbuf) {
-#if GTK_MAJOR_VERSION == 3
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-#endif
             pixbuf = gtk_icon_info_get_builtin_pixbuf(iconInfo);
-#if GTK_MAJOR_VERSION == 3
-G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
          }
 
          if (pixbuf) {
@@ -353,13 +348,8 @@ G_GNUC_END_IGNORE_DEPRECATIONS
          } else {
             Debug("WARNING: Not even a built-in pixbuf for icon %s\n", baseIconName);
          }
-#if GTK_MAJOR_VERSION == 3
-         if (iconInfo) {
-            g_object_unref(iconInfo);
-         }
-#else
-	 gtk_icon_info_free(iconInfo);
-#endif
+
+         gtk_icon_info_free(iconInfo);
       }
 
       g_free(iconSizes);
@@ -489,6 +479,10 @@ AppUtil_CollectIconArray(const char *iconName,        // IN
             GdkPixbuf *pixbuf;
             int width;
             int height;
+            int x;
+            int y;
+            int rowstride;
+            guchar *pixels;
 
             ASSERT((nitems - i) >= 2);
             width = value[i];
@@ -496,10 +490,8 @@ AppUtil_CollectIconArray(const char *iconName,        // IN
             i += 2;
             pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, width, height);
             if (pixbuf) {
-               int x;
-               int y;
-               int rowstride = gdk_pixbuf_get_rowstride(pixbuf);
-               guchar *pixels = gdk_pixbuf_get_pixels(pixbuf);
+               pixels = gdk_pixbuf_get_pixels(pixbuf);
+               rowstride = gdk_pixbuf_get_rowstride(pixbuf);
 
                for (y = 0; y < height; y++) {
                   for (x = 0; x < width && i < nitems; x++, i++) {

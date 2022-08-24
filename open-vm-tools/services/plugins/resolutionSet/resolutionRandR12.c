@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2017,2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -827,6 +827,8 @@ RandR12DeleteModes(Display *display,  // IN: The display connection
                    RandR12Info *info) // IN: RandR12Info context
 {
    XRRScreenResources *xrrRes = info->xrrRes;
+   XRRModeInfo *modeInfo;
+   RandR12Output *rrOutput;
    unsigned int i, j;
    unsigned int w, h;
    Bool used;
@@ -837,8 +839,7 @@ RandR12DeleteModes(Display *display,  // IN: The display connection
     */
 
    for (i = 0; i < xrrRes->nmode; ++i) {
-      XRRModeInfo *modeInfo = &xrrRes->modes[i];
-
+      modeInfo = &xrrRes->modes[i];
       if (sscanf(modeInfo->name, RR12_MODE_FORMAT, &w, &h) != 2) {
          continue;
       }
@@ -853,7 +854,7 @@ RandR12DeleteModes(Display *display,  // IN: The display connection
        */
 
       for (j = 0; j < info->nOutput; ++j) {
-         RandR12Output *rrOutput = &info->outputs[j];
+         rrOutput = &info->outputs[j];
 
          if (rrOutput->mode != modeInfo->id) {
             if (RandR12OutputHasMode(rrOutput->output, modeInfo)) {

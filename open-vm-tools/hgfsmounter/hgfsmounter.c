@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -224,7 +224,7 @@ GetPathMax(const char *path) // IN: path to check
 /*
  *-----------------------------------------------------------------------------
  *
- * ParseShareName
+ * IsValidShareName
  *
  *    A helper function to parse the share name from "host:share" format into
  *    two separate strings, reporting errors if any.
@@ -514,13 +514,11 @@ ParseFmask(const char *option,         // IN:  option string along with value
            HgfsMountInfo *mountInfo,   // OUT: mount data
            int *flags)                 // OUT: mount flags
 {
-   unsigned short fmask = 0;
    ASSERT(option);
    ASSERT(mountInfo);
 
-   if (ParseMask(option, &fmask)) {
-      LOG("Setting mount fmask to %o\n", fmask);
-      mountInfo->fmask = fmask;
+   if (ParseMask(option, &mountInfo->fmask)) {
+      LOG("Setting mount fmask to %o\n", mountInfo->fmask);
       return TRUE;
    }
 
@@ -550,13 +548,11 @@ ParseDmask(const char *option,         // IN:  option string along with value
            HgfsMountInfo *mountInfo,   // OUT: mount data
            int *flags)                 // OUT: mount flags
 {
-   unsigned short dmask = 0;
    ASSERT(option);
    ASSERT(mountInfo);
 
-   if (ParseMask(option, &dmask)) {
-      LOG("Setting mount dmask to %o\n", dmask);
-      mountInfo->dmask = dmask;
+   if (ParseMask(option, &mountInfo->dmask)) {
+      LOG("Setting mount dmask to %o\n", mountInfo->dmask);
       return TRUE;
    }
 
@@ -1121,7 +1117,7 @@ main(int argc,          // IN
    canonicalizedPath = malloc(pathMax * sizeof *canonicalizedPath);
    if (canonicalizedPath == NULL) {
       printf("Error: cannot allocate memory for canonicalized path, "
-             "canceling mount\n");
+             "aborting mount\n");
       goto out;
    } else if (!realpath(mountPoint, canonicalizedPath)) {
       perror("Error: cannot canonicalize mount point");
@@ -1130,7 +1126,7 @@ main(int argc,          // IN
    mountPoint = canonicalizedPath;
 
    if (!ParseShareName(shareName, &shareNameHost, &shareNameDir)) {
-      printf("Error: share name is invalid, canceling mount\n");
+      printf("Error: share name is invalid, aborting mount\n");
       goto out;
    }
 

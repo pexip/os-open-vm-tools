@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2002-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2002-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,12 +33,8 @@
 
 #include "vmware.h"
 #include "rpcout.h"
-#include "vmcheck.h"
 #include "str.h"
 #include "backdoor_def.h"
-#ifdef _WIN32
-#include "vmware/tools/win32util.h"
-#endif
 
 #define NOT_VMWARE_ERROR "Failed sending message to VMware.\n"
 
@@ -83,13 +79,8 @@ SignalHandler(int sig,
               void *data)
 {
    ucontext_t *ucp = (ucontext_t *) data;
-#ifdef VM_ARM_64
-   uint16 port = SC_X(ucp, 3);
-   uint32 magic = SC_X(ucp, 0);
-#else
-   uint16 port = SC_EDX(ucp);
-   uint32 magic = SC_EAX(ucp);
-#endif
+   uint16 port = SC_EDX(ucp) & 0xffff;
+   uint32 magic = SC_EAX(ucp) & 0xffffffff;
 
    if (magic == BDOOR_MAGIC &&
        (port == BDOORHB_PORT || port == BDOOR_PORT)) {
@@ -144,19 +135,6 @@ main(int argc, char *argv[])
 {
    int ret = 1;
 
-#ifdef _WIN32
-   WinUtil_EnableSafePathSearching(TRUE);
-#endif
-
-   /*
-    * Check if environment is VM
-    */
-   if (!VmCheck_IsVirtualWorld()) {
-      fprintf(stderr, "Error: %s must be run inside a virtual machine"
-                      " on a VMware hypervisor product.\n", argv[0]);
-      return -1;
-   }
-
    if (argc <= 1) {
       PrintUsage();
       return 1;
@@ -197,8 +175,9 @@ int
 RpcToolCommand(int argc, char *argv[])
 {
    char *result = NULL;
-   Bool status = RpcOut_sendOne(&result, NULL, "%s", argv[0]);
+   Bool status = FALSE;
 
+   status = RpcOut_sendOne(&result, NULL, "%s", argv[0]);
    if (!status) {
       fprintf(stderr, "%s\n", result ? result : "NULL");
    } else {

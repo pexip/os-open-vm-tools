@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016,2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -438,8 +438,9 @@ ServiceCreateTicketWin(const char *userName,
 {
    VGAuthError retCode = VGAUTH_E_FAIL;
    TicketInfo *newInfo = NULL;
-   HANDLE copyHandle = ServiceDupHandleFrom(clientProcHandle, token);
+   HANDLE copyHandle = NULL;
 
+   copyHandle = ServiceDupHandleFrom(clientProcHandle, token);
    if (!copyHandle) {
       VGAUTH_LOG_WARNING("ServiceDupHandleFrom() failed, user = %s", userName);
       goto done;

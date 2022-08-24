@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2005-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2005-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -140,7 +140,6 @@ static GSList *
 SyncDriverLocalMounts(void)
 {
    GSList *paths = NULL;
-   GHashTable *devices;
    MNTHANDLE mounts;
    DECLARE_MNTINFO(mntinfo);
 
@@ -149,39 +148,19 @@ SyncDriverLocalMounts(void)
       return NULL;
    }
 
-   devices = g_hash_table_new_full(g_str_hash, g_str_equal, free, free);
-
    while (GETNEXT_MNTINFO(mounts, mntinfo)) {
-      const char *device;
-      const char *path;
-      const char *prevDevicePath;
-
-      device = MNTINFO_NAME(mntinfo);
-      path = MNTINFO_MNTPT(mntinfo);
-
+      char *path;
       /*
        * Skip remote mounts because they are not freezable and opening them
        * could lead to hangs. See PR 1196785.
        */
       if (SyncDriverIsRemoteFS(mntinfo)) {
          Debug(LGPFX "Skipping remote file system, name=%s, mntpt=%s.\n",
-               device, path);
+               MNTINFO_NAME(mntinfo), MNTINFO_MNTPT(mntinfo));
          continue;
       }
 
-      /*
-       * Avoid adding a path to the list, if we have already got
-       * a path mounting the same device path.
-       */
-      prevDevicePath = g_hash_table_lookup(devices, device);
-      if (prevDevicePath != NULL) {
-         Debug(LGPFX "Skipping duplicate file system, name=%s, mntpt=%s "
-               "(existing path=%s).\n", device, path, prevDevicePath);
-         continue;
-      }
-
-      g_hash_table_insert(devices, Util_SafeStrdup(device),
-                          Util_SafeStrdup(path));
+      path = Util_SafeStrdup(MNTINFO_MNTPT(mntinfo));
 
       /*
        * A mount point could depend on existence of a previous mount
@@ -193,10 +172,9 @@ SyncDriverLocalMounts(void)
        * dependency. So, we need to keep them in reverse order of
        * mount points to achieve the dependency order.
        */
-      paths = g_slist_prepend(paths, Util_SafeStrdup(path));
+      paths = g_slist_prepend(paths, path);
    }
 
-   g_hash_table_destroy(devices);
    (void) CLOSE_MNTFILE(mounts);
    return paths;
 }

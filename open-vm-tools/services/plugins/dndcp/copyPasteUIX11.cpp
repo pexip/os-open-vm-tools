@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -97,6 +97,14 @@ extern "C" {
 GdkAtom GDK_SELECTION_CLIPBOARD;
 #endif
 
+#ifndef GDK_SELECTION_TYPE_TIMESTAMP
+GdkAtom GDK_SELECTION_TYPE_TIMESTAMP;
+#endif
+
+#ifndef GDK_SELECTION_TYPE_UTF8_STRING
+GdkAtom GDK_SELECTION_TYPE_UTF8_STRING;
+#endif
+
 
 /*
  *-----------------------------------------------------------------------------
@@ -122,7 +130,6 @@ CopyPasteUIX11::CopyPasteUIX11()
    mPrimTime(0),
    mLastTimestamp(0),
    mThread(0),
-   mHGGetListTime(0),
    mHGGetFileStatus(DND_FILE_TRANSFER_NOT_STARTED),
    mBlockAdded(false),
    mBlockCtrl(0),
@@ -181,14 +188,11 @@ CopyPasteUIX11::Init()
 
    Gtk::TargetEntry gnome(FCP_TARGET_NAME_GNOME_COPIED_FILES);
    Gtk::TargetEntry kde(FCP_TARGET_NAME_URI_LIST);
-   Gtk::TargetEntry nautilus(FCP_TARGET_NAME_NAUTILUS_FILES);
    gnome.set_info(FCP_TARGET_INFO_GNOME_COPIED_FILES);
    kde.set_info(FCP_TARGET_INFO_URI_LIST);
-   nautilus.set_info(FCP_TARGET_INFO_NAUTILUS_FILES);
 
    mListTargets.push_back(gnome);
    mListTargets.push_back(kde);
-   mListTargets.push_back(nautilus);
 
    mCP->srcRecvClipChanged.connect(
       sigc::mem_fun(this, &CopyPasteUIX11::GetRemoteClipboardCB));
@@ -444,11 +448,6 @@ CopyPasteUIX11::LocalGetFileRequestCB(Gtk::SelectionData& sd,        // IN:
       } else if (FCP_TARGET_INFO_URI_LIST == info) {
          pre = DND_URI_LIST_PRE_KDE;
          post = DND_URI_LIST_POST;
-      } else if (FCP_TARGET_INFO_NAUTILUS_FILES == info) {
-         mHGCopiedUriList =
-            utf::string(FCP_TARGET_MIME_NAUTILUS_FILES) + "\ncopy\n";
-         pre = FCP_GNOME_LIST_PRE;
-         post = FCP_GNOME_LIST_POST;
       } else {
          g_debug("%s: Unknown request target: %s\n", __FUNCTION__,
                sd.get_target().c_str());
@@ -929,10 +928,6 @@ CopyPasteUIX11::LocalGetFileContentsRequestCB(Gtk::SelectionData& sd, // IN
    } else if (FCP_TARGET_INFO_URI_LIST == info) {
       pre = DND_URI_LIST_PRE_KDE;
       post = DND_URI_LIST_POST;
-   } else if (FCP_TARGET_INFO_NAUTILUS_FILES == info) {
-      uriList = utf::string(FCP_TARGET_MIME_NAUTILUS_FILES) + "\ncopy\n";
-      pre = FCP_GNOME_LIST_PRE;
-      post = FCP_GNOME_LIST_POST;
    } else {
       g_debug("%s: Unknown request target: %s\n",
             __FUNCTION__, sd.get_target().c_str());
@@ -983,6 +978,7 @@ CopyPasteUIX11::LocalGetSelectionFileList(const Gtk::SelectionData& sd)      // 
 {
    utf::string source;
    char *newPath;
+   char *newRelPath;
    size_t newPathLen;
    size_t index = 0;
    DnDFileList fileList;
@@ -1017,8 +1013,6 @@ CopyPasteUIX11::LocalGetSelectionFileList(const Gtk::SelectionData& sd)      // 
    while ((newPath = DnD_UriListGetNextFile(source.c_str(),
                                             &index,
                                             &newPathLen)) != NULL) {
-      char *newRelPath;
-
 #if defined(__linux__)
       if (DnD_UriIsNonFileSchemes(newPath)) {
          /* Try to get local file path for non file uri. */
@@ -1084,11 +1078,26 @@ CopyPasteUIX11::LocalGetSelectionFileList(const Gtk::SelectionData& sd)      // 
 utf::string
 CopyPasteUIX11::GetLastDirName(const utf::string &str)     // IN
 {
-   char *baseName;
-   File_GetPathName(str.c_str(), NULL, &baseName);
-   utf::string s(baseName);
-   free(baseName);
-   return s;
+   utf::string ret;
+   size_t start;
+   size_t end;
+
+   end = str.bytes() - 1;
+   if (end >= 0 && DIRSEPC == str[end]) {
+      end--;
+   }
+
+   if (end <= 0 || str[0] != DIRSEPC) {
+      return "";
+   }
+
+   start = end;
+
+   while (str[start] != DIRSEPC) {
+      start--;
+   }
+
+   return str.substr(start + 1, end - start);
 }
 
 
@@ -1655,11 +1664,10 @@ CopyPasteUIX11::FileBlockMonitorThread(void *arg)   // IN
       }
 
       int fd = open(params->fileBlockName.c_str(), O_RDONLY);
-      if (fd < 0) {
-         g_debug("%s: Failed to open %s, errno is %d\n",
+      if (fd <= 0) {
+         g_debug("%s: Failed to open %s\n",
                  __FUNCTION__,
-                 params->fileBlockName.c_str(),
-                 errno);
+                 params->fileBlockName.c_str());
          continue;
       }
 
@@ -1679,13 +1687,6 @@ CopyPasteUIX11::FileBlockMonitorThread(void *arg)   // IN
          params->cp->RequestFiles();
       } else {
          g_debug("%s: Block is not added\n", __FUNCTION__);
-      }
-
-      if (close(fd) < 0) {
-         g_debug("%s: Failed to close %s, errno is %d\n",
-                 __FUNCTION__,
-                 params->fileBlockName.c_str(),
-                 errno);
       }
    }
    pthread_mutex_unlock(&params->fileBlockMutex);

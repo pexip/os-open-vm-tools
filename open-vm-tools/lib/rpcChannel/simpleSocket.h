@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2013-2016,2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2013-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -53,7 +53,6 @@ typedef enum {
 #define SYSERR_EACCESS           WSAEACCES
 #define SYSERR_EINTR             WSAEINTR
 #define SYSERR_ECONNRESET        WSAECONNRESET
-#define SYSERR_ENOBUFS           WSAENOBUFS
 
 typedef int socklen_t;
 
@@ -63,7 +62,6 @@ typedef int socklen_t;
 #define SYSERR_EACCESS           EACCES
 #define SYSERR_EINTR             EINTR
 #define SYSERR_ECONNRESET        ECONNRESET
-#define SYSERR_ENOBUFS           ENOBUFS
 
 typedef int SOCKET;
 #define SOCKET_ERROR              (-1)
@@ -91,7 +89,6 @@ gboolean Socket_RecvPacket(SOCKET sock,
                            int *payloadLen);
 gboolean Socket_SendPacket(SOCKET sock,
                            const char *payload,
-                           int payloadLen,
-                           Bool fastClose);
+                           int payloadLen);
 
 #endif /* _SIMPLESOCKET_H_ */

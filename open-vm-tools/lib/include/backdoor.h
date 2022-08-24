@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1999-2017, 2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 1999-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -51,17 +51,8 @@ extern "C" {
 void
 Backdoor(Backdoor_proto *bp); // IN/OUT
 
-void
-Backdoor_ForceLegacy(Bool force);  // IN
-
-void
+void 
 Backdoor_InOut(Backdoor_proto *bp); // IN/OUT
-
-void
-Backdoor_Vmcall(Backdoor_proto *bp); // IN/OUT
-
-void
-Backdoor_Vmmcall(Backdoor_proto *bp); // IN/OUT
 
 void
 Backdoor_HbOut(Backdoor_proto_hb *bp); // IN/OUT

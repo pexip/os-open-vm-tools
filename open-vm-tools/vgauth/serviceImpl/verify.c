@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -27,7 +27,6 @@
 #include <string.h>
 #include "serviceInt.h"
 #include "certverify.h"
-#include "vmxlog.h"
 
 /*
  ******************************************************************************
@@ -43,9 +42,15 @@
 VGAuthError
 ServiceInitVerify(void)
 {
+   VGAuthError err;
 
    CertVerify_Init();
-   return SAML_Init();
+   err = SAML_Init();
+   if (err != VGAUTH_E_OK) {
+      goto done;
+   }
+done:
+   return err;
 }
 
 
@@ -118,8 +123,10 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
     * Dump the token cert chain for debugging purposes.
     */
    if (gVerboseLogging) {
+      gchar *chainx509;
+
       for (i = 0; i < numCerts; i++) {
-         gchar *chainx509 = CertVerify_CertToX509String(pemCertChain[i]);
+         chainx509 = CertVerify_CertToX509String(pemCertChain[i]);
          Debug("%s: Token chain cert #%d:\n%s", __FUNCTION__, i, chainx509);
          g_free(chainx509);
       }
@@ -139,11 +146,7 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
          /*
           * No username, no mapped certs, no chance.
           */
-         Warning("%s: no mapping entries or specified userName\n",
-                 __FUNCTION__);
-         VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                    "%s: no mapping entries or specified userName\n",
-                    __FUNCTION__);
+         Warning("%s: no mapping entries or userName\n", __FUNCTION__);
          err = VGAUTH_E_AUTHENTICATION_DENIED;
          goto done;
       }
@@ -164,9 +167,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
                if ((NULL != queryUserName) &&
                    g_strcmp0(queryUserName, maList[j].userName) != 0) {
                   Warning("%s: found more than one user in map file chain\n",
-                          __FUNCTION__);
-                  VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                             "%s: found more than one user in map file chain\n",
                           __FUNCTION__);
                   err = VGAUTH_E_MULTIPLE_MAPPINGS;
                   goto done;
@@ -192,9 +192,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
       if (NULL == queryUserName) {
          Warning("%s: no matching cert and subject found in mapping file\n",
                  __FUNCTION__);
-         VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                    "%s: no matching cert and subject found in mapping file\n",
-                    __FUNCTION__);
          err = VGAUTH_E_AUTHENTICATION_DENIED;
          goto done;
       }
@@ -208,8 +205,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
     */
    if (!UsercheckUserExists(queryUserName)) {
       Warning("%s: User '%s' doesn't exist\n", __FUNCTION__, queryUserName);
-      VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                 "%s: User doesn't exist\n", __FUNCTION__);
       err = VGAUTH_E_AUTHENTICATION_DENIED;
       goto done;
    }
@@ -223,11 +218,12 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
     * Dump the store cert chain for debugging purposes.
     */
    if (gVerboseLogging) {
+      gchar *storex509;
+
       Debug("%s: %d certs in store for user %s\n",  __FUNCTION__,
             numStoreCerts, queryUserName);
       for (i = 0; i < numStoreCerts; i++) {
-         gchar *storex509 = CertVerify_CertToX509String(aList[i].pemCert);
-
+         storex509 = CertVerify_CertToX509String(aList[i].pemCert);
          Debug("%s: Store chain cert #%d:\n%s", __FUNCTION__, i, storex509);
          g_free(storex509);
       }
@@ -292,8 +288,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
    if (numTrusted == 0) {
       err = VGAUTH_E_AUTHENTICATION_DENIED;
       Warning("%s: No trusted certs in chain\n", __FUNCTION__);
-      VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                 "%s: No trusted certs in chain\n", __FUNCTION__);
       goto done;
    }
 
@@ -305,7 +299,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
       numTrusted--;
       leafCert = trustedCerts[0];
       memmove(trustedCerts, &(trustedCerts[1]), sizeof(*trustedCerts) * numTrusted);
-   /* coverity[var_deref_op] */
    } else if (g_strcmp0(pemCertChain[0], untrustedCerts[0]) == 0) {
       numUntrusted--;
       leafCert = untrustedCerts[0];
@@ -320,8 +313,6 @@ ServiceVerifyAndCheckTrustCertChainForSubject(int numCerts,
                               numTrusted,
                               (const char **) trustedCerts);
    if (VGAUTH_E_OK != err) {
-      VMXLog_Log(VMXLOG_LEVEL_WARNING,
-                 "%s: cert chain validation failed\n", __FUNCTION__);
       goto done;
    }
 

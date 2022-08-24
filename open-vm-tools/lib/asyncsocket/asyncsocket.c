@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -61,7 +61,6 @@
 #include <ws2tcpip.h>
 #include <wspiapi.h>
 #include <MSWSock.h>
-#include <mstcpip.h>
 #include <windows.h>
 #if !(defined(__GOT_SECURE_LIB__) && __GOT_SECURE_LIB__ >= 200402L)
 #undef strcpy
@@ -128,7 +127,7 @@
 /*
  * Linux versions can lack support for IPV6_V6ONLY while still supporting
  * V4MAPPED addresses. We check for a V4MAPPED address during accept to cover
- * this scenario. In case IN6_IS_ADDR_V4MAPPED is also not available, define it.
+ * this scenario. In case IN6_IS_ADDR_V4MAPPED is also not avaiable, define it.
  */
 #ifndef IN6_IS_ADDR_V4MAPPED
 #define IN6_IS_ADDR_V4MAPPED(a)                                   \
@@ -163,7 +162,6 @@ typedef struct SendBufList {
    struct SendBufList   *next;
    void                 *buf;
    int                   len;
-   int                   passFd;
    AsyncSocketSendFn     sendFn;
    void                 *clientData;
 } SendBufList;
@@ -268,7 +266,6 @@ static unsigned int AsyncTCPSocketGetPortFromAddr(
    struct sockaddr_storage *addr);
 static AsyncTCPSocket *AsyncTCPSocketConnect(struct sockaddr_storage *addr,
                                              socklen_t addrLen,
-                                             int socketFd,
                                              AsyncSocketConnectFn connectFn,
                                              void *clientData,
                                              AsyncSocketConnectFlags flags,
@@ -309,17 +306,14 @@ static int AsyncTCPSocketWaitForConnection(AsyncSocket *s, int timeoutMS);
 static int AsyncTCPSocketGetGenericErrno(AsyncSocket *s);
 static int AsyncTCPSocketGetFd(AsyncSocket *asock);
 static int AsyncTCPSocketGetRemoteIPStr(AsyncSocket *asock, const char **ipStr);
-static int AsyncTCPSocketGetRemotePort(AsyncSocket *asock, uint32 *port);
 static int AsyncTCPSocketGetINETIPStr(AsyncSocket *asock, int socketFamily,
                                       char **ipRetStr);
 static unsigned int AsyncTCPSocketGetPort(AsyncSocket *asock);
 static Bool AsyncTCPSocketConnectSSL(AsyncSocket *asock,
                                      struct _SSLVerifyParam *verifyParam,
-                                     const char *hostname,
                                      void *sslContext);
 static int AsyncTCPSocketStartSslConnect(AsyncSocket *asock,
                                          SSLVerifyParam *verifyParam,
-                                         const char *hostname,
                                          void *sslCtx,
                                          AsyncSocketSslConnectFn sslConnectFn,
                                          void *clientData);
@@ -337,9 +331,6 @@ static int AsyncTCPSocketRecvPassedFd(AsyncSocket *asock, void *buf, int len,
 static int AsyncTCPSocketGetReceivedFd(AsyncSocket *asock);
 static int AsyncTCPSocketSend(AsyncSocket *asock, void *buf, int len,
                               AsyncSocketSendFn sendFn, void *clientData);
-static int AsyncTCPSocketSendWithFd(AsyncSocket *asock, void *buf, int len,
-                                    int fd, AsyncSocketSendFn sendFn,
-                                    void *clientData);
 static int AsyncTCPSocketIsSendBufferFull(AsyncSocket *asock);
 static int AsyncTCPSocketClose(AsyncSocket *asock);
 static int AsyncTCPSocketCancelRecv(AsyncSocket *asock, int *partialRecvd,
@@ -387,7 +378,6 @@ static const AsyncSocketVTable asyncTCPSocketVTable = {
    AsyncTCPSocketGetGenericErrno,
    AsyncTCPSocketGetFd,
    AsyncTCPSocketGetRemoteIPStr,
-   AsyncTCPSocketGetRemotePort,
    AsyncTCPSocketGetINETIPStr,
    AsyncTCPSocketGetPort,
    AsyncTCPSocketSetCloseOptions,
@@ -413,7 +403,6 @@ static const AsyncSocketVTable asyncTCPSocketVTable = {
    NULL,                        /* getWebSocketCloseStatus */
    NULL,                        /* getWebSocketProtocol */
    NULL,                        /* setWebSocketCookie */
-   NULL,                        /* setDelayWebSocketUpgradeResponse */
    AsyncTCPSocketRecvBlocking,
    AsyncTCPSocketRecvPartialBlocking,
    AsyncTCPSocketSendBlocking,
@@ -520,7 +509,7 @@ AsyncTCPSocketPollParams(AsyncTCPSocket *asock)
    return AsyncSocketGetPollParams(BaseSocket(asock));
 }
 
-static INLINE AsyncSocketState
+static INLINE Bool
 AsyncTCPSocketGetState(AsyncTCPSocket *asock)
 {
    return AsyncSocketGetState(BaseSocket(asock));
@@ -553,22 +542,10 @@ AsyncTCPSocketHandleError(AsyncTCPSocket *asock, int error)
  *----------------------------------------------------------------------
  */
 
-/* gcc needs special syntax to handle zero-length variadic arguments */
-#if defined(_MSC_VER)
-#define TCPSOCKWARN(a, fmt, ...) \
-   ASOCKWARN(BaseSocket(a), fmt, __VA_ARGS__)
-#define TCPSOCKLOG(_level, a, fmt, ...) \
-   ASOCKLOG(_level, BaseSocket(a), fmt, __VA_ARGS__)
-#define TCPSOCKLG0(a, fmt, ...) \
-   ASOCKLG0(BaseSocket(a), fmt, __VA_ARGS__)
-#else
-#define TCPSOCKWARN(a, fmt, ...) \
-   ASOCKWARN(BaseSocket(a), fmt, ##__VA_ARGS__)
-#define TCPSOCKLOG(_level, a, fmt, ...) \
-   ASOCKLOG(_level, BaseSocket(a), fmt, ##__VA_ARGS__)
-#define TCPSOCKLG0(a, fmt, ...) \
-   ASOCKLG0(BaseSocket(a), fmt, ##__VA_ARGS__)
-#endif
+#define TCPSOCKWARN(a,b) ASOCKWARN(BaseSocket(a), b)
+#define TCPSOCKLOG(a,b,c) ASOCKLOG(a, BaseSocket(b), c)
+#define TCPSOCKLG0(a,b) ASOCKLG0(BaseSocket(a), b)
+
 
 /*
  *----------------------------------------------------------------------------
@@ -691,7 +668,7 @@ AsyncTCPSocketGetAddr(AsyncTCPSocket *asock,             // IN
       *outAddrLen = addrLen;
       return ASOCKERR_SUCCESS;
    } else {
-      TCPSOCKWARN(tempAsock, "%s: could not locate socket.\n", __FUNCTION__);
+      TCPSOCKWARN(tempAsock, ("%s: could not locate socket.\n", __FUNCTION__));
       return ASOCKERR_GENERIC;
    }
 }
@@ -749,46 +726,6 @@ AsyncTCPSocketGetRemoteIPStr(AsyncSocket *base,      // IN
 /*
  *----------------------------------------------------------------------------
  *
- * AsyncTCPSocketGetRemotePort --
- *
- *      Given an AsyncTCPSocket object, returns the remote port
- *      associated with it, or an error if the request is meaningless
- *      for the underlying connection.
- *
- * Results:
- *      ASOCKERR_SUCCESS or ASOCKERR_GENERIC.
- *
- * Side effects:
- *
- *
- *----------------------------------------------------------------------------
- */
-
-static int
-AsyncTCPSocketGetRemotePort(AsyncSocket *base,  // IN
-                            uint32 *port)       // OUT
-{
-   AsyncTCPSocket *asock = TCPSocket(base);
-   int ret = ASOCKERR_SUCCESS;
-
-   ASSERT(asock);
-
-   if (asock == NULL ||
-      AsyncTCPSocketGetState(asock) != AsyncSocketConnected ||
-      (asock->remoteAddrLen != sizeof(struct sockaddr_in) &&
-       asock->remoteAddrLen != sizeof(struct sockaddr_in6))) {
-      ret = ASOCKERR_GENERIC;
-   } else {
-      *port = AsyncTCPSocketGetPortFromAddr(&asock->remoteAddr);
-   }
-
-   return ret;
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
  * AsyncTCPSocketGetINETIPStr --
  *
  *      Given an AsyncTCPSocket object, returns the IP addresses associated with
@@ -827,14 +764,15 @@ AsyncTCPSocketGetINETIPStr(AsyncSocket *base,   // IN
       char addrBuf[NI_MAXHOST];
 
       if (ipRetStr == NULL) {
-         TCPSOCKWARN(asock, "%s: Output string is not usable.\n", __FUNCTION__);
+         TCPSOCKWARN(asock, ("%s: Output string is not usable.\n",
+                             __FUNCTION__));
          ret = ASOCKERR_INVAL;
       } else if (Posix_GetNameInfo((struct sockaddr *)&addr, addrLen, addrBuf,
                                    sizeof addrBuf, NULL, 0,
                                    NI_NUMERICHOST) == 0) {
          *ipRetStr = Util_SafeStrdup(addrBuf);
       } else {
-         TCPSOCKWARN(asock, "%s: could not find IP address.\n", __FUNCTION__);
+         TCPSOCKWARN(asock, ("%s: could not find IP address.\n", __FUNCTION__));
          ret = ASOCKERR_GENERIC;
       }
    }
@@ -1008,9 +946,9 @@ AsyncTCPSocketListenerCreateImpl(
 
       if (asock) {
          TCPSOCKLG0(asock,
-                    "Created new %s %s listener for (%s)\n",
-                    addr.ss_family == AF_INET ? "IPv4" : "IPv6",
-                    "socket", ipString);
+                  ("Created new %s %s listener for (%s)\n",
+                   addr.ss_family == AF_INET ? "IPv4" : "IPv6",
+                   "socket", ipString));
       } else {
          Log(ASOCKPREFIX "Could not create %s listener socket, error %d: %s\n",
              addr.ss_family == AF_INET ? "IPv4" : "IPv6", *outError,
@@ -1518,7 +1456,7 @@ AsyncTCPSocketBind(AsyncTCPSocket *asock,          // IN
    ASSERT(NULL != addr);
 
    port = AsyncTCPSocketGetPortFromAddr(addr);
-   TCPSOCKLG0(asock, "creating new listening socket on port %d\n", port);
+   TCPSOCKLG0(asock, ("creating new listening socket on port %d\n", port));
 
 #ifndef _WIN32
    /*
@@ -1670,7 +1608,8 @@ AsyncTCPSocketListen(AsyncTCPSocket *asock,             // IN
                                    AsyncTCPSocketAcceptCallback);
 
    if (pollStatus != VMWARE_STATUS_SUCCESS) {
-      TCPSOCKWARN(asock, "could not register accept callback!\n");
+      TCPSOCKWARN(asock,
+                ("could not register accept callback!\n"));
       error = ASOCKERR_POLL;
       AsyncTCPSocketUnlock(asock);
       goto error;
@@ -1718,7 +1657,6 @@ static AsyncTCPSocket *
 AsyncTCPSocketConnectImpl(int socketFamily,                  // IN
                           const char *hostname,              // IN
                           unsigned int port,                 // IN
-                          int tcpSocketFd,                   // IN
                           AsyncSocketConnectFn connectFn,    // IN
                           void *clientData,                  // IN
                           AsyncSocketConnectFlags flags,     // IN
@@ -1750,8 +1688,7 @@ AsyncTCPSocketConnectImpl(int socketFamily,                  // IN
        socketFamily == AF_INET ? "IPv4" : "IPv6", ipString, hostname);
    free(ipString);
 
-   asock = AsyncTCPSocketConnect(&addr, addrLen, tcpSocketFd,
-                                 connectFn, clientData,
+   asock = AsyncTCPSocketConnect(&addr, addrLen, connectFn, clientData,
                                  flags, pollParams, &error);
    if (!asock) {
       Warning(ASOCKPREFIX "%s connection attempt failed: %s\n",
@@ -1800,49 +1737,6 @@ AsyncSocket_Connect(const char *hostname,                // IN
                     AsyncSocketPollParams *pollParams,   // IN
                     int *outError)                       // OUT: optional
 {
-   return AsyncSocket_ConnectWithFd(hostname,
-                                    port,
-                                    -1,
-                                    connectFn,
-                                    clientData,
-                                    flags,
-                                    pollParams,
-                                    outError);
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncSocket_ConnectWithFd --
- *
- *      AsyncTCPSocket connect using an existing socket descriptor.
- *      Connection is attempted with AF_INET socket
- *      family, when that fails AF_INET6 is attempted.
- *
- *      Limitation: The ConnectWithFd functionality is currently Windows only.
- *                  Non-Windows platforms & windows-UWP are not supported.
- *
- * Results:
- *      AsyncTCPSocket * on success and NULL on failure.
- *      On failure, error is returned in *outError.
- *
- * Side effects:
- *      Allocates an AsyncTCPSocket, registers a poll callback.
- *
- *----------------------------------------------------------------------------
- */
-
-AsyncSocket *
-AsyncSocket_ConnectWithFd(const char *hostname,                // IN
-                          unsigned int port,                   // IN
-                          int tcpSocketFd,                     // IN
-                          AsyncSocketConnectFn connectFn,      // IN
-                          void *clientData,                    // IN
-                          AsyncSocketConnectFlags flags,       // IN
-                          AsyncSocketPollParams *pollParams,   // IN
-                          int *outError)                       // OUT: optional
-{
    int error = ASOCKERR_CONNECT;
    AsyncTCPSocket *asock = NULL;
 
@@ -1852,13 +1746,11 @@ AsyncSocket_ConnectWithFd(const char *hostname,                // IN
       goto error;
    }
 
-   asock = AsyncTCPSocketConnectImpl(AF_INET, hostname, port,
-                                     tcpSocketFd, connectFn, clientData,
-                                     flags, pollParams, &error);
+   asock = AsyncTCPSocketConnectImpl(AF_INET, hostname, port, connectFn,
+                                  clientData, flags, pollParams, &error);
    if (!asock) {
-      asock = AsyncTCPSocketConnectImpl(AF_INET6, hostname, port,
-                                        tcpSocketFd, connectFn, clientData,
-                                        flags, pollParams, &error);
+      asock = AsyncTCPSocketConnectImpl(AF_INET6, hostname, port, connectFn,
+                                     clientData, flags, pollParams, &error);
    }
 
 error:
@@ -1909,7 +1801,7 @@ AsyncSocket_ConnectVMCI(unsigned int cid,                  // IN
    Log(ASOCKPREFIX "creating new socket, connecting to %u:%u\n", cid, port);
 
    asock = AsyncTCPSocketConnect((struct sockaddr_storage *)&addr,
-                                 sizeof addr, -1, connectFn, clientData,
+                                 sizeof addr, connectFn, clientData,
                                  flags, pollParams, outError);
 
    VMCISock_ReleaseAFValueFd(vsockDev);
@@ -1959,7 +1851,7 @@ AsyncSocket_ConnectUnixDomain(const char *path,                  // IN
    Log(ASOCKPREFIX "creating new socket, connecting to %s\n", path);
 
    asock = AsyncTCPSocketConnect((struct sockaddr_storage *)&addr,
-                              sizeof addr, -1, connectFn, clientData,
+                              sizeof addr, connectFn, clientData,
                               flags, pollParams, outError);
 
    return BaseSocket(asock);
@@ -2007,8 +1899,8 @@ AsyncTCPSocketConnectErrorCheck(void *data)  // IN: AsyncTCPSocket *
       } else {
          asock->genericErrno = ASOCK_LASTERROR();
       }
-      TCPSOCKLG0(asock, "Connection failed: %s\n",
-                 Err_Errno2String(asock->genericErrno));
+      TCPSOCKLG0(asock, ("Connection failed: %s\n",
+                       Err_Errno2String(asock->genericErrno)));
       /* Remove connect callback. */
       removed = AsyncTCPSocketPollRemove(asock, TRUE, POLL_FLAG_WRITE,
                                       asock->internalConnectFn);
@@ -2031,79 +1923,6 @@ AsyncTCPSocketConnectErrorCheck(void *data)  // IN: AsyncTCPSocket *
 /*
  *----------------------------------------------------------------------------
  *
- * SocketProtocolAndTypeMatches --
- *
- *      Discover whether a given socket has the specified protocol family
- *      (PF_INET, PF_INET6, ...) and data transfer type (SOCK_STREAM,
- *      SOCK_DGRAM, ...).
- *
- *      For now, this is supported only on non-UWP Windows platforms.
- *      Other platforms always receive a FALSE result.
- *
- * Results:
- *      True if the socket has the specified family and type, false
- *      otherwise.
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------------
- */
-
-static Bool
-SocketProtocolAndTypeMatches(int socketFd,   // IN
-                             int protocol,   // IN
-                             int type)       // IN
-{
-#if defined( _WIN32) && !defined(VM_WIN_UWP)
-   int ret;
-   WSAPROTOCOL_INFO protocolInfo;
-   int protocolInfoLen = sizeof protocolInfo;
-
-   ret = getsockopt(socketFd, SOL_SOCKET, SO_PROTOCOL_INFO,
-                    (void*)&protocolInfo, &protocolInfoLen);
-   if (ret != 0) {
-      Warning(ASOCKPREFIX "SO_PROTOCOL_INFO failed on sockFd %d, ",
-              "error 0x%x\n",
-              socketFd, ASOCK_LASTERROR());
-      return FALSE;
-   }
-
-   /*
-    * Windows is confused about protocol families (the "domain" of the
-    * socket, passed as the first argument to the socket() call) and
-    * address families (specified in the xx_family member of a sockaddr_xx
-    * argument passed to bind()).  The protocol family of the socket is
-    * reported in the iAddressFamily of the WSAPROTOCOL_INFO structure.
-    */
-   return ((protocol == protocolInfo.iAddressFamily) &&
-           (type == protocolInfo.iSocketType));
-#else
-
-   /*
-    * If we need to implement this for other platforms then we can use
-    * getsockopt(SO_TYPE) to retrieve the socket type, and on Linux we can
-    * use getsockopt(SO_DOMAIN) to retrieve the protocol family, but other
-    * platforms might not have SO_DOMAIN.  On those platforms we might be
-    * able to infer the protocol family by attempting sockopt calls that
-    * only work on certain families.
-    *
-    * BTW, Linux has thrown in the towel on the distinction between
-    * protocol families and address families.  Its socket() man page shows
-    * AF_* literals being used for the 'domain' argument instead of PF_*
-    * literals.  This works because AF_XX is defined to have the same
-    * numeric value as PF_XX for all values of XX.
-    */
-   Warning(ASOCKPREFIX "discovery of socket protocol and type is "
-           "not implemented on this platform\n");
-   NOT_IMPLEMENTED();
-#endif // defined(_WIN32)
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
  * AsyncTCPSocketConnect --
  *
  *      Internal AsyncTCPSocket constructor.
@@ -2120,7 +1939,6 @@ SocketProtocolAndTypeMatches(int socketFd,   // IN
 static AsyncTCPSocket *
 AsyncTCPSocketConnect(struct sockaddr_storage *addr,         // IN
                       socklen_t addrLen,                     // IN
-                      int socketFd,                          // IN: optional
                       AsyncSocketConnectFn connectFn,        // IN
                       void *clientData,                      // IN
                       AsyncSocketConnectFlags flags,         // IN
@@ -2142,33 +1960,9 @@ AsyncTCPSocketConnect(struct sockaddr_storage *addr,         // IN
    }
 
    /*
-    * If we were given a socket, verify that it is of the required
-    * protocol family and type before using it.  If no socket was given,
-    * create a new socket of the appropriate family.  (For the sockets
-    * we care about, the required protocol family is numerically the
-    * same as the address family provided in the given destination
-    * sockaddr, so we can use addr->ss_family whenever we need to
-    * specify a protocol family.)
-    *
-    * For now, passing in a socket is supported only on non-UWP Windows
-    * platforms.  The SocketProtocolAndTypeMatches() call will fail on
-    * other platforms.
+    * Create a new IP socket
     */
-   if (-1 != socketFd) {
-      int protocolFamily = addr->ss_family;
-      // XXX Logging here is excessive, remove after testing
-      if (SocketProtocolAndTypeMatches(socketFd, protocolFamily,
-                                       SOCK_STREAM)) {
-         Warning(ASOCKPREFIX "using passed-in socket, family %d\n",
-                 protocolFamily);
-         fd = socketFd;
-      } else {
-         Warning(ASOCKPREFIX "rejecting passed-in socket, wanted family %d\n",
-                 protocolFamily);
-         error = ASOCKERR_INVAL;
-         goto error;
-      }
-   } else if ((fd = socket(addr->ss_family, SOCK_STREAM, 0)) == -1) {
+   if ((fd = socket(addr->ss_family, SOCK_STREAM, 0)) == -1) {
       sysErr = ASOCK_LASTERROR();
       Warning(ASOCKPREFIX "failed to create socket, error %d: %s\n",
               sysErr, Err_Errno2String(sysErr));
@@ -2199,8 +1993,9 @@ AsyncTCPSocketConnect(struct sockaddr_storage *addr,         // IN
    AsyncTCPSocketLock(asock);
    if (connect(asock->fd, (struct sockaddr *)addr, addrLen) != 0) {
       if (ASOCK_LASTERROR() == ASOCK_ECONNECTING) {
+         ASSERT(!(vmx86_server && addr->ss_family == AF_UNIX));
          TCPSOCKLOG(1, asock,
-                    "registering write callback for socket connect\n");
+                    ("registering write callback for socket connect\n"));
          pollStatus = AsyncTCPSocketPollAdd(asock, TRUE, POLL_FLAG_WRITE,
                                             AsyncTCPSocketConnectCallback);
          if (vmx86_win32 && pollStatus == VMWARE_STATUS_SUCCESS &&
@@ -2215,7 +2010,7 @@ AsyncTCPSocketConnect(struct sockaddr_storage *addr,         // IN
             if (pollStatus == VMWARE_STATUS_SUCCESS) {
                asock->internalConnectFn = AsyncTCPSocketConnectCallback;
             } else {
-               TCPSOCKLG0(asock, "failed to register periodic error check\n");
+               TCPSOCKLG0(asock, ("failed to register periodic error check\n"));
                AsyncTCPSocketPollRemove(asock, TRUE, POLL_FLAG_WRITE,
                                         AsyncTCPSocketConnectCallback);
             }
@@ -2226,24 +2021,22 @@ AsyncTCPSocketConnect(struct sockaddr_storage *addr,         // IN
              sysErr, Err_Errno2String(sysErr));
 
          /*
-          * If "network unreachable" or "No route to host"
-          * errors happens, explicitly propogate
+          * If "network unreachable" error happens, explicitly propogate
           * the error to trigger the reconnection if possible.
           */
-         error = (sysErr == ASOCK_ENETUNREACH ||
-                  sysErr == ASOCK_EHOSTUNREACH) ? ASOCKERR_NETUNREACH :
-                                                  ASOCKERR_CONNECT;
+         error = (sysErr == ASOCK_ENETUNREACH) ? ASOCKERR_NETUNREACH :
+                                                 ASOCKERR_CONNECT;
          goto errorHaveAsock;
       }
    } else {
       TCPSOCKLOG(2, asock,
-                 "socket connected, registering RTime callback for connect\n");
+               ("socket connected, registering RTime callback for connect\n"));
       pollStatus = AsyncTCPSocketPollAdd(asock, FALSE, 0,
                                          AsyncTCPSocketConnectCallback, 0);
    }
 
    if (pollStatus != VMWARE_STATUS_SUCCESS) {
-      TCPSOCKWARN(asock, "failed to register callback in connect!\n");
+      TCPSOCKWARN(asock, ("failed to register callback in connect!\n"));
       error = ASOCKERR_POLL;
       goto errorHaveAsock;
    }
@@ -2363,7 +2156,7 @@ AsyncTCPSocketAttachToSSLSock(SSLSock sslSock,                   // IN
 
    /* From now on socket is ours. */
    SSL_SetCloseOnShutdownFlag(sslSock);
-   TCPSOCKLOG(1, s, "new asock id %u attached to fd %d\n", s->base.id, s->fd);
+   TCPSOCKLOG(1, s, ("new asock id %u attached to fd %d\n", s->base.id, s->fd));
 
    return s;
 
@@ -2410,7 +2203,7 @@ AsyncTCPSocketAttachToFd(int fd,                             // IN
       if (outError) {
          *outError = ENOMEM;
       }
-      LOG(0, ASOCKPREFIX "failed to create SSL socket object\n");
+      LOG(0, (ASOCKPREFIX "failed to create SSL socket object\n"));
 
       return NULL;
    }
@@ -2508,14 +2301,14 @@ AsyncTCPSocketRegisterRecvCb(AsyncTCPSocket *asock) // IN:
        * Register the Poll callback
        */
 
-      TCPSOCKLOG(3, asock, "installing recv periodic poll callback\n");
+      TCPSOCKLOG(3, asock, ("installing recv periodic poll callback\n"));
 
       pollStatus = AsyncTCPSocketPollAdd(asock, TRUE,
                                       POLL_FLAG_READ | POLL_FLAG_PERIODIC,
                                       asock->internalRecvFn);
 
       if (pollStatus != VMWARE_STATUS_SUCCESS) {
-         TCPSOCKWARN(asock, "failed to install recv callback!\n");
+         TCPSOCKWARN(asock, ("failed to install recv callback!\n"));
          retVal = ASOCKERR_POLL;
          goto out;
       }
@@ -2523,7 +2316,7 @@ AsyncTCPSocketRegisterRecvCb(AsyncTCPSocket *asock) // IN:
    }
 
    if (AsyncTCPSocketHasDataPending(asock) && !asock->inRecvLoop) {
-      TCPSOCKLOG(0, asock, "installing recv RTime poll callback\n");
+      TCPSOCKLOG(0, asock, ("installing recv RTime poll callback\n"));
       if (AsyncTCPSocketPollAdd(asock, FALSE, 0, asock->internalRecvFn, 0) !=
           VMWARE_STATUS_SUCCESS) {
          retVal = ASOCKERR_POLL;
@@ -2594,7 +2387,7 @@ AsyncTCPSocketRecv(AsyncSocket *base,   // IN:
    int retVal;
 
    if (!asock->base.errorFn) {
-      TCPSOCKWARN(asock, "%s: no registered error handler!\n", __FUNCTION__);
+      TCPSOCKWARN(asock, ("%s: no registered error handler!\n", __FUNCTION__));
       return ASOCKERR_INVAL;
    }
 
@@ -2613,12 +2406,12 @@ AsyncTCPSocketRecv(AsyncSocket *base,   // IN:
    ASSERT(AsyncTCPSocketIsLocked(asock));
 
    if (AsyncTCPSocketGetState(asock) != AsyncSocketConnected) {
-      TCPSOCKWARN(asock, "recv called but state is not connected!\n");
+      TCPSOCKWARN(asock, ("recv called but state is not connected!\n"));
       return ASOCKERR_NOTCONNECTED;
    }
 
    if (asock->inBlockingRecv && !asock->inRecvLoop) {
-      TCPSOCKWARN(asock, "Recv called while a blocking recv is pending.\n");
+      TCPSOCKWARN(asock, ("Recv called while a blocking recv is pending.\n"));
       return ASOCKERR_INVAL;
    }
 
@@ -2661,7 +2454,7 @@ AsyncTCPSocketRecvPassedFd(AsyncSocket *base,   // IN/OUT: socket
    int err;
 
    if (!asock->base.errorFn) {
-      TCPSOCKWARN(asock, "%s: no registered error handler!\n", __FUNCTION__);
+      TCPSOCKWARN(asock, ("%s: no registered error handler!\n", __FUNCTION__));
 
       return ASOCKERR_INVAL;
    }
@@ -2792,8 +2585,8 @@ AsyncTCPSocketPollWork(AsyncTCPSocket **asock,     // IN:
          /*
           * No sockets were ready within the specified time.
           */
-         TCPSOCKLG0(warnSock, "%s: Timeout waiting for a ready socket.\n",
-                    __FUNCTION__);
+         TCPSOCKLG0(warnSock, ("%s: Timeout waiting for a ready socket.\n",
+                      __FUNCTION__));
          return ASOCKERR_TIMEOUT;
 
       case -1: {
@@ -2805,8 +2598,8 @@ AsyncTCPSocketPollWork(AsyncTCPSocket **asock,     // IN:
              * XXX: update the timeout by the amount we had previously waited.
              */
 
-            TCPSOCKLG0(warnSock, "%s: Socket interrupted by a signal.\n",
-                       __FUNCTION__);
+            TCPSOCKLG0(warnSock, ("%s: Socket interrupted by a signal.\n",
+                         __FUNCTION__));
             continue;
          }
 
@@ -2818,8 +2611,8 @@ AsyncTCPSocketPollWork(AsyncTCPSocket **asock,     // IN:
             }
          }
 
-         TCPSOCKLG0(warnSock, "%s: Failed with error %d: %s\n", __FUNCTION__,
-                    sysErr, Err_Errno2String(sysErr));
+         TCPSOCKLG0(warnSock, ("%s: Failed with error %d: %s\n", __FUNCTION__,
+                   sysErr, Err_Errno2String(sysErr)));
          return ASOCKERR_GENERIC;
       }
       default: {
@@ -2850,15 +2643,16 @@ AsyncTCPSocketPollWork(AsyncTCPSocket **asock,     // IN:
                   if (sockErr) {
                      asock[i]->genericErrno = sockErr;
                      TCPSOCKLG0(asock[i],
-                                "%s: Socket error lookup returned %d: %s\n",
-                                __FUNCTION__, sockErr,
-                                Err_Errno2String(sockErr));
+                              ("%s: Socket error lookup returned %d: %s\n",
+                               __FUNCTION__, sockErr,
+                               Err_Errno2String(sockErr)));
                   }
                } else {
                   sysErr = ASOCK_LASTERROR();
                   asock[i]->genericErrno = sysErr;
-                  TCPSOCKLG0(asock[i], "%s: Last socket error %d: %s\n",
-                             __FUNCTION__, sysErr, Err_Errno2String(sysErr));
+                  TCPSOCKLG0(asock[i],
+                           ("%s: Last socket error %d: %s\n",
+                            __FUNCTION__, sysErr, Err_Errno2String(sysErr)));
                }
             }
 
@@ -2886,8 +2680,8 @@ AsyncTCPSocketPollWork(AsyncTCPSocket **asock,     // IN:
          }
 #endif
 
-         TCPSOCKWARN(warnSock, "%s: Failed to return a ready socket.\n",
-                     __FUNCTION__);
+         TCPSOCKWARN(warnSock, ("%s: Failed to return a ready socket.\n",
+                         __FUNCTION__));
          return ASOCKERR_GENERIC;
       }
       }
@@ -2934,7 +2728,7 @@ AsyncTCPSocketPoll(AsyncTCPSocket *s,          // IN:
 
    if (read && s->fd == -1) {
       if (!s->listenAsock4 && !s->listenAsock6) {
-         TCPSOCKLG0(s, "%s: Failed to find listener socket.\n", __FUNCTION__);
+         TCPSOCKLG0(s, ("%s: Failed to find listener socket.\n", __FUNCTION__));
          return ASOCKERR_GENERIC;
       }
 
@@ -3105,7 +2899,7 @@ AsyncTCPSocketBlockingWork(AsyncTCPSocket *s,  // IN:
    }
 
    if (AsyncTCPSocketGetState(s) != AsyncSocketConnected) {
-      TCPSOCKWARN(s, "recv called but state is not connected!\n");
+      TCPSOCKWARN(s, ("recv called but state is not connected!\n"));
       return ASOCKERR_NOTCONNECTED;
    }
 
@@ -3129,13 +2923,13 @@ AsyncTCPSocketBlockingWork(AsyncTCPSocket *s,  // IN:
          }
          buf = (uint8*)buf + numBytes;
       } else if (numBytes == 0) {
-         TCPSOCKLG0(s, "blocking %s detected peer closed connection\n",
-                    read ? "recv" : "send");
+         TCPSOCKLG0(s, ("blocking %s detected peer closed connection\n",
+                        read ? "recv" : "send"));
          return ASOCKERR_REMOTE_DISCONNECT;
       } else if ((sysErr = ASOCK_LASTERROR()) != ASOCK_EWOULDBLOCK) {
          s->genericErrno = sysErr;
-         TCPSOCKWARN(s, "blocking %s error %d: %s\n", read ? "recv" : "send",
-                     sysErr, Err_Errno2String(sysErr));
+         TCPSOCKWARN(s, ("blocking %s error %d: %s\n", read ? "recv" : "send",
+                         sysErr, Err_Errno2String(sysErr)));
 
          return ASOCKERR_GENERIC;
       }
@@ -3187,83 +2981,17 @@ AsyncTCPSocketBlockingWork(AsyncTCPSocket *s,  // IN:
  */
 
 static int
-AsyncTCPSocketSend(AsyncSocket *asock,        // IN
+AsyncTCPSocketSend(AsyncSocket *base,         // IN
                    void *buf,                 // IN
                    int len,                   // IN
                    AsyncSocketSendFn sendFn,  // IN
                    void *clientData)          // IN
-{
-   return AsyncTCPSocketSendWithFd(asock, buf, len, -1, sendFn, clientData);
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncSocket_SendWithFd --
- *
- *      Like the regular AsyncSocket_Send, with the addition of passing a
- *      file descriptor to the recipient.
- *
- * Results:
- *      ASOCKERR_*.
- *
- * Side effects:
- *      May register poll callback or perform I/O.
- *
- *----------------------------------------------------------------------------
- */
-
-int
-AsyncSocket_SendWithFd(AsyncSocket *asock,        // IN:
-                       void *buf,                 // IN:
-                       int len,                   // IN:
-                       int passFd,                // IN:
-                       AsyncSocketSendFn sendFn,  // IN:
-                       void *clientData)          // IN:
-{
-   int ret;
-
-   AsyncSocketLock(asock);
-   ret = AsyncTCPSocketSendWithFd(asock, buf, len, passFd, sendFn, clientData);
-   AsyncSocketUnlock(asock);
-
-   return ret;
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncTCPSocketSendWithFd --
- *
- *      The meat of queueing a packet to send, optionally also passing a
- *      file descriptor.
- *
- * Results:
- *      ASOCKERR_*.
- *
- * Side effects:
- *      See callers.
- *
- *----------------------------------------------------------------------------
- */
-
-static int
-AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
-                         void *buf,                 // IN:
-                         int len,                   // IN:
-                         int passFd,                // IN:
-                         AsyncSocketSendFn sendFn,  // IN:
-                         void *clientData)          // IN:
 {
    AsyncTCPSocket *asock = TCPSocket(base);
    int retVal;
    Bool bufferListWasEmpty = FALSE;
    SendBufList **pcur;
    SendBufList *newBuf;
-
-   ASSERT(base->vt == &asyncTCPSocketVTable);
 
    /*
     * Note: I think it should be fine to send with a length of zero and a
@@ -3279,7 +3007,7 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
       return ASOCKERR_INVAL;
    }
 
-   LOG(2, "%s: sending %d bytes\n", __FUNCTION__, len);
+   LOG(2, ("%s: sending %d bytes\n", __FUNCTION__, len));
 
    ASSERT(AsyncTCPSocketIsLocked(asock));
 
@@ -3295,7 +3023,7 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
    ASSERT(asock->inLowLatencySendCb < 2);
 
    if (AsyncTCPSocketGetState(asock) != AsyncSocketConnected) {
-      TCPSOCKWARN(asock, "send called but state is not connected!\n");
+      TCPSOCKWARN(asock, ("send called but state is not connected!\n"));
       return ASOCKERR_NOTCONNECTED;
    }
 
@@ -3305,25 +3033,14 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
    newBuf = Util_SafeCalloc(1, sizeof *newBuf);
    newBuf->buf = buf;
    newBuf->len = len;
-   newBuf->passFd = -1;
-   if (passFd == -1) {
-      newBuf->sendFn = sendFn;
-      newBuf->clientData = clientData;
-   } else {
-      SendBufList *fdBuf = Util_SafeCalloc(1, sizeof *fdBuf);
-      fdBuf->passFd = passFd;
-      /* Fire callback after both are sent. */
-      fdBuf->len = len;
-      fdBuf->sendFn = sendFn;
-      fdBuf->clientData = clientData;
-      newBuf->next = fdBuf;
-   }
+   newBuf->sendFn = sendFn;
+   newBuf->clientData = clientData;
 
    /*
     * Append new send buffer to the tail of list.
     */
    *asock->sendBufTail = newBuf;
-   asock->sendBufTail = passFd == -1 ? &(newBuf->next) : &(newBuf->next->next);
+   asock->sendBufTail = &(newBuf->next);
    bufferListWasEmpty = (asock->sendBufList == newBuf);
 
    if (bufferListWasEmpty && !asock->sendCb) {
@@ -3337,16 +3054,10 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
           * consumers of asyncsocket are not expecting the completion
           * callback to be invoked prior to the call to
           * AsyncTCPSocket_Send() returning.
-          *
-          * Add and release asock reference around the send callback
-          * since asock may be closed by a callback invoked during
-          * the send workflow.
           */
-         AsyncTCPSocketAddRef(asock);
          asock->inLowLatencySendCb++;
          asock->internalSendFn((void *)asock);
          asock->inLowLatencySendCb--;
-         AsyncTCPSocketRelease(asock);
       } else {
 #ifdef _WIN32
          /*
@@ -3368,7 +3079,8 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
                                    != NULL ? 1 : 0)
              != VMWARE_STATUS_SUCCESS) {
             retVal = ASOCKERR_POLL;
-            TCPSOCKLOG(1, asock, "Failed to register poll callback for send\n");
+            TCPSOCKLOG(1, asock,
+                       ("Failed to register poll callback for send\n"));
             goto outUndoAppend;
          }
          asock->sendCbTimer = TRUE;
@@ -3378,7 +3090,8 @@ AsyncTCPSocketSendWithFd(AsyncSocket *base,         // IN:
                                    asock->internalSendFn)
              != VMWARE_STATUS_SUCCESS) {
             retVal = ASOCKERR_POLL;
-            TCPSOCKLOG(1, asock, "Failed to register poll callback for send\n");
+            TCPSOCKLOG(1, asock,
+                       ("Failed to register poll callback for send\n"));
             goto outUndoAppend;
          }
          asock->sendCb = TRUE;
@@ -3398,14 +3111,10 @@ outUndoAppend:
       if (!bufferListWasEmpty) {
          do {
             pcur = &((*pcur)->next);
-         } while ((*pcur)->next != NULL && (*pcur)->buf != buf);
+         } while ((*pcur)->next != NULL);
       }
 
       if ((*pcur)->buf == buf) {
-         if (passFd != -1) {
-            /* Free the entry for the fd being passed. */
-            free((*pcur)->next);
-         }
          free(*pcur);
          *pcur = NULL;
          asock->sendBufTail = pcur;
@@ -3606,15 +3315,15 @@ AsyncTCPSocketFillRecvBuffer(AsyncTCPSocket *s)         // IN
        * unless you can preserve the system error number
        */
       if (recvd > 0) {
-         TCPSOCKLOG(3, s, "need\t%d\trecv\t%d\tremain\t%d\n", needed, recvd,
-                    needed - recvd);
+         TCPSOCKLOG(3, s, ("need\t%d\trecv\t%d\tremain\t%d\n", needed, recvd,
+                           needed - recvd));
          s->sslConnected = TRUE;
          s->base.recvPos += recvd;
          if (AsyncSocketCheckAndDispatchRecv(&s->base, &result)) {
             goto exit;
          }
       } else if (recvd == 0) {
-         TCPSOCKLG0(s, "recv detected client closed connection\n");
+         TCPSOCKLG0(s, ("recv detected client closed connection\n"));
          /*
           * We treat this as an error so that the owner can detect closing
           * of connection by peer (via the error handler callback).
@@ -3622,10 +3331,11 @@ AsyncTCPSocketFillRecvBuffer(AsyncTCPSocket *s)         // IN
          result = ASOCKERR_REMOTE_DISCONNECT;
          goto exit;
       } else if ((sysErr = ASOCK_LASTERROR()) == ASOCK_EWOULDBLOCK) {
-         TCPSOCKLOG(4, s, "recv would block\n");
+         TCPSOCKLOG(4, s, ("recv would block\n"));
          break;
       } else {
-         TCPSOCKLG0(s, "recv error %d: %s\n", sysErr, Err_Errno2String(sysErr));
+         TCPSOCKLG0(s, ("recv error %d: %s\n", sysErr,
+                      Err_Errno2String(sysErr)));
          s->genericErrno = sysErr;
          result = ASOCKERR_GENERIC;
          goto exit;
@@ -3717,63 +3427,12 @@ AsyncTCPSocketDispatchSentBuffer(AsyncTCPSocket *s)         // IN
       ASSERT(s->base.refCount > 1);
       tmp.sendFn(tmp.buf, tmp.len, BaseSocket(s), tmp.clientData);
       if (AsyncTCPSocketGetState(s) == AsyncSocketClosed) {
-         TCPSOCKLG0(s, "owner closed connection in send callback\n");
+         TCPSOCKLG0(s, ("owner closed connection in send callback\n"));
          result = ASOCKERR_CLOSED;
       }
    }
 
    return result;
-}
-
-
-/*
- *----------------------------------------------------------------------------
- *
- * AsyncTCPSocketPassFd --
- *
- *      Send a file descriptor on the TCP socket.
- *
- * Results:
- *      1 if successful, -1 if not.
- *
- * Side effects:
- *      None.
- *
- *----------------------------------------------------------------------------
- */
-
-static int
-AsyncTCPSocketPassFd(int socket,  // IN:
-                     int passFd)  // IN:
-{
-#ifndef _WIN32
-   static unsigned char byte = 0;
-   union {
-      struct cmsghdr cmsghdr;
-      char cbuf[CMSG_SPACE(sizeof passFd)];
-   } cbuf_un;
-   struct msghdr msghdr = {0};
-   struct cmsghdr *cmsghdr;
-   struct iovec iov[1];
-   int ret;
-
-   iov[0].iov_base = &byte;
-   iov[0].iov_len = sizeof byte;
-   msghdr.msg_control = cbuf_un.cbuf;
-   msghdr.msg_controllen = sizeof cbuf_un.cbuf;
-   msghdr.msg_iov = iov;
-   msghdr.msg_iovlen = 1;
-   cmsghdr = CMSG_FIRSTHDR(&msghdr);
-   cmsghdr->cmsg_len = CMSG_LEN(sizeof passFd);
-   cmsghdr->cmsg_level = SOL_SOCKET;
-   cmsghdr->cmsg_type = SCM_RIGHTS;
-   *(int *)CMSG_DATA(cmsghdr) = passFd;
-
-   ret = sendmsg(socket, &msghdr, 0);
-   return ret > 0 ? 1 : -1;
-#else
-   NOT_IMPLEMENTED();
-#endif
 }
 
 
@@ -3796,7 +3455,7 @@ AsyncTCPSocketPassFd(int socket,  // IN:
  */
 
 static int
-AsyncTCPSocketWriteBuffers(AsyncTCPSocket *s)  // IN
+AsyncTCPSocketWriteBuffers(AsyncTCPSocket *s)         // IN
 {
    int result;
 
@@ -3807,7 +3466,7 @@ AsyncTCPSocketWriteBuffers(AsyncTCPSocket *s)  // IN
    }
 
    if (AsyncTCPSocketGetState(s) != AsyncSocketConnected) {
-      TCPSOCKWARN(s, "write buffers on a disconnected socket!\n");
+      TCPSOCKWARN(s, ("write buffers on a disconnected socket!\n"));
       return ASOCKERR_GENERIC;
    }
 
@@ -3820,20 +3479,15 @@ AsyncTCPSocketWriteBuffers(AsyncTCPSocket *s)  // IN
       int left = head->len - s->sendPos;
       int sizeToSend = head->len;
 
-      if (head->passFd == -1) {
-         sent = SSL_Write(s->sslSock,
-                          (uint8 *) head->buf + s->sendPos, left);
-      } else {
-         sizeToSend = 1;
-         sent = AsyncTCPSocketPassFd(s->fd, head->passFd);
-      }
+      sent = SSL_Write(s->sslSock,
+                       (uint8 *) head->buf + s->sendPos, left);
       /*
        * Do NOT make any system call directly or indirectly here
        * unless you can preserve the system error number
        */
       if (sent > 0) {
-         TCPSOCKLOG(3, s, "left\t%d\tsent\t%d\tremain\t%d\n",
-                    left, sent, left - sent);
+         TCPSOCKLOG(3, s, ("left\t%d\tsent\t%d\tremain\t%d\n",
+                        left, sent, left - sent));
          s->sendBufFull = FALSE;
          s->sslConnected = TRUE;
          if ((s->sendPos += sent) == sizeToSend) {
@@ -3843,10 +3497,10 @@ AsyncTCPSocketWriteBuffers(AsyncTCPSocket *s)  // IN
             }
          }
       } else if (sent == 0) {
-         TCPSOCKLG0(s, "socket write() should never return 0.\n");
+         TCPSOCKLG0(s, ("socket write() should never return 0.\n"));
          NOT_REACHED();
       } else if ((error = ASOCK_LASTERROR()) != ASOCK_EWOULDBLOCK) {
-         TCPSOCKLG0(s, "send error %d: %s\n", error, Err_Errno2String(error));
+         TCPSOCKLG0(s, ("send error %d: %s\n", error, Err_Errno2String(error)));
          s->genericErrno = error;
          if (error == ASOCK_EPIPE || error == ASOCK_ECONNRESET) {
             result = ASOCKERR_REMOTE_DISCONNECT;
@@ -3917,7 +3571,7 @@ AsyncTCPSocketAcceptInternal(AsyncTCPSocket *s)         // IN
       sysErr = ASOCK_LASTERROR();
       s->genericErrno = sysErr;
       if (sysErr == ASOCK_EWOULDBLOCK) {
-         TCPSOCKWARN(s, "spurious accept notification\n");
+         TCPSOCKWARN(s, ("spurious accept notification\n"));
 #if TARGET_OS_IPHONE
          /*
           * For iOS, while the app is suspended and device's screen is locked,
@@ -3940,13 +3594,13 @@ AsyncTCPSocketAcceptInternal(AsyncTCPSocket *s)         // IN
           */
 
       } else if (sysErr == ECONNABORTED) {
-         TCPSOCKLG0(s, "accept: new connection was aborted\n");
+         TCPSOCKLG0(s, ("accept: new connection was aborted\n"));
 
          return ASOCKERR_GENERIC;
 #endif
       } else {
-         TCPSOCKWARN(s, "accept failed on fd %d, error %d: %s\n",
-                     s->fd, sysErr, Err_Errno2String(sysErr));
+         TCPSOCKWARN(s, ("accept failed on fd %d, error %d: %s\n",
+                       s->fd, sysErr, Err_Errno2String(sysErr)));
 
          return ASOCKERR_ACCEPT;
       }
@@ -3963,8 +3617,9 @@ AsyncTCPSocketAcceptInternal(AsyncTCPSocket *s)         // IN
        */
 
       if (IN6_IS_ADDR_V4MAPPED(&(addr6->sin6_addr))) {
-         TCPSOCKWARN(s, "accept rejected on fd %d due to a IPv4-mapped IPv6 "
-                     "remote connection address.\n", s->fd);
+         TCPSOCKWARN(s,
+                   ("accept rejected on fd %d due to a IPv4-mapped IPv6 "
+                    "remote connection address.\n", s->fd));
          SSLGeneric_close(fd);
 
          return ASOCKERR_ACCEPT;
@@ -4037,12 +3692,9 @@ AsyncTCPSocketConnectInternal(AsyncTCPSocket *s)         // IN
 
    if (optval != 0) {
       s->genericErrno = optval;
-      TCPSOCKLOG(1, s, "connection SO_ERROR: %s\n", Err_Errno2String(optval));
-      if (optval == ASOCK_ENETUNREACH || optval == ASOCK_EHOSTUNREACH) {
-         return ASOCKERR_NETUNREACH;
-      } else {
-         return ASOCKERR_CONNECT;
-      }
+      TCPSOCKLOG(1, s, ("connection SO_ERROR: %s\n", Err_Errno2String(optval)));
+
+      return ASOCKERR_GENERIC;
    }
 
    s->localAddrLen = sizeof s->localAddr;
@@ -4186,7 +3838,7 @@ AsyncTCPSocketWaitForConnection(AsyncSocket *base,  // IN:
 
       if (read) {
          if (AsyncTCPSocketAcceptInternal(asock) != ASOCKERR_SUCCESS) {
-            TCPSOCKLG0(s, "wait for connection: accept failed\n");
+            TCPSOCKLG0(s, ("wait for connection: accept failed\n"));
 
             /*
              * Just fall through, we'll loop and try again as long as we still
@@ -4270,7 +3922,7 @@ AsyncTCPSocketDoOneMsg(AsyncSocket *base, // IN
           * The recv loop would read the data if there is any and it is
           * not safe to proceed and race with the recv loop.
           */
-         TCPSOCKLG0(s, "busy: another thread in recv loop\n");
+         TCPSOCKLG0(s, ("busy: another thread in recv loop\n"));
          return ASOCKERR_BUSY;
       }
 
@@ -4292,8 +3944,8 @@ AsyncTCPSocketDoOneMsg(AsyncSocket *base, // IN
       retVal = AsyncTCPSocketPoll(s, read, timeoutMS, &asock);
       if (retVal != ASOCKERR_SUCCESS) {
          if (retVal == ASOCKERR_GENERIC) {
-            TCPSOCKWARN(s, "%s: failed to poll on the socket during read.\n",
-                        __FUNCTION__);
+            TCPSOCKWARN(s, ("%s: failed to poll on the socket during read.\n",
+                       __FUNCTION__));
          }
       } else {
          ASSERT(asock == s);
@@ -4316,13 +3968,12 @@ AsyncTCPSocketDoOneMsg(AsyncSocket *base, // IN
           */
          s->recvCb = FALSE;  /* For re-registering the poll callback. */
          if (retVal == ASOCKERR_SUCCESS || retVal == ASOCKERR_TIMEOUT) {
-            int ret = AsyncTCPSocketRegisterRecvCb(s);
+            retVal = AsyncTCPSocketRegisterRecvCb(s);
             Log("SOCKET reregister recvCb after DoOneMsg (ref %d)\n",
                 BaseSocket(s)->refCount);
-            if (ret != ASOCKERR_SUCCESS) {
-               s->base.recvBuf = NULL;
-               retVal = ret;
-            }
+         }
+         if (retVal != ASOCKERR_SUCCESS) {
+            s->base.recvBuf = NULL;
          }
       }
       AsyncTCPSocketRelease(s);
@@ -4331,8 +3982,8 @@ AsyncTCPSocketDoOneMsg(AsyncSocket *base, // IN
       retVal = AsyncTCPSocketPoll(s, read, timeoutMS, &asock);
       if (retVal != ASOCKERR_SUCCESS) {
          if (retVal == ASOCKERR_GENERIC) {
-            TCPSOCKWARN(s, "%s: failed to poll on the socket during write.\n",
-                        __FUNCTION__);
+            TCPSOCKWARN(s, ("%s: failed to poll on the socket during write.\n",
+                            __FUNCTION__));
          }
       } else {
          ASSERT(asock == s);
@@ -4401,7 +4052,7 @@ AsyncSocket_TCPDrainRecv(AsyncSocket *base, // IN
           * The recv loop would read the data if there is any and it is
           * not safe to proceed and race with the recv loop.
           */
-         TCPSOCKLG0(s, "busy: another thread in recv loop\n");
+         TCPSOCKLG0(s, ("busy: another thread in recv loop\n"));
          retVal = ASOCKERR_BUSY;
          /* Add a bit of backoff. */
          AsyncTCPSocketUnlock(s);
@@ -4424,8 +4075,8 @@ AsyncSocket_TCPDrainRecv(AsyncSocket *base, // IN
       retVal = AsyncTCPSocketPoll(s, TRUE, 0, &asock);
       if (retVal != ASOCKERR_SUCCESS) {
          if (retVal == ASOCKERR_GENERIC) {
-            TCPSOCKWARN(s, "%s: failed to poll on the socket during read.\n",
-                        __FUNCTION__);
+            TCPSOCKWARN(s, ("%s: failed to poll on the socket during read.\n",
+                       __FUNCTION__));
          }
       } else if (AsyncTCPSocketGetState(s) == AsyncSocketConnected) {
          ASSERT(asock == s);
@@ -4517,7 +4168,7 @@ AsyncTCPSocketFlush(AsyncSocket *base,  // IN
    AsyncTCPSocketAddRef(s);
 
    if (AsyncTCPSocketGetState(s) != AsyncSocketConnected) {
-      TCPSOCKWARN(s, "flush called but state is not connected!\n");
+      TCPSOCKWARN(s, ("flush called but state is not connected!\n"));
       retVal = ASOCKERR_INVAL;
       goto outHaveLock;
    }
@@ -4530,7 +4181,7 @@ AsyncTCPSocketFlush(AsyncSocket *base,  // IN
 
       retVal = AsyncTCPSocketPoll(s, FALSE, done - now, &asock);
       if (retVal != ASOCKERR_SUCCESS) {
-         TCPSOCKWARN(s, "flush failed\n");
+         TCPSOCKWARN(s, ("flush failed\n"));
          goto outHaveLock;
       }
 
@@ -4546,7 +4197,7 @@ AsyncTCPSocketFlush(AsyncSocket *base,  // IN
 
          /* Don't timeout if you've sent everything */
          if (now > done && s->sendBufList) {
-            TCPSOCKWARN(s, "flush timed out\n");
+            TCPSOCKWARN(s, ("flush timed out\n"));
             retVal = ASOCKERR_TIMEOUT;
             goto outHaveLock;
          }
@@ -4620,7 +4271,7 @@ AsyncTCPSocketAddListenCb(AsyncTCPSocket *asock)  // IN:
                                       AsyncTCPSocketAcceptCallback);
 
    if (pollStatus != VMWARE_STATUS_SUCCESS) {
-      TCPSOCKWARN(asock, "failed to install listen accept callback!\n");
+      TCPSOCKWARN(asock, ("failed to install listen accept callback!\n"));
    }
 
    return pollStatus == VMWARE_STATUS_SUCCESS;
@@ -4656,19 +4307,11 @@ AsyncTCPSocketCancelRecvCb(AsyncTCPSocket *asock)  // IN:
    if (asock->recvCb) {
       Bool removed;
       TCPSOCKLOG(1, asock,
-                 "Removing poll recv callback while cancelling recv.\n");
+                 ("Removing poll recv callback while cancelling recv.\n"));
       removed = AsyncTCPSocketPollRemove(asock, TRUE,
                                          POLL_FLAG_READ | POLL_FLAG_PERIODIC,
                                          asock->internalRecvFn);
-
-      /*
-       * A recv callback registered on a bad FD can be deleted by
-       * PollHandleInvalidFd if POLL_FLAG_ACCEPT_INVALID_FDS flag
-       * is added to asyncsocket.
-       */
-      ASSERT(removed || AsyncTCPSocketPollParams(asock)->iPoll ||
-             (AsyncTCPSocketPollParams(asock)->flags &
-              POLL_FLAG_ACCEPT_INVALID_FDS) != 0);
+      ASSERT(removed || AsyncTCPSocketPollParams(asock)->iPoll);
       asock->recvCb = FALSE;
    }
 }
@@ -4742,7 +4385,7 @@ AsyncTCPSocketCancelCbForClose(AsyncSocket *base)  // IN:
       asock->recvCbTimer = FALSE;
    }
    if (asock->recvCb) {
-      TCPSOCKLOG(1, asock, "recvCb is non-NULL, removing recv callback\n");
+      TCPSOCKLOG(1, asock, ("recvCb is non-NULL, removing recv callback\n"));
       removed = AsyncTCPSocketPollRemove(asock, TRUE,
                                          POLL_FLAG_READ | POLL_FLAG_PERIODIC,
                                          asock->internalRecvFn);
@@ -4757,7 +4400,7 @@ AsyncTCPSocketCancelCbForClose(AsyncSocket *base)  // IN:
 
    if (asock->sendCb) {
       TCPSOCKLOG(1, asock,
-                 "sendBufList is non-NULL, removing send callback\n");
+                 ("sendBufList is non-NULL, removing send callback\n"));
 
       /*
        * The send callback could be either a device or RTime callback, so
@@ -4920,8 +4563,8 @@ AsyncTCPSocketClose(AsyncSocket *base)   // IN
                                        asock->flushEnabledMaxWaitMsec);
          if (ret != ASOCKERR_SUCCESS) {
             TCPSOCKWARN(asock,
-                        "AsyncTCPSocket_Flush failed: %s. Closing now.\n",
-                        AsyncSocket_Err2String(ret));
+                        ("AsyncTCPSocket_Flush failed: %s. Closing now.\n",
+                         AsyncSocket_Err2String(ret)));
          }
       }
 
@@ -4930,34 +4573,34 @@ AsyncTCPSocketClose(AsyncSocket *base)   // IN
        * right thing accordingly
        */
 
-      TCPSOCKLOG(1, asock, "closing socket\n");
+      TCPSOCKLOG(1, asock, ("closing socket\n"));
       oldState = AsyncTCPSocketGetState(asock);
       AsyncTCPSocketSetState(asock, AsyncSocketClosed);
 
       switch(oldState) {
       case AsyncSocketListening:
-         TCPSOCKLOG(1, asock,
-                    "old state was listening, removing accept callback\n");
+         TCPSOCKLOG(1, asock, ("old state was listening, removing accept "
+                               "callback\n"));
          AsyncTCPSocketCancelListenCb(asock);
          break;
 
       case AsyncSocketConnecting:
-         TCPSOCKLOG(1, asock,
-                    "old state was connecting, removing connect callback\n");
+         TCPSOCKLOG(1, asock, ("old state was connecting, removing connect "
+                               "callback\n"));
          removed = AsyncTCPSocketCancelCbForConnectingClose(asock);
          if (!removed) {
-            TCPSOCKLOG(1, asock,
-                       "connect callback is not present in the poll list.\n");
+            TCPSOCKLOG(1, asock, ("connect callback is not present in the poll "
+                                  "list.\n"));
          }
          break;
 
       case AsyncSocketConnected:
-         TCPSOCKLOG(1, asock, "old state was connected\n");
+         TCPSOCKLOG(1, asock, ("old state was connected\n"));
          AsyncTCPSocketCancelCbForClose(BaseSocket(asock));
          break;
 
       case AsyncSocketCBCancelled:
-         TCPSOCKLOG(1, asock, "old state was CB-cancelled\n");
+         TCPSOCKLOG(1, asock, ("old state was CB-cancelled\n"));
          break;
 
       default:
@@ -5177,9 +4820,7 @@ AsyncTCPSocketConnectCallback(void *clientData)         // IN
    AsyncTCPSocketAddRef(asock);
    retval = AsyncTCPSocketConnectInternal(asock);
    if (retval != ASOCKERR_SUCCESS) {
-      ASSERT(retval == ASOCKERR_GENERIC ||
-             retval == ASOCKERR_NETUNREACH ||
-             retval == ASOCKERR_CONNECT);
+      ASSERT(retval == ASOCKERR_GENERIC); /* Only one we're expecting */
       AsyncTCPSocketHandleError(asock, retval);
    }
    AsyncTCPSocketRelease(asock);
@@ -5276,9 +4917,9 @@ AsyncTCPSocketIPollRecvCallback(void *clientData)  // IN:
                                 asock->internalRecvFn, asock->fd);
       }
    } else {
-      TCPSOCKLG0(asock, "Skip recv because %s\n",
-                 asock->recvCb ? "blocking recv is in progress"
-                               : "recv callback is cancelled");
+      TCPSOCKLG0(asock, ("Skip recv because %s\n",
+                         asock->recvCb ? "blocking recv is in progress"
+                                       : "recv callback is cancelled"));
    }
 
    /* This is a one-shot callback so we always release the reference taken. */
@@ -5401,7 +5042,7 @@ AsyncTCPSocketIPollSendCallback(void *clientData)  // IN:
    if (s->sendCb) {
       AsyncTCPSocketSendCallback(s);
    } else {
-      TCPSOCKLG0(s, "cancelled send callback fired\n");
+      TCPSOCKLG0(s, ("cancelled send callback fired\n"));
    }
 
    s->inIPollCb &= ~IN_IPOLL_SEND;
@@ -5765,7 +5406,6 @@ AsyncTCPSocketGetReceivedFd(AsyncSocket *base)      // IN
 static Bool
 AsyncTCPSocketConnectSSL(AsyncSocket *base,           // IN
                          SSLVerifyParam *verifyParam, // IN/OPT
-                         const char *hostname,        // IN/OPT
                          void *sslContext)            // IN/OPT
 {
 #ifndef USE_SSL_DIRECT
@@ -5777,7 +5417,7 @@ AsyncTCPSocketConnectSSL(AsyncSocket *base,           // IN
    }
 
    return SSL_ConnectAndVerifyWithContext(asock->sslSock, verifyParam,
-                                          hostname, sslContext);
+                                          sslContext);
 #else
    return FALSE;
 #endif
@@ -5867,7 +5507,7 @@ AsyncTCPSocketSslConnectCallback(void *clientData)  // IN
                                       AsyncTCPSocketSslConnectCallback);
 
       if (pollStatus != VMWARE_STATUS_SUCCESS) {
-         TCPSOCKWARN(asock, "failed to reinstall ssl connect callback!\n");
+         TCPSOCKWARN(asock, ("failed to reinstall ssl connect callback!\n"));
          asock->sslPollFlags = 0;
          (*asock->sslConnectFn)(FALSE, BaseSocket(asock), asock->clientData);
       }
@@ -5909,7 +5549,6 @@ AsyncTCPSocketSslConnectCallback(void *clientData)  // IN
 static int
 AsyncTCPSocketStartSslConnect(AsyncSocket *base,                    // IN
                               SSLVerifyParam *verifyParam,          // IN/OPT
-                              const char *hostname,                 // IN/OPT
                               void *sslCtx,                         // IN
                               AsyncSocketSslConnectFn sslConnectFn, // IN
                               void *clientData)                     // IN
@@ -5924,12 +5563,12 @@ AsyncTCPSocketStartSslConnect(AsyncSocket *base,                    // IN
    ASSERT(AsyncTCPSocketIsLocked(asock));
 
    if (asock->sslConnectFn || asock->sslAcceptFn) {
-      TCPSOCKWARN(asock, "An SSL operation was already initiated.\n");
+      TCPSOCKWARN(asock, ("An SSL operation was already initiated.\n"));
       return ASOCKERR_GENERIC;
    }
 
    ok = SSL_SetupConnectAndVerifyWithContext(asock->sslSock, verifyParam,
-                                             hostname, sslCtx);
+                                             sslCtx);
    if (!ok) {
       /* Something went wrong already */
       (*sslConnectFn)(FALSE, BaseSocket(asock), clientData);
@@ -5993,7 +5632,7 @@ AsyncTCPSocketSslAcceptCallback(void *clientData)         // IN
                                       AsyncTCPSocketSslAcceptCallback);
 
       if (pollStatus != VMWARE_STATUS_SUCCESS) {
-         TCPSOCKWARN(asock, "failed to reinstall ssl accept callback!\n");
+         TCPSOCKWARN(asock, ("failed to reinstall ssl accept callback!\n"));
          asock->sslPollFlags = 0;
          (*asock->sslAcceptFn)(FALSE, BaseSocket(asock), asock->clientData);
       }
@@ -6047,7 +5686,7 @@ AsyncTCPSocketStartSslAccept(AsyncSocket *base,                  // IN
    ASSERT(AsyncTCPSocketIsLocked(asock));
 
    if (asock->sslAcceptFn || asock->sslConnectFn) {
-      TCPSOCKWARN(asock, "An SSL operation was already initiated.\n");
+      TCPSOCKWARN(asock, ("An SSL operation was already initiated.\n"));
       return ASOCKERR_GENERIC;
    }
 
@@ -6117,9 +5756,9 @@ AsyncTCPSocketSetOption(AsyncSocket *asyncSocket,     // IN/OUT
       break;
    default:
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer [%d] (option [%d]) is not "
+                 ("%s: Option layer [%d] (option [%d]) is not "
                      "supported for TCP socket.\n",
-                  __FUNCTION__, (int)layer, optID);
+                  __FUNCTION__, (int)layer, optID));
       return ASOCKERR_INVAL;
    }
 
@@ -6132,8 +5771,9 @@ AsyncTCPSocketSetOption(AsyncSocket *asyncSocket,     // IN/OUT
        (optID == ASYNC_SOCKET_OPT_SEND_LOW_LATENCY_MODE)) {
       ASSERT(inBufLen == sizeof(Bool));
       tcpSocket->sendLowLatency = *((const Bool *)valuePtr);
-      TCPSOCKLG0(tcpSocket, "%s: sendLowLatencyMode set to [%d].\n",
-                 __FUNCTION__, (int)tcpSocket->sendLowLatency);
+      TCPSOCKLG0(tcpSocket,
+                 ("%s: sendLowLatencyMode set to [%d].\n",
+                  __FUNCTION__, (int)tcpSocket->sendLowLatency));
       return ASOCKERR_SUCCESS;
    }
 
@@ -6179,10 +5819,10 @@ AsyncTCPSocketSetOption(AsyncSocket *asyncSocket,     // IN/OUT
 
    if (!isSupported) {
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer/level [%d], option/name [%d]: "
+                 ("%s: Option layer/level [%d], option/name [%d]: "
                      "could not set OS option for TCP socket; "
                      "option not supported.\n",
-                  __FUNCTION__, (int)layer, optID);
+                  __FUNCTION__, (int)layer, optID));
       return ASOCKERR_INVAL;
    }
 
@@ -6192,19 +5832,19 @@ AsyncTCPSocketSetOption(AsyncSocket *asyncSocket,     // IN/OUT
                   valuePtr, inBufLen) != 0) {
       tcpSocket->genericErrno = Err_Errno();
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer/level [%d], option/name [%d]: "
+                 ("%s: Option layer/level [%d], option/name [%d]: "
                      "could not set OS option for TCP socket; "
                      "error [%d: %s].\n",
                   __FUNCTION__, (int)layer, optID,
                   tcpSocket->genericErrno,
-                  Err_Errno2String(tcpSocket->genericErrno));
+                  Err_Errno2String(tcpSocket->genericErrno)));
       return ASOCKERR_GENERIC;
    }
 
    TCPSOCKLG0(tcpSocket,
-              "%s: Option layer/level [%d], option/name [%d]: successfully "
+              ("%s: Option layer/level [%d], option/name [%d]: successfully "
                   "set OS option for TCP socket.\n",
-               __FUNCTION__, (int)layer, optID);
+               __FUNCTION__, (int)layer, optID));
 
    return ASOCKERR_SUCCESS;
 }
@@ -6253,9 +5893,9 @@ AsyncTCPSocketGetOption(AsyncSocket *asyncSocket,     // IN/OUT
       break;
    default:
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer [%d] (option [%d]) is not "
+                 ("%s: Option layer [%d] (option [%d]) is not "
                      "supported for TCP socket.\n",
-                  __FUNCTION__, (int)layer, optID);
+                  __FUNCTION__, (int)layer, optID));
       return ASOCKERR_INVAL;
    }
 
@@ -6265,8 +5905,8 @@ AsyncTCPSocketGetOption(AsyncSocket *asyncSocket,     // IN/OUT
       *outBufLen = sizeof(Bool);
       *((Bool *)valuePtr) = tcpSocket->sendLowLatency;
       TCPSOCKLG0(tcpSocket,
-                 "%s: sendLowLatencyMode is [%d].\n",
-                  __FUNCTION__, (int)tcpSocket->sendLowLatency);
+                 ("%s: sendLowLatencyMode is [%d].\n",
+                  __FUNCTION__, (int)tcpSocket->sendLowLatency));
       return ASOCKERR_SUCCESS;
    }
 
@@ -6293,10 +5933,10 @@ AsyncTCPSocketGetOption(AsyncSocket *asyncSocket,     // IN/OUT
 
    if (!isSupported) {
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer/level [%d], option/name [%d]: "
+                 ("%s: Option layer/level [%d], option/name [%d]: "
                      "could not get OS option for TCP socket; "
                      "option not supported.\n",
-                  __FUNCTION__, (int)layer, optID);
+                  __FUNCTION__, (int)layer, optID));
       return ASOCKERR_INVAL;
    }
 
@@ -6304,19 +5944,19 @@ AsyncTCPSocketGetOption(AsyncSocket *asyncSocket,     // IN/OUT
                   valuePtr, outBufLen) != 0) {
       tcpSocket->genericErrno = Err_Errno();
       TCPSOCKLG0(tcpSocket,
-                 "%s: Option layer/level [%d], option/name [%d]: "
+                 ("%s: Option layer/level [%d], option/name [%d]: "
                      "could not get OS option for TCP socket; "
                      "error [%d: %s].\n",
                   __FUNCTION__, (int)layer, optID,
                   tcpSocket->genericErrno,
-                  Err_Errno2String(tcpSocket->genericErrno));
+                  Err_Errno2String(tcpSocket->genericErrno)));
       return ASOCKERR_GENERIC;
    }
 
    TCPSOCKLG0(tcpSocket,
-              "%s: Option layer/level [%d], option/name [%d]: successfully "
+              ("%s: Option layer/level [%d], option/name [%d]: successfully "
                   "got OS option for TCP socket.\n",
-               __FUNCTION__, (int)layer, optID);
+               __FUNCTION__, (int)layer, optID));
 
    return ASOCKERR_SUCCESS;
 }
@@ -6415,96 +6055,4 @@ AsyncTCPSocketListenerError(int error,           // IN
    ASSERT(s);
 
    AsyncSocketHandleError(s, error);
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * AsyncSocket_SetKeepAlive --
- *
- *      Set keep-alive socket option.
- *
- * Results:
- *      TRUE if successful.
- *
- * Side effects:
- *      None.
- *
- *-----------------------------------------------------------------------------
- */
-
-Bool
-AsyncSocket_SetKeepAlive(AsyncSocket *asock, // IN
-                         int keepIdle)       // IN
-{
-   int fd;
-
-   fd = AsyncSocket_GetFd(asock);
-   if (fd < 0) {
-      Log(ASOCKPREFIX "(%p) is not valid.\n", asock);
-      return FALSE;
-   }
-#ifdef WIN32
-   {
-      struct tcp_keepalive keepalive = { 1, keepIdle * 1000, keepIdle * 10 };
-      DWORD ret;
-
-      if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &keepalive, sizeof keepalive,
-                   NULL, 0, &ret, NULL, NULL)) {
-         Err_Number sysErr = ASOCK_LASTERROR();
-         ASOCKLG0(asock, "Could not set keepalive options, error %d: %s\n",
-                  sysErr, Err_Errno2String(sysErr));
-      }
-   }
-#else
-   {
-      static const int keepAlive = 1;
-      if (keepIdle) {
-#  ifdef TCP_KEEPIDLE
-#     define VMTCP_KEEPIDLE TCP_KEEPIDLE
-#  else
-#     define VMTCP_KEEPIDLE TCP_KEEPALIVE
-#  endif
-         if (setsockopt(fd,
-                        IPPROTO_TCP,
-                        VMTCP_KEEPIDLE,
-                        (const char *)&keepIdle, sizeof keepIdle) != 0) {
-            Err_Number sysErr = ASOCK_LASTERROR();
-            ASOCKLG0(asock, "Could not set TCP_KEEPIDLE, error %d: %s\n",
-                     sysErr, Err_Errno2String(sysErr));
-            return FALSE;
-         }
-#  ifndef __APPLE__
-      {
-         /*
-          * Default TCP setting is 7200 sec idle, and 75 interval.  So let's
-          * divide keepIdle by 100 to get an interval.  For our 300 seconds
-          * default that is 3 seconds keepIdle.
-          */
-         int keepIntvl = keepIdle / 100;
-
-         if (keepIntvl < 1) {
-            keepIntvl = 1;
-         }
-         if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
-                        (const char *)&keepIntvl, sizeof keepIntvl) != 0) {
-            Err_Number sysErr = ASOCK_LASTERROR();
-            ASOCKLG0(asock, "Could not set TCP_KEEPIDLE, error %d: %s\n",
-                     sysErr, Err_Errno2String(sysErr));
-            return FALSE;
-         }
-      }
-#  endif /* __APPLE__ */
-      }
-      if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-                     (const char *)&keepAlive, sizeof keepAlive) != 0) {
-         Err_Number sysErr = ASOCK_LASTERROR();
-         ASOCKLG0(asock, "Could not set TCP_KEEPIDLE, error %d: %s\n",
-                  sysErr, Err_Errno2String(sysErr));
-         return FALSE;
-      }
-   }
-#endif /* WIN32 */
-   return TRUE;
 }

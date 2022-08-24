@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -47,31 +47,23 @@
  */
 
 #ifndef EX_USAGE
-#define EX_USAGE 64 /* command line usage error */
+#define EX_USAGE 64
 #endif
 
 #ifndef EX_UNAVAILABLE
-#define EX_UNAVAILABLE 69 /* service unavailable */
-#endif
-
-#ifndef EX_SOFTWARE
-#define EX_SOFTWARE 70 /* internal software error */
-#endif
-
-#ifndef EX_OSERR
-#define EX_OSERR 71 /* system error (e.g., can't fork) */
+#define EX_UNAVAILABLE 69
 #endif
 
 #ifndef EX_OSFILE
-#define EX_OSFILE 72 /* critical OS file missing */
+#define EX_OSFILE 72
 #endif
 
 #ifndef EX_TEMPFAIL
-#define EX_TEMPFAIL 75 /* temp failure; user is invited to retry */
+#define EX_TEMPFAIL 75
 #endif
 
 #ifndef EX_NOPERM
-#define EX_NOPERM 77 /* permission denied */
+#define EX_NOPERM 77
 #endif
 
 /*
@@ -112,9 +104,6 @@ ToolsCmd_SendRPC(const char *rpc,
                  char **result,
                  size_t *resultLen);
 
-void
-ToolsCmd_FreeRPC(void *ptr);
-
 /*
  * Command declarations.
  */
@@ -145,11 +134,6 @@ DECLARE_COMMAND(Config);
 #if defined(_WIN32) || \
    (defined(__linux__) && !defined(OPEN_VM_TOOLS) && !defined(USERWORLD))
 DECLARE_COMMAND(Upgrade);
-DECLARE_COMMAND(GuestStore);
-#endif
-
-#if defined(_WIN32)
-DECLARE_COMMAND(GlobalConf)
 #endif
 
 #endif /*_TOOLBOX_CMD_H_*/

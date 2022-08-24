@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2013-2016,2018-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2013-2016,2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,20 +33,11 @@
 
 #define LGPFX "VSockChan: "
 
-/*
- * Time to wait in milliseconds before retrying a vsock RPC start
- */
-#define VSOCK_START_RETRY_WAIT_TIME 100
-
-/* Maximum number of times to retry a failed vsock RPC Channel start. */
-#define VSOCK_CHANNEL_START_MAX_RETRIES  2
-
 typedef struct VSockOut {
    SOCKET fd;
    char *payload;
    int payloadLen;
    RpcChannelType type;
-   int flags;
 } VSockOut;
 
 typedef struct VSockChannel {
@@ -125,14 +116,13 @@ VSockCreateConn(gboolean *isPriv)        // OUT
  */
 
 static VSockOut *
-VSockOutConstruct(int flags)
+VSockOutConstruct(void)
 {
    VSockOut *out = calloc(1, sizeof *out);
 
    if (out != NULL) {
       out->fd = INVALID_SOCKET;
       out->type = RPCCHANNEL_TYPE_INACTIVE;
-      out->flags = flags;
    }
    return out;
 }
@@ -171,7 +161,7 @@ VSockOutDestruct(VSockOut *out)        // IN
  *
  * VSockOutStart --
  *
- *      Start the VSockOut channel by creating a vsocket connection.
+ *      Open the channel
  *
  * Result:
  *      TRUE on success
@@ -205,7 +195,7 @@ VSockOutStart(VSockOut *out)      // IN
  *
  * VSockOutStop --
  *
- *    Close the underlying vsocket for the VSockOut channel
+ *    Close the channel
  *
  * Result
  *    None
@@ -270,8 +260,7 @@ VSockOutSend(VSockOut *out,        // IN
    Debug(LGPFX "Sending request for conn %d,  reqLen=%d\n",
          out->fd, (int)reqLen);
 
-   if (!Socket_SendPacket(out->fd, request, reqLen,
-                          (out->flags & RPCCHANNEL_FLAGS_FAST_CLOSE))) {
+   if (!Socket_SendPacket(out->fd, request, reqLen)) {
       *reply = "VSockOut: Unable to send data for the RPCI command";
       goto error;
    }
@@ -309,10 +298,9 @@ error:
 /*
  *-----------------------------------------------------------------------------
  *
- * VSockChannelDestroy --
+ * VSockChannelOnStartErr --
  *
- *      Callback function to destroy the VSockChannel after it fails to start
- *      or it has been stopped.
+ *      Callback function to cleanup after channel start failure.
  *
  * Results:
  *      None.
@@ -324,16 +312,12 @@ error:
  */
 
 static void
-VSockChannelDestroy(RpcChannel *chan)    // IN
+VSockChannelOnStartErr(RpcChannel *chan)    // IN
 {
    VSockChannel *vsock = chan->_private;
 
-   /*
-    * Channel should be stopped before destroying it.
-    */
-   ASSERT(!chan->outStarted);
+   /* destroy VSockOut part only */
    VSockOutDestruct(vsock->out);
-   g_free(vsock);
    chan->_private = NULL;
 }
 
@@ -343,7 +327,7 @@ VSockChannelDestroy(RpcChannel *chan)    // IN
  *
  * VSockChannelStart --
  *
- *      Starts the VSockOut channel.
+ *      Starts the RpcIn loop and the VSockOut channel.
  *
  * Results:
  *      TRUE on success.
@@ -366,24 +350,6 @@ VSockChannelStart(RpcChannel *chan)    // IN
 
    if (ret) {
       ret = VSockOutStart(vsock->out);
-      if (!ret && (vsock->out->flags & RPCCHANNEL_FLAGS_SEND_ONE) == 0) {
-         int retryCnt = 0;
-
-         while (!ret && (retryCnt++ < VSOCK_CHANNEL_START_MAX_RETRIES)) {
-            /*
-             * VMX may take some time to cleanup a previous vsocket, so delay
-             * the retry a little bit.  The retry is needed for the cases when
-             * there is a channel start attempt in quick succession and the
-             * first attempt failed because VMX was still cleaning up the
-             * previous vsocket.
-             *
-             * Take a 100 msec pause.
-             */
-            g_usleep(VSOCK_START_RETRY_WAIT_TIME * 1000);
-            Debug(LGPFX "VSockChannel Start - retry %d\n", retryCnt);
-            ret = VSockOutStart(vsock->out);
-         }
-      }
    }
    chan->outStarted = ret;
 
@@ -416,8 +382,8 @@ VSockChannelStop(RpcChannel *chan)   // IN
    if (vsock->out != NULL) {
       if (chan->outStarted) {
          VSockOutStop(vsock->out);
-         chan->outStarted = FALSE;
       }
+      chan->outStarted = FALSE;
    } else {
       ASSERT(!chan->outStarted);
    }
@@ -429,7 +395,7 @@ VSockChannelStop(RpcChannel *chan)   // IN
  *
  * VSockChannelShutdown --
  *
- *      Shuts down the VSockChannel.
+ *      Shuts down the Rpc channel.
  *
  * Results:
  *      None.
@@ -443,8 +409,12 @@ VSockChannelStop(RpcChannel *chan)   // IN
 static void
 VSockChannelShutdown(RpcChannel *chan)    // IN
 {
+   VSockChannel *vsock = chan->_private;
+
    VSockChannelStop(chan);
-   VSockChannelDestroy(chan);
+   VSockOutDestruct(vsock->out);
+   g_free(vsock);
+   chan->_private = NULL;
 }
 
 
@@ -516,12 +486,12 @@ exit:
 /*
  *-----------------------------------------------------------------------------
  *
- * VSockChannelGetType --
+ * VSockChannel_GetType --
  *
- *      Return the channel type that is being used.
+ *      Return the channel type that being used.
  *
  * Result:
- *      return RpcChannelType
+ *      return the channel type.
  *
  * Side-effects:
  *      None
@@ -530,7 +500,7 @@ exit:
  */
 
 static RpcChannelType
-VSockChannelGetType(RpcChannel *chan)     // IN
+VSockChannelGetType(RpcChannel *chan)
 {
    VSockChannel *vsock = chan->_private;
 
@@ -545,12 +515,12 @@ VSockChannelGetType(RpcChannel *chan)     // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * VSockChannelSetCallbacks --
+ * VSockChannelStopRpcOut --
  *
- *      Helper function to setup RpcChannel callbacks.
+ *      Stop the RpcOut channel
  *
  * Result:
- *      None
+ *      return TRUE on success.
  *
  * Side-effects:
  *      None
@@ -558,22 +528,17 @@ VSockChannelGetType(RpcChannel *chan)     // IN
  *-----------------------------------------------------------------------------
  */
 
-static void
-VSockChannelSetCallbacks(RpcChannel *chan)      // IN
+static gboolean
+VSockChannelStopRpcOut(RpcChannel *chan)
 {
-   static RpcChannelFuncs funcs = {
-      VSockChannelStart,
-      VSockChannelStop,
-      VSockChannelSend,
-      NULL,
-      VSockChannelShutdown,
-      VSockChannelGetType,
-      VSockChannelDestroy
-   };
+   VSockChannel *vsock = chan->_private;
+   VSockOutStop(vsock->out);
+   chan->outStarted = FALSE;
 
-   ASSERT(chan);
-   chan->funcs = &funcs;
+   return TRUE;
 }
+
+
 
 
 /*
@@ -581,7 +546,7 @@ VSockChannelSetCallbacks(RpcChannel *chan)      // IN
  *
  * VSockChannel_New --
  *
- *      Creates a new RpcChannel that uses the vsocket for
+ *      Creates a new RpcChannel channel that uses the vsocket for
  *      communication.
  *
  * Result:
@@ -594,64 +559,35 @@ VSockChannelSetCallbacks(RpcChannel *chan)      // IN
  */
 
 RpcChannel *
-VSockChannel_New(int flags)   // IN
+VSockChannel_New(void)
 {
    RpcChannel *chan;
    VSockChannel *vsock;
 
+   static RpcChannelFuncs funcs = {
+      VSockChannelStart,
+      VSockChannelStop,
+      VSockChannelSend,
+      NULL,
+      VSockChannelShutdown,
+      VSockChannelGetType,
+      VSockChannelOnStartErr,
+      VSockChannelStopRpcOut
+   };
+
    chan = RpcChannel_Create();
    vsock = g_malloc0(sizeof *vsock);
 
-   vsock->out = VSockOutConstruct(flags);
+   vsock->out = VSockOutConstruct();
    ASSERT(vsock->out != NULL);
 
 #if defined(NEED_RPCIN)
    chan->inStarted = FALSE;
 #endif
    chan->outStarted = FALSE;
-   chan->vsockChannelFlags = flags;
-   /*
-    * VSock channel is mutable, it can fallback/change to Backdoor.
-    */
-   chan->isMutable = TRUE;
 
-   VSockChannelSetCallbacks(chan);
    chan->_private = vsock;
-   g_mutex_init(&chan->outLock);
+   chan->funcs = &funcs;
 
    return chan;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * VSockChannel_Restore --
- *
- *      Restores RpcChannel as VSockChannel.
- *
- * Result:
- *      None
- *
- * Side-effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-void
-VSockChannel_Restore(RpcChannel *chan,    // IN
-                     int flags)           // IN
-{
-   VSockChannel *vsock;
-
-   ASSERT(chan);
-   ASSERT(chan->_private == NULL);
-
-   vsock = g_malloc0(sizeof *vsock);
-   vsock->out = VSockOutConstruct(flags);
-   ASSERT(vsock->out != NULL);
-
-   VSockChannelSetCallbacks(chan);
-   chan->_private = vsock;
 }

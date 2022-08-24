@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -69,7 +69,7 @@ static void
 FileTempNum(Bool createTempFile,  // IN:
             uint32 *var)          // IN/OUT:
 {
-   ASSERT(var != NULL);
+   ASSERT(var);
 
    *var += (FileSimpleRandom() >> 8) & 0xFF;
    *var = (*var & ~0x1) | (createTempFile ? 1 : 0);
@@ -82,11 +82,10 @@ FileTempNum(Bool createTempFile,  // IN:
  *  FileMakeTempEx2Work --
  *
  *      Create a temporary file or a directory.
- *
  *      If a temporary file is created successfully, then return an open file
  *      descriptor to that file.
  *
- *      'dir' specifies the directory in which to create the object. It
+ *      'dir' specifies the directory in which to create the file. It
  *      must not end in a slash.
  *
  *      'createTempFile', if TRUE, then a temporary file will be created. If
@@ -97,9 +96,9 @@ FileTempNum(Bool createTempFile,  // IN:
  *      'dir' already be safe (the code will check this).
  *
  *      'createNameFunc' specifies the user-specified callback function that
- *      will be called to construct a fileName. 'createNameFuncData' will be
+ *      will be called to construct the fileName. 'createNameFuncData' will be
  *      passed everytime 'createNameFunc' is called. 'createNameFunc'
- *      should return the dynamically allocated, proper fileName.
+ *      should return the proper fileName.
  *
  *      Check the documentation for File_MakeTempHelperFunc.
  *
@@ -107,7 +106,7 @@ FileTempNum(Bool createTempFile,  // IN:
  *      if a temporary file is created, then Open file descriptor or -1;
  *      if a temporary directory is created, then 0 or -1;
  *      If successful then presult points to a dynamically allocated
- *      string with the pathname of the temp object created.
+ *      string with the pathname of the temp file.
  *
  * Side effects:
  *      Creates the requested object when successful. Errno is set on error
@@ -129,10 +128,9 @@ FileMakeTempEx2Work(const char *dir,                              // IN:
 {
    uint32 i;
 
-   int fd;
+   int fd = -1;
    uint32 var = 0;
-
-   ASSERT(presult != NULL);
+   char *path = NULL;
 
    if ((dir == NULL) || (createNameFunc == NULL)) {
       errno = EFAULT;
@@ -140,11 +138,16 @@ FileMakeTempEx2Work(const char *dir,                              // IN:
       return -1;
    }
 
+   ASSERT(presult);
+
    *presult = NULL;
 
    for (i = 0; i < (MAX_INT32 / 2); i++) {
-      char *objName;
-      char *pathName;
+      char *fileName;
+
+      /* construct suffixed pathname to use */
+      Posix_Free(path);
+      path = NULL;
 
       /*
        * Files and directories are kept separate (odd and even respectfully).
@@ -156,53 +159,50 @@ FileMakeTempEx2Work(const char *dir,                              // IN:
 
       FileTempNum(createTempFile, &var);
 
-      objName = (*createNameFunc)(var, createNameFuncData);
-      ASSERT(objName != NULL);
+      fileName = (*createNameFunc)(var, createNameFuncData);
+      ASSERT(fileName);
 
+      /* construct base full pathname to use */
       if (createTempFile) {
-         pathName = File_PathJoin(dir, objName);
-         fd = Posix_Open(pathName, O_CREAT | O_EXCL | O_BINARY | O_RDWR, 0600);
+         path = File_PathJoin(dir, fileName);
+         fd = Posix_Open(path, O_CREAT | O_EXCL | O_BINARY | O_RDWR, 0600);
       } else {
          if (makeSubdirSafe) {
-            pathName = File_MakeSafeTempSubdir(dir, objName);
-            fd = (pathName == NULL) ? -1 : 0;
+            path = File_MakeSafeTempSubdir(dir, fileName);
+            if (path != NULL) {
+               fd = 0;
+            }
          } else {
-            pathName = File_PathJoin(dir, objName);
-            fd = Posix_Mkdir(pathName, 0700);
+            path = File_PathJoin(dir, fileName);
+            fd = Posix_Mkdir(path, 0700);
          }
       }
+      Posix_Free(fileName);
 
       if (fd != -1) {
-         *presult = pathName;
-
-         Posix_Free(objName);
+         *presult = path;
+         path = NULL;
          break;
       }
 
-      Posix_Free(pathName);
-
       if (errno != EEXIST) {
-         Log(LGPFX" Failed to create temporary %s; dir \"%s\", "
-             "objName \"%s\", errno %d\n",
+         Log(LGPFX" Failed to create temporary %s \"%s\", errno: %d.\n",
              createTempFile ? "file" : "directory",
-             dir, objName, errno);
-
-         Posix_Free(objName);
+             path, errno);
          goto exit;
       }
-
-      Posix_Free(objName);
    }
 
    if (fd == -1) {
-      Warning(LGPFX" Failed to create temporary %s: "
+      Warning(LGPFX" Failed to create temporary %s \"%s\": "
               "The name space is full.\n",
-              createTempFile ? "file" : "directory");
+              createTempFile ? "file" : "directory", path);
 
       errno = EAGAIN;
    }
 
   exit:
+   Posix_Free(path);
 
    return fd;
 }

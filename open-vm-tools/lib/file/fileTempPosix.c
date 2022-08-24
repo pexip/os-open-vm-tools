@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2004-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2004-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -78,8 +78,10 @@
 static char *
 FileTryDir(const char *dirName)  // IN: Is this a writable directory?
 {
+   char *edirName;
+
    if (dirName != NULL) {
-      char *edirName = Util_ExpandString(dirName);
+      edirName = Util_ExpandString(dirName);
 
       if ((edirName != NULL) && FileIsWritableDir(edirName)) {
          return edirName;

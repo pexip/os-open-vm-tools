@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -540,8 +540,8 @@ Panic_Panic(const char *format,
     * panic loop detection.  In particular, try not to call
     * any of our functions (that may call Panic()).
     */
-   fputs(buf, stderr);
 
+   fputs(buf, stderr);
 #ifdef _WIN32
    /*
     * This would nominally be Win32U_OutputDebugString.  However,
@@ -556,26 +556,28 @@ Panic_Panic(const char *format,
 #endif
 
    /*
+    * Make sure Panic gets logged
+    */
+   Log_DisableThrottling();
+
+   /*
     * Panic loop detection:
     *	 first time - do the whole report and shutdown sequence
     *	 second time - log and exit
     *	 beyond second time - just exit
     */
 
-   switch (count++) {  // Try HARD to not put code in here!
-   case 0:  // case 0 stuff is below
+   switch (count++) {
+   case 0:
       break;
    case 1:
       Log("PANIC: %s", buf);
       Log("Panic loop\n");
-      /* Fall through */
    default:
       fprintf(stderr, "Panic loop\n");
       Util_ExitProcessAbruptly(1);
       NOT_REACHED();
    }
-
-   Log_DisableThrottling(); // Make sure Panic gets logged
 
 #ifdef _WIN32
    /*
@@ -600,7 +602,7 @@ Panic_Panic(const char *format,
 
    Panic_DumpGuiResources();
 
-#if (defined(_WIN32) || !defined(VMX86_TOOLS)) && !defined(__ANDROID__) && !(TARGET_OS_IPHONE)
+#if (defined(_WIN32) || !defined(VMX86_TOOLS)) && !defined(__ANDROID__)
    if (Panic_GetCoreDumpOnPanic()) {
       CoreDump_CoreDump();
    }
@@ -619,11 +621,8 @@ Panic_Panic(const char *format,
     * Bye
     */
    Log("Exiting\n");
-#if TARGET_OS_IPHONE
-    __builtin_trap();
-#else
+
    Util_ExitProcessAbruptly(-1);
-#endif
    NOT_REACHED();
 }
 

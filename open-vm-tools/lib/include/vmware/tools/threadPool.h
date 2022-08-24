@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -70,7 +70,6 @@ typedef struct ToolsCorePool {
                    GDestroyNotify dtor);
    void (*cancel)(guint id);
    gboolean (*start)(ToolsAppCtx *ctx,
-                     const gchar *threadName,
                      ToolsCorePoolCb cb,
                      ToolsCorePoolCb interrupt,
                      gpointer data,
@@ -91,7 +90,7 @@ typedef struct ToolsCorePool {
  *******************************************************************************
  */
 
-static inline ToolsCorePool *
+G_INLINE_FUNC ToolsCorePool *
 ToolsCorePool_GetPool(ToolsAppCtx *ctx)
 {
    ToolsCorePool *pool = NULL;
@@ -123,7 +122,7 @@ ToolsCorePool_GetPool(ToolsAppCtx *ctx)
  *******************************************************************************
  */
 
-static inline guint
+G_INLINE_FUNC guint
 ToolsCorePool_SubmitTask(ToolsAppCtx *ctx,
                          ToolsCorePoolCb cb,
                          gpointer data,
@@ -153,7 +152,7 @@ ToolsCorePool_SubmitTask(ToolsAppCtx *ctx,
  *******************************************************************************
  */
 
-static inline void
+G_INLINE_FUNC void
 ToolsCorePool_CancelTask(ToolsAppCtx *ctx,
                          guint taskId)
 {
@@ -180,7 +179,6 @@ ToolsCorePool_CancelTask(ToolsAppCtx *ctx,
  * some other method of communicating with the thread.
  *
  * @param[in] ctx          Application context.
- * @param[in] threadName   Name for the new thread.
  * @param[in] cb           Function that implements the task to execute.
  * @param[in] interrupt    A function that will request the task to be
  *                         interrupted. This will be called when the pool
@@ -197,9 +195,8 @@ ToolsCorePool_CancelTask(ToolsAppCtx *ctx,
  *******************************************************************************
  */
 
-static inline gboolean
+G_INLINE_FUNC gboolean
 ToolsCorePool_StartThread(ToolsAppCtx *ctx,
-                          const gchar *threadName,
                           ToolsCorePoolCb cb,
                           ToolsCorePoolCb interrupt,
                           gpointer data,
@@ -207,7 +204,7 @@ ToolsCorePool_StartThread(ToolsAppCtx *ctx,
 {
    ToolsCorePool *pool = ToolsCorePool_GetPool(ctx);
    if (pool != NULL) {
-      return pool->start(ctx, threadName, cb, interrupt, data, dtor);
+      return pool->start(ctx, cb, interrupt, data, dtor);
    }
    return FALSE;
 }

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -46,15 +46,6 @@
 
 
 /*
- * VMware's Internet Assigned Numbers Authority Private Enterprise Number.
- * https://www.iana.org/assignments/enterprise-numbers/enterprise-numbers.
- */
-#define VMW_IANA_PEN       6876
-#define VMW_IANA_PEN_STR "6876"
-#define VMW_IANA_PEN_LEN      4
-
-
-/*
  * This generic name should be used when referring to any product of the
  * VMware product line, like VMware Workstation, VMware Server, and so
  * on...
@@ -69,12 +60,13 @@
  */
 #define PRODUCT_SCALABLE_SERVER_BRIEF_NAME "ESX"
 #define PRODUCT_ESXI_BRIEF_NAME "ESXi"
-#define PRODUCT_VMVISOR_BRIEF_NAME PRODUCT_ESXI_BRIEF_NAME
+#define PRODUCT_VMVISOR_BRIEF_NAME PRODUCT_ESXI_BRIEF_NAME 
 #define PRODUCT_WORKSTATION_BRIEF_NAME "Workstation"
 #define PRODUCT_WORKSTATION_SERVER_BRIEF_NAME "Workstation Server"
 #define PRODUCT_PLAYER_BRIEF_NAME "Player"
 #define PRODUCT_MAC_DESKTOP_BRIEF_NAME "Fusion"
 #define PRODUCT_VMRC_BRIEF_NAME "Remote Console"
+#define PRODUCT_GANTRY_BRIEF_NAME "AppCatalyst"
 
 
 /*
@@ -99,6 +91,11 @@
 #define PRODUCT_MAC_DESKTOP_NAME_FOR_LICENSE "VMware Fusion for Mac OS"
 #define PRODUCT_VMRC_NAME MAKE_NAME(PRODUCT_VMRC_BRIEF_NAME)
 #define PRODUCT_VMRC_NAME_FOR_LICENSE PRODUCT_VMRC_NAME
+#define PRODUCT_GANTRY_NAME MAKE_NAME(PRODUCT_GANTRY_BRIEF_NAME)
+#define PRODUCT_GANTRY_NAME_FOR_LICENSE PRODUCT_GANTRY_NAME
+
+#define PRODUCT_VMLS_SHORT_NAME "VMLS"
+#define PRODUCT_VMLS_NAME MAKE_NAME("License Server")
 
 #define PRODUCT_VLICENSE_SHORT_NAME "VLICENSE"
 #define PRODUCT_VLICENSE_NAME MAKE_NAME("License Infrastructure")
@@ -119,6 +116,8 @@
 #define PRODUCT_FDM_NAME MAKE_NAME("Fault Domain Manager")
 
 #define PRODUCT_HA_NAME MAKE_NAME("High Availability Extension")
+
+#define PRODUCT_WBC_NAME MAKE_NAME("WebCenter")
 
 #define PRODUCT_SDK_NAME MAKE_NAME("SDK")
 
@@ -160,10 +159,6 @@
 #define PRODUCT_NETDUMP_NAME PRODUCT_VMVISOR_NAME " dump collector"
 #endif
 
-#define PRODUCT_INTEGRITY_SHORT_NAME "VUM"
-#define PRODUCT_INTEGRITY_NAME MAKE_NAME("Update Manager")
-#define PRODUCT_INTEGRITY_DISPLAY_NAME MAKE_NAME("vSphere Update Manager")
-
 /*
  * VMware USB Arbitration Service version definitions
  */
@@ -192,10 +187,12 @@
       || defined(VMX86_DESKTOP)  \
       || defined(VMX86_HORIZON_VIEW)     \
       || defined(VMX86_VPX)      \
+      || defined(VMX86_WBC)      \
       || defined(VMX86_SDK)      \
       || defined(VMX86_TOOLS)    \
       || defined(VMX86_V2V)      \
       || defined(VMX86_SYSIMAGE) \
+      || defined(VMX86_VMLS)     \
       || defined(VMX86_VLICENSE) \
       || defined(VMX86_P2V)      \
       || defined(VMX86_DDK)      \
@@ -203,6 +200,7 @@
       || defined(VMX86_NETDUMP) \
       || defined(VMX86_HBR_SERVER) \
       || defined(VMX86_VMCF) \
+      || defined(VMX86_GANTRY) \
       || defined(VMX86_VMRC))
 #   if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
       /*
@@ -220,6 +218,8 @@
 # define PRODUCT_SHORT_NAME PRODUCT_ESXI_NAME
 #elif defined(VMX86_VMRC) /* check VMX86_VMRC before VMX86_DESKTOP */
 # define PRODUCT_SHORT_NAME PRODUCT_VMRC_NAME
+#elif defined(VMX86_GANTRY)
+# define PRODUCT_SHORT_NAME PRODUCT_GANTRY_NAME
 #elif defined(VMX86_TOOLS)
 # define PRODUCT_SHORT_NAME VMWARE_TOOLS_SHORT_NAME
 #elif defined(VMX86_VGAUTH)
@@ -242,6 +242,8 @@
 #  else
 #     define PRODUCT_SHORT_NAME PRODUCT_VPX_NAME
 #  endif
+#elif defined(VMX86_WBC)
+# define PRODUCT_SHORT_NAME PRODUCT_WBC_NAME
 #elif defined(VMX86_SDK)
 # define PRODUCT_SHORT_NAME PRODUCT_SDK_NAME
 #elif defined(VMX86_P2V)
@@ -250,6 +252,8 @@
 # define PRODUCT_SHORT_NAME PRODUCT_V2V_NAME
 #elif defined(VMX86_SYSIMAGE)
 # define PRODUCT_SHORT_NAME PRODUCT_SYSIMAGE_NAME
+#elif defined(VMX86_VMLS)
+# define PRODUCT_SHORT_NAME PRODUCT_VMLS_NAME
 #elif defined(VMX86_VLICENSE)
 # define PRODUCT_SHORT_NAME PRODUCT_VLICENSE_NAME
 #elif defined(VMX86_DDK)
@@ -261,12 +265,9 @@
 #elif defined(VMX86_HBR_SERVER)
 # define PRODUCT_SHORT_NAME PRODUCT_HBR_SERVER_NAME
 #elif defined(VMX86_HORIZON_VIEW)
-// Do not change product name; many consumers depend on it.
 # define PRODUCT_SHORT_NAME PRODUCT_VIEW_NAME
 #elif defined(VMX86_VMCF)
 # define PRODUCT_SHORT_NAME PRODUCT_VMCF_NAME
-#elif defined(VMX86_INTEGRITY)
-# define PRODUCT_SHORT_NAME PRODUCT_INTEGRITY_NAME
 // VMX86_DESKTOP must be last because it is the default and is always defined.
 #elif defined(VMX86_DESKTOP)
 # if defined(__APPLE__)
@@ -325,6 +326,8 @@
 #      define PRODUCT_NAME_FOR_LICENSE "VMware ESX Server"
 #   elif defined(VMX86_VMRC) /* check VMX86_VMRC before VMX86_DESKTOP */
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_VMRC_NAME_FOR_LICENSE
+#   elif defined(VMX86_GANTRY)
+#      define PRODUCT_NAME_FOR_LICENSE PRODUCT_GANTRY_NAME_FOR_LICENSE
 #   elif defined(VMX86_VPX)
 #      define PRODUCT_NAME_FOR_LICENSE PRODUCT_NAME " Server"
 #   elif defined(VMX86_SYSIMAGE)
@@ -347,7 +350,10 @@
  * DEFAULT_LIBDIRECTORY is the default for the 'libdir' config variable.
  */
 #   if defined(__APPLE__)
-#      if defined VMX86_DESKTOP
+#      if defined VMX86_GANTRY
+#         define VMWARE_HOST_DIRECTORY_PREFIX \
+             "/Library/Preferences/" PRODUCT_SHORT_NAME
+#      elif defined VMX86_DESKTOP
 #         define VMWARE_HOST_DIRECTORY_PREFIX \
              "/Library/Preferences/" PRODUCT_SHORT_NAME
 #      else

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016,2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -953,8 +953,9 @@ static GMarkupParser wireParser = {
 ProtoRequest *
 Proto_NewRequest(void)
 {
-   ProtoRequest *req = g_malloc0(sizeof(ProtoRequest));
+   ProtoRequest *req = NULL;
 
+   req = g_malloc0(sizeof(ProtoRequest));
    req->parseState = PARSE_STATE_NONE;
    req->complete = FALSE;
 #if VGAUTH_PROTO_TRACE
@@ -1517,7 +1518,6 @@ ServiceProtoHandleSessionRequest(ServiceConnection *conn,
               atoi(VGAUTH_PROTOCOL_VERSION));
       packet = Proto_MakeErrorReply(conn, req, err,
                                     "sessionRequest failed; version mismatch");
-      goto send_err;
    }
 
    err = ServiceStartUserConnection(req->reqData.sessionReq.userName,
@@ -1530,7 +1530,6 @@ ServiceProtoHandleSessionRequest(ServiceConnection *conn,
                                        pipeName);
    }
 
-send_err:
    err = ServiceNetworkWriteData(conn, strlen(packet), packet);
    if (err != VGAUTH_E_OK) {
       Warning("%s: failed to send SessionReq reply\n", __FUNCTION__);
@@ -1571,12 +1570,8 @@ ServiceProtoHandleConnection(ServiceConnection *conn,
 #endif
 
    if (err != VGAUTH_E_OK) {
-      /* Value of err is always VGAUTH_E_OK on non-Windows platforms */
-      /* coverity[dead_error_line] */
       packet = Proto_MakeErrorReply(conn, req, err, "connect failed");
    } else {
-      /* Value of event is always NULL on non-Windows platforms */
-      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_CONNECT_REPLY_FORMAT,
                                        req->sequenceNumber,
                                        event ? event : "");
@@ -1833,7 +1828,10 @@ ServiceProtoQueryMappedAliases(ServiceConnection *conn,
 {
    VGAuthError err;
    gchar *packet;
+   gchar *endPacket;
    int num;
+   int i;
+   int j;
    ServiceMappedAlias *maList;
 
    /*
@@ -1845,14 +1843,10 @@ ServiceProtoQueryMappedAliases(ServiceConnection *conn,
    if (err != VGAUTH_E_OK) {
       packet = Proto_MakeErrorReply(conn, req, err, "queryMappedIds failed");
    } else {
-      int i;
-      gchar *endPacket;
-
       packet = g_markup_printf_escaped(VGAUTH_QUERYMAPPEDALIASES_REPLY_FORMAT_START,
                                        req->sequenceNumber);
       for (i = 0; i < num; i++) {
          gchar *tPacket;
-         int j;
 
          tPacket = g_markup_printf_escaped(VGAUTH_MAPPEDALIASES_FORMAT_START,
                                            maList[i].userName,
@@ -1999,8 +1993,6 @@ ServiceProtoValidateTicket(ServiceConnection *conn,
    if (err != VGAUTH_E_OK) {
       packet = Proto_MakeErrorReply(conn, req, err, "validateTicket failed");
    } else {
-      /* Value of token is always NULL on non-Windows platforms */
-      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_VALIDATETICKET_REPLY_FORMAT_START,
                                        req->sequenceNumber,
                                        userName,
@@ -2104,7 +2096,7 @@ static VGAuthError
 ServiceProtoValidateSamlBearerToken(ServiceConnection *conn,
                                     ProtoRequest *req)
 {
-   VGAuthError err;
+   VGAuthError err = VGAUTH_E_FAIL;
    gchar *packet;
    gchar *sPacket;
    char *userName = NULL;
@@ -2171,8 +2163,6 @@ ServiceProtoValidateSamlBearerToken(ServiceConnection *conn,
                   SU_(validate.samlBearer.success,
                       "Validated SAML bearer token for user '%s'"),
                   userName);
-      /* Value of tokenStr is always NULL on non-Windows platforms */
-      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_VALIDATESAMLBEARERTOKEN_REPLY_FORMAT_START,
                                        req->sequenceNumber,
                                        userName ? userName : "",

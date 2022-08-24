@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -45,6 +45,8 @@ typedef struct {
    uint64  timeValue;
 } TopOwner;
 
+#define TOPOWNERS 10
+
 struct MXUserHisto {
    char     *typeName;               // Type (name) of histogram
    uint64   *binData;                // Hash table bins
@@ -52,6 +54,7 @@ struct MXUserHisto {
    uint64    minValue;               // Min value allowed
    uint64    maxValue;               // Max value allowed
    uint32    numBins;                // Number of histogram bins
+   TopOwner  ownerArray[TOPOWNERS];  // List of top owners
 };
 
 static Bool    mxUserTrackHeldTimes = FALSE;
@@ -59,8 +62,8 @@ static char   *mxUserHistoLine = NULL;
 static uint32  mxUserMaxLineLength = 0;
 static void   *mxUserStatsContext = NULL;
 static void  (*mxUserStatsFunc)(void *context,
-                                const char *fmt,
-                                va_list ap) = NULL;
+                               const char *fmt,
+                               va_list ap) = NULL;
 
 
 /*
@@ -264,9 +267,10 @@ MXUserHistoSample(MXUserHisto *histo,  // IN/OUT:
                   uint64 durationNS,   // IN:
                   void *ownerRetAddr)  // IN:
 {
+   uint32 i;
    uint32 index;
 
-   ASSERT(histo != NULL);
+   ASSERT(histo);
 
    histo->totalSamples++;
 
@@ -283,6 +287,25 @@ MXUserHistoSample(MXUserHisto *histo,  // IN/OUT:
    ASSERT(index < histo->numBins);
 
    histo->binData[index]++;
+
+   index = 0;
+
+   for (i = 0; i < TOPOWNERS; i++) {
+      if (histo->ownerArray[i].address == ownerRetAddr) {
+         index = i;
+         break;
+      }
+
+      if (histo->ownerArray[i].timeValue <
+          histo->ownerArray[index].timeValue) {
+         index = i;
+      }
+   }
+
+   if (durationNS > histo->ownerArray[index].timeValue) {
+      histo->ownerArray[index].address = ownerRetAddr;
+      histo->ownerArray[index].timeValue = durationNS;
+   }
 }
 
 
@@ -308,7 +331,7 @@ MXUserStatsLog(const char *fmt,  // IN:
 {
    va_list ap;
 
-   ASSERT(mxUserStatsFunc != NULL);
+   ASSERT(mxUserStatsFunc);
 
    va_start(ap, fmt);
    (*mxUserStatsFunc)(mxUserStatsContext, fmt, ap);
@@ -336,20 +359,19 @@ void
 MXUserHistoDump(MXUserHisto *histo,    // IN:
                 MXUserHeader *header)  // IN:
 {
-   ASSERT(header != NULL);
-   ASSERT(histo != NULL);
+   ASSERT(header);
+   ASSERT(histo);
 
    if (histo->totalSamples) {
       char *p;
       uint32 i;
       uint32 spaceLeft;
 
-      ASSERT(mxUserHistoLine != NULL);
+      ASSERT(mxUserHistoLine);
 
       i = Str_Sprintf(mxUserHistoLine, mxUserMaxLineLength,
-                      "MXUser: h l=%"FMT64"u t=%s min=%"FMT64"u "
-                      "max=%"FMT64"u\n",
-                      header->serialNumber, histo->typeName,
+                      "MXUser: h l=%u t=%s min=%"FMT64"u max=%"FMT64"u\n",
+                      header->bits.serialNumber, histo->typeName,
                       histo->minValue, histo->maxValue);
 
       /*
@@ -373,6 +395,43 @@ MXUserHistoDump(MXUserHisto *histo,    // IN:
             if (len < spaceLeft) {
                /*
                 * Append the bin number, bin count pair to the end of the
+                * string. This includes the terminating "\n\0". Update the
+                * pointer to the next free place to point to the '\n'. If
+                * another entry is made, things work out properly. If not
+                * the string is properly terminated as a line.
+                */
+
+               Str_Strcpy(p, binEntry, len + 1);
+               p += len - 1;
+               spaceLeft -= len;
+            } else {
+               break;
+            }
+         }
+      }
+
+      MXUserStatsLog("%s", mxUserHistoLine);
+
+      i = Str_Sprintf(mxUserHistoLine, mxUserMaxLineLength,
+                      "MXUser: ht l=%u t=%s\n", header->bits.serialNumber,
+                      histo->typeName);
+
+      p = &mxUserHistoLine[i - 1];
+      spaceLeft = mxUserMaxLineLength - i - 2;
+
+      for (i = 0; i < TOPOWNERS; i++) {
+         if (histo->ownerArray[i].address != NULL) {
+            uint32 len;
+            char binEntry[32];
+
+            /* Use a debugger to change the address to a symbol */
+            len = Str_Sprintf(binEntry, sizeof binEntry, " %p-%"FMT64"u\n",
+                              histo->ownerArray[i].address,
+                              histo->ownerArray[i].timeValue);
+
+            if (len < spaceLeft) {
+               /*
+                * Append the address, time value pair to the end of the
                 * string. This includes the terminating "\n\0". Update the
                 * pointer to the next free place to point to the '\n'. If
                 * another entry is made, things work out properly. If not
@@ -526,9 +585,9 @@ MXUserDumpBasicStats(MXUserBasicStats *stats,  // IN:
       stdDev = (variance < 0.0) ? 0 : (uint64) (MXUserSqrt(variance) + 0.5);
    }
 
-   MXUserStatsLog("MXUser: e l=%"FMT64"u t=%s c=%"FMT64"u min=%"FMT64"u "
+   MXUserStatsLog("MXUser: e l=%u t=%s c=%"FMT64"u min=%"FMT64"u "
                   "max=%"FMT64"u mean=%"FMT64"u sd=%"FMT64"u\n",
-                  header->serialNumber, stats->typeName,
+                  header->bits.serialNumber, stats->typeName,
                   stats->numSamples, stats->minTime, stats->maxTime,
                   stats->timeSum/stats->numSamples, stdDev);
 }
@@ -659,9 +718,9 @@ MXUserDumpAcquisitionStats(MXUserAcquisitionStats *stats,  // IN:
          MXUserDumpBasicStats(&stats->basicStats, header);
       }
 
-      MXUserStatsLog("MXUser: ce l=%"FMT64"u a=%"FMT64"u s=%"FMT64"u "
-                     "sc=%"FMT64"u sct=%"FMT64"u t=%"FMT64"u\n",
-                     header->serialNumber,
+      MXUserStatsLog("MXUser: ce l=%u a=%"FMT64"u s=%"FMT64"u sc=%"FMT64"u "
+                     "sct=%"FMT64"u t=%"FMT64"u\n",
+                     header->bits.serialNumber,
                      stats->numAttempts,
                      stats->numSuccesses,
                      stats->numSuccessesContended,
@@ -1019,8 +1078,8 @@ MXUser_PerLockData(void)
 
    if (listLock && MXRecLockTryAcquire(listLock)) {
       ListItem *entry;
-      uint64 highestSerialNumber;
-      static uint64 lastReportedSerialNumber = 0;
+      uint32 highestSerialNumber;
+      static uint32 lastReportedSerialNumber = 0;
 
       highestSerialNumber = lastReportedSerialNumber;
 
@@ -1028,12 +1087,12 @@ MXUser_PerLockData(void)
          MXUserHeader *header = CIRC_LIST_CONTAINER(entry, MXUserHeader, item);
 
          /* Log the ID information for a lock that did exist previously */
-         if (header->serialNumber > lastReportedSerialNumber) {
-            MXUserStatsLog("MXUser: n n=%s l=%"FMT64"u r=0x%x\n", header->name,
-                           header->serialNumber, header->rank);
+         if (header->bits.serialNumber > lastReportedSerialNumber) {
+            MXUserStatsLog("MXUser: n n=%s l=%d r=0x%x\n", header->name,
+                           header->bits.serialNumber, header->rank);
 
-            if (header->serialNumber > highestSerialNumber) {
-               highestSerialNumber = header->serialNumber;
+            if (header->bits.serialNumber > highestSerialNumber) {
+               highestSerialNumber = header->bits.serialNumber;
             }
          }
 
@@ -1071,16 +1130,21 @@ MXUser_PerLockData(void)
  *-----------------------------------------------------------------------------
  */
 
-uint64
+uint32
 MXUserAllocSerialNumber(void)
 {
-   uint64 value;
+   uint32 value;
 
-   static Atomic_uint64 firstFreeSerialNumber = { 1 };  // must start not zero
+   static Atomic_uint32 firstFreeSerialNumber = { 1 };  // must start not zero
 
-   value = Atomic_ReadInc64(&firstFreeSerialNumber);
+   value = Atomic_ReadInc32(&firstFreeSerialNumber);
 
-   if (value == 0) {  // We wrapped! Zounds!
+   /*
+    * The serial number must be able to fit into the serial number field
+    * (see ulInt.h).
+    */
+
+   if (value > 0xFFFFFF) {
       Panic("%s: too many locks!\n", __FUNCTION__);
    }
 

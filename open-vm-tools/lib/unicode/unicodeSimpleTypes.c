@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -57,20 +57,13 @@ static char *UnicodeNormalizeEncodingName(const char *encoding);
 #define UNSUPPORTED FALSE
 #define IN_FULL_ICU FALSE
 
-/*
- * Thread-safe hash table to speed up encoding name -> IANA table
- * index lookups.
- */
-static Atomic_Ptr unicodeHashTablePtr;
-static HashTable *unicodeEncCache = NULL;
-
 static struct xRef {
    int MIBenum;                   // Assigned by IANA
    int winACP;                    // Windows code page from GetACP()
    StringEncoding encoding;       // ICU encoding enum
    Bool isSupported;              // VMware supported encoding
-   int preferredMime;             // Index of preferred MIME name
-   const char *names[MAXCHARSETNAMES];  // Encoding name and aliases
+   int preferredMime;             // Index of preferred MIME name 
+   char *names[MAXCHARSETNAMES];  // Encoding name and aliases
 } xRef[] = {
    /*
     * Source: ECMA registry
@@ -2470,6 +2463,13 @@ UnicodeNormalizeEncodingName(const char *encodingName) // IN
 static int
 UnicodeIANALookup(const char *encodingName) // IN
 {
+   /*
+    * Thread-safe hash table to speed up encoding name -> IANA table
+    * index lookups.
+    */
+   static Atomic_Ptr htPtr;
+   static HashTable *encCache = NULL;
+
    char *name = NULL;
    char *candidate = NULL;
    const char *p;
@@ -2479,15 +2479,12 @@ UnicodeIANALookup(const char *encodingName) // IN
    void *idx;
    size_t windowsPrefixLen = sizeof "windows-" - 1 /* NUL */;
 
-   if (UNLIKELY(unicodeEncCache == NULL)) {
-      unicodeEncCache =
-         HashTable_AllocOnce(&unicodeHashTablePtr, 128,
-                             HASH_ISTRING_KEY | HASH_FLAG_ATOMIC |
-                             HASH_FLAG_COPYKEY, NULL);
+   if (UNLIKELY(encCache == NULL)) {
+      encCache = HashTable_AllocOnce(&htPtr, 128, HASH_ISTRING_KEY | HASH_FLAG_ATOMIC |
+                                     HASH_FLAG_COPYKEY, free);
    }
 
-   if (unicodeEncCache != NULL &&
-       HashTable_Lookup(unicodeEncCache, encodingName, &idx)) {
+   if (encCache && HashTable_Lookup(encCache, encodingName, &idx)) {
       return (int)(uintptr_t)idx;
    }
 
@@ -2549,8 +2546,8 @@ done:
    free(name);
    free(candidate);
 
-   if (unicodeEncCache != NULL) {
-      HashTable_Insert(unicodeEncCache, encodingName, (void *)(uintptr_t)i);
+   if (encCache) {
+      HashTable_Insert(encCache, encodingName, (void *)(uintptr_t)i);
    }
 
    return i;
@@ -2782,9 +2779,6 @@ Unicode_IsEncodingValid(StringEncoding encoding)  // IN
  *      native code set name.  The cached name is used to resolve references
  *      to STRING_ENCODING_DEFAULT in unicode functions.
  *
- *      argv/envp will be rewritten to point to newly allocated memory. This
- *      memory should be freed by calling Unicode_Shutdown().
- *
  *-----------------------------------------------------------------------------
  */
 
@@ -2918,41 +2912,6 @@ Unicode_Init(int argc,        // IN
    UnicodeInitInternal(argc, NULL, NULL, NULL, argv, envp);
 }
 
-
-/*
- *-----------------------------------------------------------------------------
- *
- * Unicode_Shutdown --
- *
- *      Frees memory allocated by UnicodeInitInternal().
- *
- * Results:
- *      None
- *
- * Side effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-void
-Unicode_Shutdown(int argc,              // IN
-                 char **argv,           // IN (OPT)
-                 char **envp)           // IN (OPT)
-{
-   HashTable_FreeUnsafe(unicodeEncCache);
-   unicodeEncCache = NULL;
-
-   if (argv != NULL) {
-      Util_FreeStringList(argv, argc + 1);
-   }
-
-   if (envp != NULL) {
-      Util_FreeStringList(envp, -1);
-   }
-}
-
-
 #ifdef TEST_CUSTOM_ICU_DATA_FILE
 /*
  *-----------------------------------------------------------------------------
@@ -2987,14 +2946,14 @@ void
 UnicodeICUTest(void)
 {
    StringEncoding enc, enc2;
+   const char *name;
    Bool supported;
    Bool redirected;
    Bool canGetBytes;
 
    for (enc = STRING_ENCODING_FIRST; enc < STRING_ENCODING_MAX_SPECIFIED;
         enc++ ) {
-      const char *name =  Unicode_EncodingEnumToName(enc);
-
+      name =  Unicode_EncodingEnumToName(enc);
       enc2 = Unicode_EncodingNameToEnum(name);
       redirected = FALSE;
       if (enc2 == STRING_ENCODING_UNKNOWN) {

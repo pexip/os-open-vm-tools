@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2000,2014,2018-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2000,2014,2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -64,11 +64,7 @@
 
 typedef struct {
    /* system structures */
-#if __FreeBSD_version >= 1300067
-   struct callout callout_handle;
-#else
    struct callout_handle callout_handle;
-#endif
 
    /* termination flag */
    volatile int stop;
@@ -111,36 +107,6 @@ MALLOC_DEFINE(M_VMMEMCTL, BALLOON_NAME, "vmmemctl metadata");
    #define VM_SYS_PAGES cnt.v_page_count
 #else
    #define VM_SYS_PAGES vm_cnt.v_page_count
-#endif
-
-/*
- * The kmem_malloc() and kmem_free() APIs changed at different times during
- * the FreeBSD 12.0 ALPHA snapshot releases.  The difference in the
- * __FreeBSD_version values for FreeBSD 12.0 in the following macros are
- * consistent with when each API was changed.
- */
-#if __FreeBSD_version < 1000000
-   #define KVA_ALLOC(size) kmem_alloc_nofault(kernel_map, size)
-   #define KVA_FREE(offset, size) kmem_free(kernel_map, offset, size)
-#else
-   #define KVA_ALLOC(size) kva_alloc(size);
-   #define KVA_FREE(offset, size) kva_free(offset, size)
-#endif
-
-#if __FreeBSD_version < 1000000
-   #define KMEM_ALLOC(size) kmem_alloc(kernel_map, size)
-#elif  __FreeBSD_version < 1200080
-   #define KMEM_ALLOC(size) kmem_malloc(kernel_arena, size, M_WAITOK | M_ZERO)
-#else
-   #define KMEM_ALLOC(size) kmem_malloc(size, M_WAITOK | M_ZERO)
-#endif
-
-#if __FreeBSD_version < 1000000
-   #define KMEM_FREE(offset, size) kmem_free(kernel_map, offset, size)
-#elif __FreeBSD_version < 1200083
-   #define KMEM_FREE(offset, size) kmem_free(kernel_arena, offset, size)
-#else
-   #define KMEM_FREE(offset, size) kmem_free(offset, size)
 #endif
 
 /*
@@ -356,7 +322,11 @@ OS_ReservedPageGetHandle(PA64 pa)     // IN
 Mapping
 OS_MapPageHandle(PageHandle handle)     // IN
 {
-   vm_offset_t res = KVA_ALLOC(PAGE_SIZE);
+#if __FreeBSD_version < 1000000
+   vm_offset_t res = kmem_alloc_nofault(kernel_map, PAGE_SIZE);
+#else
+   vm_offset_t res = kva_alloc(PAGE_SIZE);
+#endif
 
    vm_page_t page = (vm_page_t)handle;
 
@@ -414,7 +384,11 @@ void
 OS_UnmapPage(Mapping mapping)           // IN
 {
    pmap_qremove((vm_offset_t)mapping, 1);
-   KVA_FREE((vm_offset_t)mapping, PAGE_SIZE);
+#if __FreeBSD_version < 1000000
+   kmem_free(kernel_map, (vm_offset_t)mapping, PAGE_SIZE);
+#else
+   kva_free((vm_offset_t)mapping, PAGE_SIZE);
+#endif
 }
 
 
@@ -431,14 +405,22 @@ os_pmap_alloc(os_pmap *p) // IN
    p->size = (p->size + sizeof(unsigned long) - 1) &
                          ~(sizeof(unsigned long) - 1);
 
-   p->bitmap = (unsigned long *)KMEM_ALLOC(p->size);
+#if __FreeBSD_version < 1000000
+   p->bitmap = (unsigned long *)kmem_alloc(kernel_map, p->size);
+#else
+   p->bitmap = (unsigned long *)kmem_malloc(kernel_arena, p->size, M_WAITOK | M_ZERO);
+#endif
 }
 
 
 static void
 os_pmap_free(os_pmap *p) // IN
 {
-   KMEM_FREE((vm_offset_t)p->bitmap, p->size);
+#if __FreeBSD_version < 1000000
+   kmem_free(kernel_map, (vm_offset_t)p->bitmap, p->size);
+#else
+   kmem_free(kernel_arena, (vm_offset_t)p->bitmap, p->size);
+#endif
    p->size = 0;
    p->bitmap = NULL;
 }
@@ -682,12 +664,7 @@ vmmemctl_poll(void *data) // IN
    if (!t->stop) {
       /* invoke registered handler, rearm timer */
       Balloon_QueryAndExecute();
-#if __FreeBSD_version >= 1300067
-      callout_reset(&t->callout_handle, BALLOON_POLL_PERIOD * hz, vmmemctl_poll,
-          t);
-#else
       t->callout_handle = timeout(vmmemctl_poll, t, BALLOON_POLL_PERIOD * hz);
-#endif
    }
 }
 
@@ -721,23 +698,15 @@ vmmemctl_init(void)
    }
 
    /* initialize timer state */
-#if __FreeBSD_version >= 1300067
-   callout_init(&state->timer.callout_handle, 0);
-#else
    callout_handle_init(&state->timer.callout_handle);
-#endif
 
    os_pmap_init(pmap);
    os_balloonobject_create();
 
    /* Set up and start polling */
+   callout_handle_init(&t->callout_handle);
    t->stop = FALSE;
-#if __FreeBSD_version >= 1300067
-   callout_reset(&t->callout_handle, BALLOON_POLL_PERIOD * hz, vmmemctl_poll,
-       t);
-#else
    t->callout_handle = timeout(vmmemctl_poll, t, BALLOON_POLL_PERIOD * hz);
-#endif
 
    vmmemctl_init_sysctl();
 
@@ -776,11 +745,7 @@ vmmemctl_cleanup(void)
 
    /* Stop polling */
    t->stop = TRUE;
-#if __FreeBSD_version >= 1300067
-   callout_drain(&t->callout_handle);
-#else
    untimeout(vmmemctl_poll, t, t->callout_handle);
-#endif
 
    os_balloonobject_delete();
    os_pmap_free(pmap);
@@ -851,8 +816,8 @@ vmmemctl_sysctl(SYSCTL_HANDLER_ARGS)
 
    /* format size info */
    len += snprintf(buf + len, sizeof(buf) - len,
-                   "target:             %8"FMT64"u pages\n"
-                   "current:            %8"FMT64"u pages\n",
+                   "target:             %8d pages\n"
+                   "current:            %8d pages\n",
                    stats->nPagesTarget,
                    stats->nPages);
 

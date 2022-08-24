@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -119,7 +119,6 @@ void SHA1Update(SHA1_CTX* context,
                 size_t len);
 void SHA1Final(unsigned char digest[SHA1_HASH_LEN], SHA1_CTX* context);
 
-#if defined VMKBOOT || defined VMKERNEL
 void SHA1RawBufferHash(const void *data,
                        uint32 size,
                        uint32 result[5]);
@@ -132,36 +131,10 @@ void SHA1RawInit(uint32 state[5]);
 
 void SHA1MultiBuffer(uint32 numBuffers,
                      uint32 len,
-                     const void *salt,
-                     uint32 saltLen,
                      const void *data[],
                      unsigned char *digests[]);
-#endif
 
 #endif // defined __APPLE__ && defined USERLEVEL
-
-#if !defined VMKBOOT && !defined VMKERNEL
-
-/* Opaque handle */
-typedef union {
-#if defined __APPLE__
-   uint8 _private[104 + 8];  // sizeof CC_SHA256_CTX + extra field,
-                             // where SHA256 is largest CTX
-#elif defined _WIN32
-   uint8 _private[384];      // see CryptoHashInitCommon
-#else
-   uintptr_t _private;
-#endif
-} CryptoHash_SHA1_CTX;
-
-void CryptoHash_InitSHA1(CryptoHash_SHA1_CTX *ctx);
-void CryptoHash_UpdateSHA1(CryptoHash_SHA1_CTX *ctx,
-                           const void *data, size_t len);
-void CryptoHash_FinalSHA1(CryptoHash_SHA1_CTX *ctx,
-                          unsigned char digest[SHA1_HASH_LEN]);
-void CryptoHash_ComputeSHA1(const void *data, size_t len,
-                            unsigned char digest[SHA1_HASH_LEN]);
-#endif
 
 #if defined(__cplusplus)
 }  // extern "C"

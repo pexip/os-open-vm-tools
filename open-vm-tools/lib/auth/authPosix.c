@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -366,103 +366,6 @@ Auth_AuthenticateSelf(void)  // IN
 /*
  *----------------------------------------------------------------------
  *
- * Auth_AuthenticateUserPAM --
- *
- *      Accept username/password, and service and verfiy it with PAM
- *
- * Side effects:
- *      None.
- *
- * Results:
- *
- *      The vmauthToken for the authenticated user, or NULL if
- *      authentication failed.
- *
- *----------------------------------------------------------------------
- */
-
-AuthToken
-Auth_AuthenticateUserPAM(const char *user,     // IN:
-                         const char *pass,     // IN:
-                         const char *service)  // IN:
-{
-#ifndef USE_PAM
-   return NULL;
-#else
-   pam_handle_t *pamh;
-   int pam_error;
-
-   Bool success = FALSE;
-   AuthTokenInternal *ati = NULL;
-
-   ASSERT(service);
-
-   if (!CodeSet_Validate(user, strlen(user), "UTF-8")) {
-      Log("User not in UTF-8\n");
-      goto exit;
-   }
-   if (!CodeSet_Validate(pass, strlen(pass), "UTF-8")) {
-      Log("Password not in UTF-8\n");
-      goto exit;
-   }
-
-   if (!AuthLoadPAM()) {
-      goto exit;
-   }
-
-   /*
-    * XXX PAM can blow away our syslog level settings so we need
-    * to call Log_InitEx() again before doing any more Log()s
-    */
-
-#define PAM_BAIL if (pam_error != PAM_SUCCESS) { \
-                  Log_Error("%s:%d: PAM failure - %s (%d)\n", \
-                            __FUNCTION__, __LINE__, \
-                            dlpam_strerror(pamh, pam_error), pam_error); \
-                  dlpam_end(pamh, pam_error); \
-                  goto exit; \
-                 }
-   PAM_username = user;
-   PAM_password = pass;
-
-
-   pam_error = dlpam_start(service, PAM_username, &PAM_conversation,
-                           &pamh);
-
-   if (pam_error != PAM_SUCCESS) {
-      Log("Failed to start PAM (error = %d).\n", pam_error);
-      goto exit;
-   }
-
-   pam_error = dlpam_authenticate(pamh, 0);
-   PAM_BAIL;
-   pam_error = dlpam_acct_mgmt(pamh, 0);
-   PAM_BAIL;
-   pam_error = dlpam_setcred(pamh, PAM_ESTABLISH_CRED);
-   PAM_BAIL;
-   dlpam_end(pamh, PAM_SUCCESS);
-
-#undef PAM_BAIL
-
-   /* If this point is reached, the user has been authenticated. */
-   ati = (AuthTokenInternal *) Auth_GetPwnam(user);
-   success = TRUE;
-
-exit:
-   if (success) {
-      return (AuthToken) ati;
-   } else {
-      Auth_CloseToken((AuthToken) ati);
-      return NULL;
-   }
-
-#endif // USE_PAM
-}
-
-
-/*
- *----------------------------------------------------------------------
- *
  * Auth_AuthenticateUser --
  *
  *      Accept username/password And verfiy it
@@ -482,16 +385,11 @@ AuthToken
 Auth_AuthenticateUser(const char *user,  // IN:
                       const char *pass)  // IN:
 {
-
 #ifdef USE_PAM
-
-#if defined(VMX86_TOOLS)
-   return Auth_AuthenticateUserPAM(user, pass, "vmtoolsd");
-#else
-   return Auth_AuthenticateUserPAM(user, pass, "vmware-authd");
+   pam_handle_t *pamh;
+   int pam_error;
 #endif
 
-#else /* !USE_PAM */
    Bool success = FALSE;
    AuthTokenInternal *ati = NULL;
 
@@ -503,6 +401,50 @@ Auth_AuthenticateUser(const char *user,  // IN:
       Log("Password not in UTF-8\n");
       goto exit;
    }
+
+#ifdef USE_PAM
+   if (!AuthLoadPAM()) {
+      goto exit;
+   }
+
+   /*
+    * XXX PAM can blow away our syslog level settings so we need
+    * to call Log_InitEx() again before doing any more Log()s
+    */
+
+#define PAM_BAIL if (pam_error != PAM_SUCCESS) { \
+                  Log_Error("%s:%d: PAM failure - %s (%d)\n", \
+                            __FUNCTION__, __LINE__, \
+                            dlpam_strerror(pamh, pam_error), pam_error); \
+                  dlpam_end(pamh, pam_error); \
+                  goto exit; \
+                 }
+   PAM_username = user;
+   PAM_password = pass;
+
+#if defined(VMX86_TOOLS)
+   pam_error = dlpam_start("vmtoolsd", PAM_username, &PAM_conversation,
+                           &pamh);
+#else
+   pam_error = dlpam_start("vmware-authd", PAM_username, &PAM_conversation,
+                           &pamh);
+#endif
+   if (pam_error != PAM_SUCCESS) {
+      Log("Failed to start PAM (error = %d).\n", pam_error);
+      goto exit;
+   }
+
+   pam_error = dlpam_authenticate(pamh, 0);
+   PAM_BAIL;
+   pam_error = dlpam_acct_mgmt(pamh, 0);
+   PAM_BAIL;
+   pam_error = dlpam_setcred(pamh, PAM_ESTABLISH_CRED);
+   PAM_BAIL;
+   dlpam_end(pamh, PAM_SUCCESS);
+
+   /* If this point is reached, the user has been authenticated. */
+   ati = (AuthTokenInternal *) Auth_GetPwnam(user);
+#else /* !USE_PAM */
 
    /* All of the following issues are dealt with in the PAM configuration
       file, so put all authentication/priviledge checks before the
@@ -538,17 +480,17 @@ Auth_AuthenticateUser(const char *user,  // IN:
       // Clear out crypt()'s internal state, too.
       crypt("glurp", pw);
    }
+#endif /* !USE_PAM */
 
    success = TRUE;
 
-exit:
+  exit:
    if (success) {
       return (AuthToken) ati;
    } else {
       Auth_CloseToken((AuthToken) ati);
       return NULL;
    }
-#endif /* !USE_PAM */
 }
 
 

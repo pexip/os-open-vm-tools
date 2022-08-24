@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016,2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -215,8 +215,9 @@ UsercheckUserExists(const gchar *userName)
 {
    gboolean result = TRUE;
 #ifdef _WIN32
-   PSID pSidUser = WinUtil_LookupSid(userName);
+   PSID pSidUser = NULL;
 
+   pSidUser = WinUtil_LookupSid(userName);
    if (!pSidUser) {
       result = FALSE;
    } else {
@@ -403,7 +404,7 @@ Usercheck_IsAdminMember(const gchar *userName)
    DWORD accountChar2Needed = 0;
    DWORD domainChar2Needed = 0;
    SID_NAME_USE eUse;
-   PSID pSid;
+   PSID pSid = NULL;
 
    /*
     * XXX Should this cache some (all?) of the returned data for a perf boost?

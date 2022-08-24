@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -145,7 +145,7 @@ System_GetTimeMonotonic(void)
     */
    struct tms tp;
 
-#if !defined VM_64BIT
+#if !defined (VM_X86_64)
    static uint64 base = 0;
    static unsigned long last = 0;
    uint32  current;
@@ -161,7 +161,7 @@ System_GetTimeMonotonic(void)
    }
 
    return base + (last = current);
-#else  // VM_64BIT
+#else  // VM_X86_64
 #if defined sun || defined __APPLE__
    /*
     * PR 1710952 and PR 2136820
@@ -607,19 +607,9 @@ SNEBuildHash(const char **compatEnviron)
          char *realValue = (value[0] == '0')
                            ? NULL
                            : Util_SafeStrdup(&value[1]);
-         free(value);
-         value = NULL;
          HashTable_ReplaceOrInsert(environTable, realKey, realValue);
       } else {
-         void *hashed = HashTable_LookupOrInsert(environTable, key, value);
-         if (hashed != value) {
-            /*
-             * The key already exists in the hashtable and its value was
-             * not replaced. We need to free the memory allocated for 'value'.
-             */
-            free(value);
-            value = NULL;
-         }
+         HashTable_LookupOrInsert(environTable, key, value);
       }
 
       /*

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2016,2019-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2016 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -114,7 +114,6 @@ RandomFastImpl(uint64 *rs,  // IN/OUT:
  *-----------------------------------------------------------------------------
  *
  * Random_Fast --
- * Random_Fast64 --
  * Random_FastStream --
  * Random_FastStreamSeed --
  *
@@ -157,23 +156,10 @@ Random_Fast(uint64 *rs)  // IN/OUT:
    return RandomFastImpl(rs, inc);
 }
 
-uint64
-Random_Fast64(uint64 *rs)  // IN/OUT:
-{
-   return QWORD(Random_Fast(rs), Random_Fast(rs)) ;
-}
-
 uint32
 Random_FastStream(RandomFastContext *rfc)  // IN/OUT:
 {
    return RandomFastImpl(&rfc->state, rfc->sequence);
-}
-
-uint64
-Random_FastStream64(RandomFastContext *rfc)  // IN/OUT:
-{
-   return QWORD(RandomFastImpl(&rfc->state, rfc->sequence),
-                RandomFastImpl(&rfc->state, rfc->sequence));
 }
 
 void
@@ -226,7 +212,6 @@ Random_Simple(int seed)  // IN:
 #ifdef VMKERNEL
 VMK_KERNEL_EXPORT(Random_Fast);
 VMK_KERNEL_EXPORT(Random_FastStream);
-VMK_KERNEL_EXPORT(Random_FastStream64);
 VMK_KERNEL_EXPORT(Random_FastStreamSeed);
 VMK_KERNEL_EXPORT(Random_Simple);
 #endif

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2017 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -465,17 +465,18 @@ MsgGetUserLanguage(void)
     * codeset information.
     */
    char *tmp;
+#ifdef VMX86_DEBUG
    /*
-    * This is useful for testing, and also seems to be used by some
-    * distros (NeoKylin) rather than the setlocale() APIs.
-    * See PR 1672149
+    * Simple override for testing.  Various documented env variables
+    * don't seem to properly kick in.
     */
    char *envLocale = getenv("LANG");
-   if (envLocale != NULL) {
+   if (envLocale) {
       lang = g_strdup(envLocale);
-      g_debug("%s: Using LANG override of '%s'\n", __FUNCTION__, lang);
+      g_debug("Using LANG override of '%s'\n", lang);
       return lang;
    }
+#endif
    tmp = setlocale(LC_MESSAGES, NULL);
    if (tmp == NULL) {
       lang = g_strdup("C");
@@ -557,7 +558,6 @@ MsgLoadCatalog(const char *path)
    ASSERT(localPath != NULL);
 
    stream = g_io_channel_new_file(localPath, "r", &err);
-   g_debug("%s: loading message catalog '%s'\n", __FUNCTION__, localPath);
    RELEASE_FILENAME_LOCAL(localPath);
 
    if (err != NULL) {
@@ -571,6 +571,7 @@ MsgLoadCatalog(const char *path)
                                 g_free,
                                 g_free);
    for (;;) {
+      gboolean eof = FALSE;
       char *name = NULL;
       char *value = NULL;
       gchar *line;
@@ -592,7 +593,7 @@ MsgLoadCatalog(const char *path)
       }
 
       if (line == NULL) {
-         /* This signifies EOF. */
+         eof = TRUE;
          break;
       }
 
@@ -618,10 +619,6 @@ MsgLoadCatalog(const char *path)
       g_free(line);
 
       if (error) {
-         /*
-          * If the local DictLL_UnmarshalLine() returns NULL, name and value
-          * will remain NULL pointers.  No malloc'ed memory to free here.
-          */
          break;
       }
 
@@ -633,8 +630,6 @@ MsgLoadCatalog(const char *path)
              !g_utf8_validate(value, -1, NULL)) {
             g_warning("Invalid UTF-8 string in message catalog (key = %s)\n", name);
             error = TRUE;
-            g_free(name);
-            g_free(value);
             break;
          }
 
@@ -642,8 +637,14 @@ MsgLoadCatalog(const char *path)
          val = g_strcompress(value);
          g_free(value);
 
-         // the hashtable takes ownership of the memory for 'name' and 'val'
+         // the hashtable takes ownership of the memory for 'name' and 'value'
          g_hash_table_insert(dict, name, val);
+         name = NULL;
+         value = NULL;
+      }
+
+      if (eof) {
+         break;
       }
    }
 
@@ -698,8 +699,6 @@ I18n_BindTextDomain(const char *domain,
    if (lang == NULL || *lang == '\0') {
       usrlang = MsgGetUserLanguage();
       lang = usrlang;
-   } else {
-      usrlang = g_strdup(lang);
    }
 
    /*
@@ -712,27 +711,16 @@ I18n_BindTextDomain(const char *domain,
    file = g_strdup_printf("%s%smessages%s%s%s%s.vmsg",
                           catdir, DIRSEPS, DIRSEPS, lang, DIRSEPS, domain);
 
-   /*
-    * If we couldn't find the catalog file for the user's language, see if
-    * there's an encoding to chop off first, eg zh_CN.UTF-8
-    */
    if (!g_file_test(file, G_FILE_TEST_IS_REGULAR)) {
-      const char *sep = strrchr(lang, '.');
+      /*
+       * If we couldn't find the catalog file for the user's language, see if
+       * we can find a more generic language (e.g., for "en_US", also try "en").
+       */
+      char *sep = strrchr(lang, '_');
       if (sep != NULL) {
-         usrlang[sep - lang] = '\0';
-         g_free(file);
-         file = g_strdup_printf("%s%smessages%s%s%s%s.vmsg",
-                                catdir, DIRSEPS, DIRSEPS, usrlang, DIRSEPS, domain);
-      }
-   }
-
-   /*
-    * If we couldn't find the catalog file for the user's language, see if
-    * we can find a more generic language (e.g., for "en_US", also try "en").
-    */
-   if (!g_file_test(file, G_FILE_TEST_IS_REGULAR)) {
-      const char *sep = strrchr(lang, '_');
-      if (sep != NULL) {
+         if (usrlang == NULL) {
+            usrlang = g_strdup(lang);
+         }
          usrlang[sep - lang] = '\0';
          g_free(file);
          file = g_strdup_printf("%s%smessages%s%s%s%s.vmsg",
@@ -817,7 +805,9 @@ I18n_GetString(const char *domain,
    }
 
    if (source != NULL) {
-      const void *retval = g_hash_table_lookup(source, idBuf);
+      const void *retval = NULL;
+
+      retval = g_hash_table_lookup(source, idBuf);
       if (NULL != retval) {
          strp = retval;
       }
