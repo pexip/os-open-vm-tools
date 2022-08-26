@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2015-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2015-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -31,6 +31,7 @@
 #include "toolboxCmdInt.h"
 #include "vmware/tools/i18n.h"
 #include "vmware/tools/utils.h"
+#include "vmware/tools/log.h"
 #ifdef _WIN32
 #include "netutil.h"
 #endif
@@ -77,10 +78,16 @@ InfoSendNetworkXdr(GuestNicProto *message,
                                 &reply, &replyLen);
       if (!status) {
          g_warning("%s: update failed: request \"%s\", reply \"%s\".\n",
-                    __FUNCTION__, request, reply);
+                    __FUNCTION__, request, VM_SAFE_STR(reply));
       }
-      vm_free(reply);
+      ToolsCmd_FreeRPC(reply);
    }
+
+   /*
+    * DynXdr_Destroy only tries to free storage returned by a call to
+    * DynXdr_Create(NULL).
+    */
+   /* coverity[address_free] */
    DynXdr_Destroy(&xdrs, TRUE);
 
 exit:
@@ -164,7 +171,7 @@ InfoUpdateNetwork(void)
 
    if (!GuestInfo_GetNicInfo(maxIPv4RoutesToGather,
                              maxIPv6RoutesToGather,
-                             &info)) {
+                             &info, NULL)) {
       g_warning("Failed to get nic info.\n");
       ret = EXIT_FAILURE;
       goto done;

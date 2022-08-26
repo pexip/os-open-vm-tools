@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2016,2019-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -84,7 +84,10 @@ enum GuestLibV3TypeIds {
    GUESTLIB_HOST_MEM_USED_MB        = 25,
    GUESTLIB_HOST_MEM_PHYS_MB        = 26,
    GUESTLIB_HOST_MEM_PHYS_FREE_MB   = 27,
+
+   /* GUESTLIB_HOST_MEM_KERN_OVHD_MB is deprecated in ESXi from version 7.1 */
    GUESTLIB_HOST_MEM_KERN_OVHD_MB   = 28,
+
    GUESTLIB_HOST_MEM_MAPPED_MB      = 29,
    GUESTLIB_HOST_MEM_UNMAPPED_MB    = 30,
 
@@ -96,10 +99,13 @@ enum GuestLibV3TypeIds {
    GUESTLIB_MEM_BALLOON_TARGET_MB   = 35,
    GUESTLIB_MEM_BALLOON_MAX_MB      = 36,
    GUESTLIB_RESOURCE_POOL_PATH_LONG = 37,
+
+   /* New Counters added in ESX 7.0 */
+   GUESTLIB_MEM_SHARES_64           = 38,
    /*------ Add any new statistics above this line. ------- */
 
    /*------ Bump this when adding to this list. -------*/
-   GUESTLIB_MAX_STATISTIC_ID        = 38
+   GUESTLIB_MAX_STATISTIC_ID        = 39
 };
 
 union GuestLibV3Stat switch (GuestLibV3TypeIds d) {
@@ -183,5 +189,7 @@ union GuestLibV3Stat switch (GuestLibV3TypeIds d) {
       struct GuestLibV3StatUint32 memBalloonMaxMB;
    case GUESTLIB_RESOURCE_POOL_PATH_LONG:
       struct GuestLibV3ByteArray resourcePoolPathLong;
+   case GUESTLIB_MEM_SHARES_64:
+      struct GuestLibV3StatUint64 memShares64;
 };
 

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2005-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2005-2019,2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -39,15 +39,20 @@ extern "C" {
 #endif
 
 /* Register offsets. */
-#define VMCI_STATUS_ADDR      0x00
-#define VMCI_CONTROL_ADDR     0x04
-#define VMCI_ICR_ADDR	      0x08
-#define VMCI_IMR_ADDR         0x0c
-#define VMCI_DATA_OUT_ADDR    0x10
-#define VMCI_DATA_IN_ADDR     0x14
-#define VMCI_CAPS_ADDR        0x18
-#define VMCI_RESULT_LOW_ADDR  0x1c
-#define VMCI_RESULT_HIGH_ADDR 0x20
+#define VMCI_STATUS_ADDR        0x00
+#define VMCI_CONTROL_ADDR       0x04
+#define VMCI_ICR_ADDR           0x08
+#define VMCI_IMR_ADDR           0x0c
+#define VMCI_DATA_OUT_ADDR      0x10
+#define VMCI_DATA_IN_ADDR       0x14
+#define VMCI_CAPS_ADDR          0x18
+#define VMCI_RESULT_LOW_ADDR    0x1c
+#define VMCI_RESULT_HIGH_ADDR   0x20
+#define VMCI_DATA_OUT_LOW_ADDR  0x24
+#define VMCI_DATA_OUT_HIGH_ADDR 0x28
+#define VMCI_DATA_IN_LOW_ADDR   0x2c
+#define VMCI_DATA_IN_HIGH_ADDR  0x30
+#define VMCI_PAGE_SHIFT_ADDR    0x34
 
 /* Max number of devices. */
 #define VMCI_MAX_DEVICES 1
@@ -65,14 +70,22 @@ extern "C" {
 #define VMCI_CAPS_GUESTCALL     0x2
 #define VMCI_CAPS_DATAGRAM      0x4
 #define VMCI_CAPS_NOTIFICATIONS 0x8
+#define VMCI_CAPS_PPN64         0x10
+#define VMCI_CAPS_DMA_DATAGRAM  0x20
+#define VMCI_CAPS_CLEAR_TO_ACK  (0x1 << 31)
+
+#define VMCI_CAPS_NOT_ACKED (VMCI_CAPS_HYPERCALL | VMCI_CAPS_GUESTCALL | \
+                             VMCI_CAPS_DATAGRAM | VMCI_CAPS_NOTIFICATIONS)
 
 /* Interrupt Cause register bits. */
 #define VMCI_ICR_DATAGRAM      0x1
 #define VMCI_ICR_NOTIFICATION  0x2
+#define VMCI_ICR_INOUT         0x4
 
 /* Interrupt Mask register bits. */
 #define VMCI_IMR_DATAGRAM      0x1
 #define VMCI_IMR_NOTIFICATION  0x2
+#define VMCI_IMR_INOUT         0x4
 
 /* Interrupt type. */
 typedef enum VMCIIntrType {
@@ -84,7 +97,9 @@ typedef enum VMCIIntrType {
 /*
  * Maximum MSI/MSI-X interrupt vectors in the device.
  */
-#define VMCI_MAX_INTRS 2
+#define VMCI_MAX_INTRS_NOTIFICATION 2
+#define VMCI_MAX_INTRS_INOUT        3
+#define VMCI_MAX_INTRS              VMCI_MAX_INTRS_INOUT
 
 /*
  * Supported interrupt vectors.  There is one for each ICR value above,
@@ -92,13 +107,23 @@ typedef enum VMCIIntrType {
  */
 #define VMCI_INTR_DATAGRAM     0
 #define VMCI_INTR_NOTIFICATION 1
+#define VMCI_INTR_INOUT        2
 
 
 /*
  * A single VMCI device has an upper limit of 128 MiB on the amount of
- * memory that can be used for queue pairs.
+ * memory that can be used for queue pairs. Since each queue pair
+ * consists of at least two pages, the memory limit also dictates the
+ * number of queue pairs a guest can create.
  */
 #define VMCI_MAX_GUEST_QP_MEMORY (128 * 1024 * 1024)
+#define VMCI_MAX_GUEST_QP_COUNT  (VMCI_MAX_GUEST_QP_MEMORY / PAGE_SIZE / 2)
+
+/*
+ * There can be at most PAGE_SIZE doorbells since there is one doorbell
+ * per byte in the doorbell bitmap page.
+ */
+#define VMCI_MAX_GUEST_DOORBELL_COUNT PAGE_SIZE
 
 /*
  * We have a fixed set of resource IDs available in the VMX.
@@ -423,6 +448,7 @@ typedef uint32 VMCIPrivilegeFlags;
 #define VMCI_DOMAIN_NAME_MAXLEN  32
 
 #define VMCI_LGPFX "VMCI: "
+#define VMCI_DRIVER_NAME "vmci"
 
 
 /*
@@ -450,7 +476,7 @@ typedef uint32 VMCIPrivilegeFlags;
  * a line in a store, for example, you walk up to the tail.
  *
  * consumerHead: the point in the queue from which the next element is
- * dequeued.  In other words, who is next in line is he who is at the
+ * dequeued.  In other words, the next in line is the one at the
  * head of the line.
  *
  * Also, producerTail points to an empty byte in the Queue, whereas
@@ -488,7 +514,7 @@ typedef struct VMCIQueueHeader {
 /* Architecture independent maximum queue size. */
 #define QP_MAX_QUEUE_SIZE_ARCH_ANY   CONST64U(0xffffffff)
 
-#ifdef __x86_64__
+#ifdef VM_64BIT
 #  define QP_MAX_QUEUE_SIZE_ARCH     CONST64U(0xffffffffffffffff)
 #  define QPAtomic_ReadOffset(x)     Atomic_Read64(x)
 #  define QPAtomic_WriteOffset(x, y) Atomic_Write64(x, y)
@@ -518,6 +544,13 @@ typedef struct VMCIQueueHeader {
           TypeSafe_Atomic_Write32((void *)(x), (uint32)(y))
 #endif	/* __x86_64__  */
 
+
+static INLINE PPN32
+VMCI_PPN64_TO_PPN32(PPN ppn)
+{
+   ASSERT(ppn <= MAX_UINT32);
+   return (PPN32)ppn;
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -908,6 +941,48 @@ typedef struct {
 
 typedef VMCIFilterList VMCIProtoFilters[VMCI_FP_MAX];
 typedef VMCIProtoFilters VMCIFilters[VMCI_FD_MAX];
+
+
+/*
+ * Common header for describing a buffer used for VMCI datagram
+ * send/receive using DMA. The header is placed in a single
+ * page buffer, and the address is presented to the device through
+ * the VMCI_DATA_OUT_LOW_ADDR/VMCI_DATA_OUT_HIGH_ADDR registers
+ * for send, and VMCI_DATA_IN_LOW_ADDR/VMCI_DATA_IN_HIGH_ADDR for
+ * receives. If opcode is 0, the header is followed immediately by
+ * the data area of the specified size in contiguous physical
+ * addresses. If opcode is 1, the header is followed by a series
+ * of scatter gather array elements (formatted as VMCISgElem)
+ * each describing contiguous physical buffers. The scatter gather
+ * array elements must all fit within the same page as the header.
+ * On send, the busy flag will be set by the guest when the buffer
+ * is ready for sending, and cleared by the device when the send
+ * is complete. On receive, the busy flag is cleared by the guest
+ * when the buffer is ready to receive new datagrams, and set by
+ * the device when the incoming datagrams have been copied to the
+ * buffer and are ready for guest consumption.
+ */
+
+#define VMCI_DATA_IN_OUT_DATA_INLINE   0
+#define VMCI_DATA_IN_OUT_DATA_SG_ARRAY 1
+
+typedef struct {
+   uint32 busy;
+   uint32 opcode; // 0: data follows header, 1: sg array follows header
+   uint32 size;   // size of data or number of sg elements
+   uint32 rsvd;
+   uint64 result; // Result of a send datagram operation
+} VMCIDataInOutHeader;
+
+/*
+ * Format of the the scatter gather element used by SG arrays following
+ * VMCIDataInOutHeader.
+ */
+
+typedef struct {
+   uint64 addr;  // guest physical address
+   uint64 size;  // length of data
+} VMCISgElem;
 
 #if defined __cplusplus
 } // extern "C"

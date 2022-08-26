@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -111,15 +111,12 @@ static Bool ToolsDaemonSyncDriverThawCallback(void *clientData);
 
 static char *ToolsDaemonTcloGetQuotedString(const char *args,
                                             const char **endOfArg);
-  
+
 static VixError ToolsDaemonTcloGetEncodedQuotedString(const char *args,
                                                       const char **endOfArg,
                                                       char **result);
 
 gboolean ToolsDaemonTcloReceiveVixCommand(RpcInData *data);
-
-static HgfsServerMgrData gFoundryHgfsBkdrConn;
-gboolean ToolsDaemonHgfsImpersonated(RpcInData *data);
 
 #if defined(__linux__) || defined(_WIN32)
 gboolean ToolsDaemonTcloSyncDriverFreeze(RpcInData *data);
@@ -136,8 +133,8 @@ void ToolsDaemonTcloReportProgramCompleted(const char *requestName,
                                            void *clientData);
 
 /*
- * These constants are a bad hack. I really should generate the result 
- * strings twice, once to compute the length and then allocate the buffer, 
+ * These constants are a bad hack. I really should generate the result
+ * strings twice, once to compute the length and then allocate the buffer,
  * and a second time to write the buffer.
  */
 #define DEFAULT_RESULT_MSG_MAX_LENGTH     1024
@@ -165,7 +162,7 @@ static Bool thisProcessRunsAsRoot = FALSE;
 gboolean
 FoundryToolsDaemonRunProgram(RpcInData *data) // IN
 {
-   VixError err = VIX_OK;
+   VixError err;
    char *requestName = NULL;
    char *commandLine = NULL;
    char *commandLineArgs = NULL;
@@ -188,13 +185,13 @@ FoundryToolsDaemonRunProgram(RpcInData *data) // IN
    err = ToolsDaemonTcloGetEncodedQuotedString(data->args, &data->args,
                                                &commandLine);
    if (err != VIX_OK) {
-      goto abort;
+      goto quit;
    }
 
    err = ToolsDaemonTcloGetEncodedQuotedString(data->args, &data->args,
                                                &commandLineArgs);
    if (err != VIX_OK) {
-      goto abort;
+      goto quit;
    }
 
    credentialTypeStr = ToolsDaemonTcloGetQuotedString(data->args, &data->args);
@@ -209,19 +206,19 @@ FoundryToolsDaemonRunProgram(RpcInData *data) // IN
     */
    if ((NULL == requestName) || (NULL == commandLine)) {
       err = VIX_E_INVALID_ARG;
-      goto abort;
+      goto quit;
    }
 
    if ((NULL != credentialTypeStr)
-         && (*credentialTypeStr) 
+         && (*credentialTypeStr)
          && (thisProcessRunsAsRoot)) {
-      impersonatingVMWareUser = VixToolsImpersonateUserImpl(credentialTypeStr, 
+      impersonatingVMWareUser = VixToolsImpersonateUserImpl(credentialTypeStr,
                                                             VIX_USER_CREDENTIAL_NONE,
-                                                            obfuscatedNamePassword, 
+                                                            obfuscatedNamePassword,
                                                             &userToken);
       if (!impersonatingVMWareUser) {
          err = VIX_E_GUEST_USER_PERMISSIONS;
-         goto abort;
+         goto quit;
       }
    }
 
@@ -233,7 +230,7 @@ FoundryToolsDaemonRunProgram(RpcInData *data) // IN
                                 eventQueue,
                                 (int64 *) &pid);
 
-abort:
+quit:
    if (impersonatingVMWareUser) {
       VixToolsUnimpersonateUser(userToken);
    }
@@ -286,7 +283,7 @@ abort:
 gboolean
 FoundryToolsDaemonGetToolsProperties(RpcInData *data) // IN
 {
-   VixError err = VIX_OK;
+   VixError err;
    int additionalError = 0;
    static char resultBuffer[DEFAULT_RESULT_MSG_MAX_LENGTH];
    char *serializedBuffer = NULL;
@@ -296,7 +293,7 @@ FoundryToolsDaemonGetToolsProperties(RpcInData *data) // IN
    Bool success;
    char *returnBuffer = NULL;
    GKeyFile *confDictRef;
-   
+
    /*
     * Collect some values about the host.
     */
@@ -308,21 +305,21 @@ FoundryToolsDaemonGetToolsProperties(RpcInData *data) // IN
    if (VIX_OK == err) {
       base64BufferLength = Base64_EncodedLength(serializedBuffer, serializedBufferLength) + 1;
       base64Buffer = Util_SafeMalloc(base64BufferLength);
-      success = Base64_Encode(serializedBuffer, 
-                              serializedBufferLength, 
-                              base64Buffer, 
-                              base64BufferLength, 
+      success = Base64_Encode(serializedBuffer,
+                              serializedBufferLength,
+                              base64Buffer,
+                              base64BufferLength,
                               &base64BufferLength);
       if (!success) {
          base64Buffer[0] = 0;
          err = VIX_E_FAIL;
-         goto abort;
+         goto quit;
       }
       base64Buffer[base64BufferLength] = 0;
    }
 
 
-abort:
+quit:
    returnBuffer = base64Buffer;
    if (NULL == base64Buffer) {
       returnBuffer = "";
@@ -345,7 +342,7 @@ abort:
 
    free(serializedBuffer);
    free(base64Buffer);
-   
+
    return TRUE;
 } // FoundryToolsDaemonGetToolsProperties
 
@@ -381,13 +378,6 @@ FoundryToolsDaemon_Initialize(ToolsAppCtx *ctx)
    }
 #endif
 
-   /* Register a straight through connection with the Hgfs server. */
-   HgfsServerManager_DataInit(&gFoundryHgfsBkdrConn,
-                              VIX_BACKDOORCOMMAND_SEND_HGFS_PACKET,
-                              NULL,    // rpc - no rpc registered
-                              NULL);   // rpc callback
-   HgfsServerManager_Register(&gFoundryHgfsBkdrConn);
-
 }
 
 
@@ -400,7 +390,6 @@ FoundryToolsDaemon_Initialize(ToolsAppCtx *ctx)
 void
 FoundryToolsDaemon_Uninitialize(ToolsAppCtx *ctx)
 {
-   HgfsServerManager_Unregister(&gFoundryHgfsBkdrConn);
    VixTools_Uninitialize();
 }
 
@@ -505,18 +494,19 @@ ToolsDaemonTcloGetEncodedQuotedString(const char *args,      // IN
                                       const char **endOfArg, // OUT
                                       char **result)         // OUT
 {
-   VixError err = VIX_OK;
+   VixError err;
    char *rawResultStr = NULL;
    char *resultStr = NULL;
 
    rawResultStr = ToolsDaemonTcloGetQuotedString(args, endOfArg);
    if (NULL == rawResultStr) {
-      goto abort;
+      err = VIX_OK;
+      goto quit;
    }
 
    err = VixMsg_DecodeString(rawResultStr, &resultStr);
 
-abort:
+quit:
    free(rawResultStr);
    *result = resultStr;
 
@@ -547,8 +537,8 @@ ToolsDaemonTcloSyncDriverFreeze(RpcInData *data)
 {
    static char resultBuffer[DEFAULT_RESULT_MSG_MAX_LENGTH];
    VixError err = VIX_OK;
-   char *driveList = NULL;
-   char *timeout = NULL;
+   char *driveList;
+   char *timeout;
    int timeoutVal;
    DECLARE_SYNCDRIVER_ERROR(sysError);
    ToolsAppCtx *ctx = data->appCtx;
@@ -568,14 +558,14 @@ ToolsDaemonTcloSyncDriverFreeze(RpcInData *data)
    if (NULL == driveList || NULL == timeout) {
       err = VIX_E_INVALID_ARG;
       g_warning("%s: Failed to get string args\n", __FUNCTION__);
-      goto abort;
+      goto quit;
    }
 
    if (!StrUtil_StrToInt(&timeoutVal, timeout) || timeoutVal < 0) {
       g_warning("%s: Bad args, timeout '%s'\n",
                 __FUNCTION__, timeout);
       err = VIX_E_INVALID_ARG;
-      goto abort;
+      goto quit;
    }
 
    g_debug("%s: Got request to freeze '%s', timeout %d\n",
@@ -584,13 +574,13 @@ ToolsDaemonTcloSyncDriverFreeze(RpcInData *data)
    /* Disallow multiple freeze calls. */
    if (gSyncDriverHandle != SYNCDRIVER_INVALID_HANDLE) {
       err = VIX_E_OBJECT_IS_BUSY;
-      goto abort;
+      goto quit;
    }
 
-   enableNullDriver = VixTools_ConfigGetBoolean(confDictRef,
-                                                "vmbackup",
-                                                "enableNullDriver",
-                                                FALSE);
+   enableNullDriver = VMTools_ConfigGetBoolean(confDictRef,
+                                               "vmbackup",
+                                               "enableNullDriver",
+                                               FALSE);
 
    /* Perform the actual freeze. */
    if (!SyncDriver_Freeze(driveList, enableNullDriver, &gSyncDriverHandle,
@@ -604,7 +594,7 @@ ToolsDaemonTcloSyncDriverFreeze(RpcInData *data)
          SyncDriver_Thaw(gSyncDriverHandle);
          SyncDriver_CloseHandle(&gSyncDriverHandle);
       }
-      goto abort;
+      goto quit;
    }
 
    /* Start the timer callback to automatically thaw. */
@@ -616,7 +606,7 @@ ToolsDaemonTcloSyncDriverFreeze(RpcInData *data)
       g_source_unref(timer);
    }
 
-abort:
+quit:
    /*
     * These were allocated by ToolsDaemonTcloGetQuotedString.
     */
@@ -778,6 +768,12 @@ ToolsDaemonCheckMountedHGFS(Bool isFuseEnabled,      // IN:
          break;
       }
    }
+   /*
+    * Coverity flags this invocation of CLOSE_MNTFILE because the macro does
+    * a test whose results are ignored.  However, it also has a needed side
+    * effect, so this invocation is correct.
+    */
+   /* coverity[no_effect_test] */
    CLOSE_MNTFILE(mtab);
 
 exit:
@@ -938,214 +934,6 @@ exit:
 /*
  *-----------------------------------------------------------------------------
  *
- * ToolsDaemonHgfsImpersonated --
- *
- *      Tclo cmd handler for hgfs requests.
- *
- *      Here we receive guest user credentials and an HGFS packet to
- *      be processed by the HGFS server under the context of
- *      the guest user credentials.
- *
- *      We pre-allocate a HGFS reply packet buffer and leave some space at
- *      the beginning of the buffer for foundry error codes.
- *      The format of the foundry error codes is a 64 bit number (as text),
- *      followed by a 32 bit number (as text), followed by a hash,
- *      all delimited by space (' ').  The hash is needed
- *      to make it easier for text parsers to know where the
- *      HGFS reply packet begins, since it can start with a space.
- *
- *      We do this funky "allocate an HGFS packet with extra
- *      room for foundry error codes" to avoid copying buffers
- *      around.  The HGFS packet buffer is roughly 62k for large V3 Hgfs request
- *      or 6k for other request , so it would be bad to copy that for every packet.
- *
- *      It is guaranteed that we will not be called twice
- *      at the same time, so it is safe for resultPacket to be static.
- *      The TCLO processing loop (RpcInLoop()) is synchronous.
- *
- *
- * Results:
- *      TRUE on TCLO success (*result contains the hgfs reply)
- *      FALSE on TCLO error (not supposed to happen)
- *
- * Side effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-gboolean
-ToolsDaemonHgfsImpersonated(RpcInData *data) // IN
-{
-   VixError err;
-   size_t hgfsPacketSize = 0;
-   size_t hgfsReplySize = 0;
-   const char *origArgs = data->args;
-   Bool impersonatingVMWareUser = FALSE;
-   char *credentialTypeStr = NULL;
-   char *obfuscatedNamePassword = NULL;
-   void *userToken = NULL;
-   int actualUsed;
-#define STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING 20
-#define OTHER_TEXT_SIZE 4                /* strlen(space zero space quote) */
-   static char resultPacket[STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                              + OTHER_TEXT_SIZE
-                              + HGFS_LARGE_PACKET_MAX];
-   char *hgfsReplyPacket = resultPacket
-                             + STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                             + OTHER_TEXT_SIZE;
-
-
-   err = VIX_OK;
-
-   /*
-    * We assume VixError is 64 bits.  If it changes, we need
-    * to adjust STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING.
-    *
-    * There isn't much point trying to return gracefully
-    * if sizeof(VixError) is larger than we expected: we didn't
-    * allocate enough space to actually represent the error!
-    * So we're stuck.  Panic at this point.
-    */
-   ASSERT_ON_COMPILE(sizeof (uint64) == sizeof err);
-
-   /*
-    * Get the authentication information.
-    */
-   credentialTypeStr = ToolsDaemonTcloGetQuotedString(data->args, &data->args);
-   obfuscatedNamePassword = ToolsDaemonTcloGetQuotedString(data->args, &data->args);
-
-   /*
-    * Make sure we are passed the correct arguments.
-    */
-   if ((NULL == credentialTypeStr) || (NULL == obfuscatedNamePassword)) {
-      err = VIX_E_INVALID_ARG;
-      goto abort;
-   }
-
-   /*
-    * Skip over our token that is right before the HGFS packet.
-    * This makes ToolsDaemonTcloGetQuotedString parsing predictable,
-    * since it will try to eat trailing spaces after a quoted string,
-    * and the HGFS packet might begin with a space.
-    */
-   if (((data->args - origArgs) >= data->argsSize) || ('#' != *(data->args))) {
-      /*
-       * Buffer too small or we got an unexpected token.
-       */
-      err = VIX_E_FAIL;
-      goto abort;
-   }
-   data->args++;
-   
-   /*
-    * At this point args points to the HGFS packet.
-    * If we're pointing beyond the end of the buffer, we'll
-    * get a negative HGFS packet length and abort.
-    */
-   hgfsPacketSize = data->argsSize - (data->args - origArgs);
-   if (hgfsPacketSize <= 0) {
-      err = VIX_E_FAIL;
-      goto abort;
-   }
-   
-   if (thisProcessRunsAsRoot) {
-      impersonatingVMWareUser = VixToolsImpersonateUserImpl(credentialTypeStr,
-                                                            VIX_USER_CREDENTIAL_NONE,
-                                                            obfuscatedNamePassword,
-                                                            &userToken);
-      if (!impersonatingVMWareUser) {
-         err = VIX_E_GUEST_USER_PERMISSIONS;
-         goto abort;
-      }
-   }
-
-   /*
-    * Impersonation was okay, so let's give our packet to
-    * the HGFS server and forward the reply packet back.
-    */
-   hgfsReplySize = sizeof resultPacket - (hgfsReplyPacket - resultPacket);
-   HgfsServerManager_ProcessPacket(&gFoundryHgfsBkdrConn, // hgfs server connection
-                                   data->args,            // packet in buf
-                                   hgfsPacketSize,        // packet in size
-                                   hgfsReplyPacket,       // packet out buf
-                                   &hgfsReplySize);       // reply buf/data size
-
-abort:
-   if (impersonatingVMWareUser) {
-      VixToolsUnimpersonateUser(userToken);
-   }
-   VixToolsLogoutUser(userToken);
-
-   /*
-    * These were allocated by ToolsDaemonTcloGetQuotedString.
-    */
-   free(credentialTypeStr);
-   free(obfuscatedNamePassword);
-
-   data->result = resultPacket;
-   data->resultLen = STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                        + OTHER_TEXT_SIZE
-                        + hgfsReplySize;
-   
-   /*
-    * Render the foundry error codes into the buffer.
-    */
-   actualUsed = Str_Snprintf(resultPacket,
-                             STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                               + OTHER_TEXT_SIZE,
-                             "%"FMT64"d 0 ",
-                             err);
-                             
-   if (actualUsed < 0) {
-      /*
-       * We computed our string length wrong!  This should never happen.
-       * But if it does, let's try to recover gracefully.  The "1" in
-       * the string below is VIX_E_FAIL.  We don't try to use %d since
-       * we couldn't even do that right the first time around.
-       * That hash is needed for the parser on the other
-       * end to stop before the HGFS packet, since the HGFS packet
-       * can contain a space (and the parser can eat trailing spaces).
-       */
-      ASSERT(0);
-      actualUsed = Str_Snprintf(resultPacket,
-                                STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING,
-                                "1 0 #");
-      data->resultLen = actualUsed;
-   } else {
-      /*
-       * We computed the string length correctly.  Great!
-       *
-       * We allocated enough space to cover a large 64 bit number
-       * for VixError.  Chances are we didn't use all that space.
-       * Instead, pad it with whitespace so the text parser can skip
-       * over it.
-       */
-      memset(resultPacket + actualUsed,
-             ' ',
-             STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                                 + OTHER_TEXT_SIZE
-                                 - actualUsed);   
-      /*
-       * Put a hash right before the HGFS packet.
-       * So the buffer will look something like this:
-       * "0 0                        #" followed by the HGFS packet.
-       */
-      resultPacket[STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-                    + OTHER_TEXT_SIZE - 1] = '#';
-   }
-
-   g_message("%s\n", __FUNCTION__);
-   return TRUE;
-} // ToolsDaemonHgfsImpersonated
-
-#undef STRLEN_OF_MAX_64_BIT_NUMBER_AS_STRING
-#undef OTHER_TEXT_SIZE
-
-
-/*
- *-----------------------------------------------------------------------------
- *
  * ToolsDaemonTcloReportProgramCompleted --
  *
  *
@@ -1231,7 +1019,7 @@ ToolsDaemonTcloReceiveVixCommand(RpcInData *data) // IN
    requestName = ToolsDaemonTcloGetQuotedString(data->args, &data->args);
 
    /*
-    * Skip the NULL, char, and then the rest of the buffer should just 
+    * Skip the NULL, char, and then the rest of the buffer should just
     * be a Vix command object.
     */
    while (*data->args) {
@@ -1240,7 +1028,7 @@ ToolsDaemonTcloReceiveVixCommand(RpcInData *data) // IN
    data->args += 1;
    err = VixMsg_ValidateMessage((char *) data->args, data->argsSize);
    if (VIX_OK != err) {
-      goto abort;
+      goto quit;
    }
    requestMsg = (VixCommandRequestHeader *) data->args;
    maxResultBufferSize = sizeof(tcloBuffer) - vixPrefixDataSize;
@@ -1273,7 +1061,7 @@ ToolsDaemonTcloReceiveVixCommand(RpcInData *data) // IN
               __FUNCTION__, requestMsg->opCode, additionalError);
    }
 
-abort:
+quit:
    tcloBufferLen = resultValueLength + vixPrefixDataSize;
 
    /*
@@ -1300,7 +1088,7 @@ abort:
 
    /*
     * If this is a binary result, then we put a # at the end of the ascii to
-    * mark the end of ascii and the start of the binary data. 
+    * mark the end of ascii and the start of the binary data.
     */
    if ((NULL != requestMsg)
          && (requestMsg->commonHeader.commonFlags & VIX_COMMAND_GUEST_RETURNS_BINARY)) {
@@ -1322,7 +1110,7 @@ abort:
       *(destPtr++) = 0;
       data->resultLen = strlen(tcloBuffer) + 1;
    }
-   
+
    data->result = tcloBuffer;
 
    if (deleteResultValue) {

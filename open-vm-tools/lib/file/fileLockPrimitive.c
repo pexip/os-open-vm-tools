@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -72,9 +72,9 @@ static char implicitReadToken;
 
 typedef struct parse_table
 {
-   int    type;
-   char  *name;
-   void  *valuePtr;
+   int         type;
+   const char *name;
+   void       *valuePtr;
 } ParseTable;
 
 /*
@@ -755,10 +755,8 @@ FileLockScanDirectory(const char *lockDir,      // IN:
       LockValues *ptr;
       Bool       myLockFile;
       LockValues memberValues;
-      char       buffer[FILELOCK_DATA_SIZE];
 
-      if ((fileList[i] == NULL) ||
-          (*fileList[i] == 'E')) {
+      if ((fileList[i] == NULL) || (*fileList[i] == 'E')) {
          continue;
       }
 
@@ -769,6 +767,7 @@ FileLockScanDirectory(const char *lockDir,      // IN:
          /* It's me! No need to read or validate anything. */
          ptr = myValues;
       } else {
+         char buffer[FILELOCK_DATA_SIZE];
          /* It's not me! Attempt to extract the member values. */
          err = FileLockMemberValues(lockDir, fileList[i], buffer,
                                     FILELOCK_DATA_SIZE, &memberValues);
@@ -939,15 +938,21 @@ FileLockScanner(const char *lockDir,     // IN:
          }
 
          if (remove) {
-            if (prev == NULL) {
-               myValues->lockList = ptr->next;
-            } else {
-               prev->next = ptr->next;
-            }
-         }
+            ActiveLock *temp = ptr;
 
-         prev = ptr;
-         ptr = ptr->next;
+            ptr = ptr->next;
+            Posix_Free(temp->dirName);
+            Posix_Free(temp);
+
+            if (prev == NULL) {
+               myValues->lockList = ptr;
+            } else {
+               prev->next = ptr;
+            }
+         } else {
+            prev = ptr;
+            ptr = ptr->next;
+         }
       }
 
       FileSleeper(FILELOCK_PROGRESS_SAMPLE,
@@ -992,7 +997,7 @@ FileUnlockIntrinsic(FileLockToken *tokenPtr)  // IN:
 
    ASSERT(tokenPtr && (tokenPtr->signature == FILELOCK_TOKEN_SIGNATURE));
 
-   LOG(1, ("Requesting unlock on %s\n", tokenPtr->pathName));
+   LOG(1, "Requesting unlock on %s\n", tokenPtr->pathName);
 
    if (tokenPtr->portable) {
       /*
@@ -1040,9 +1045,8 @@ FileUnlockIntrinsic(FileLockToken *tokenPtr)  // IN:
           *    ENOENT: other locked + unlocked (w/ implicit unlink) file
           */
          if (Err_Errno() == EBUSY || Err_Errno() == ENOENT) {
-            LOG(0, ("Tolerating %s on unlink of advisory lock at %s\n",
-                    Err_Errno() == EBUSY ? "EBUSY" : "ENOENT",
-                    tokenPtr->pathName));
+            LOG(0, "Tolerating %s on unlink of advisory lock at %s\n",
+                Err_Errno() == EBUSY ? "EBUSY" : "ENOENT", tokenPtr->pathName);
          } else {
             err = Err_Errno();
             if (vmx86_debug) {
@@ -1098,13 +1102,9 @@ FileLockWaitForPossession(const char *lockDir,       // IN:
                            myValues->memberName) < 0))) &&
         ((strcmp(memberValues->lockType, LOCK_EXCLUSIVE) == 0) ||
          (strcmp(myValues->lockType, LOCK_EXCLUSIVE) == 0))) {
-      char *path;
-      Bool   thisMachine;
-
-      thisMachine = FileLockMachineIDMatch(myValues->machineID,
-                                           memberValues->machineID);
-
-      path = Unicode_Join(lockDir, DIRSEPS, fileName, NULL);
+      Bool thisMachine = FileLockMachineIDMatch(myValues->machineID,
+                                                memberValues->machineID);
+      char *path = Unicode_Join(lockDir, DIRSEPS, fileName, NULL);
 
       while ((err = FileLockSleeper(myValues)) == 0) {
          /* still there? */
@@ -1139,10 +1139,10 @@ FileLockWaitForPossession(const char *lockDir,       // IN:
           (err == EAGAIN)) {
          if (thisMachine) {
             Log(LGPFX" %s timeout on '%s' due to a local process '%s'\n",
-                    __FUNCTION__, path, memberValues->executionID);
+                __FUNCTION__, path, memberValues->executionID);
          } else {
             Log(LGPFX" %s timeout on '%s' due to another machine '%s'\n",
-                    __FUNCTION__, path, memberValues->machineID);
+                __FUNCTION__, path, memberValues->machineID);
          }
       }
 
@@ -1282,27 +1282,22 @@ FileLockCreateEntryDirectory(const char *lockDir,    // IN:
       if (err == 0) {
         /* The name exists. Deal with it... */
 
-        if (fileData.fileType == FILE_TYPE_REGULAR) {
+        if (fileData.fileType != FILE_TYPE_DIRECTORY) {
            /*
-            * It's a file. Assume this is an (active?) old style lock and
-            * err on the safe side - don't remove it (and automatically
-            * upgrade to a new style lock).
+            * Locks are implemented via directories. Ancient hosted locks and
+            * lock files imported alongsize an ESXi VM are implemented as
+            * files. It's safe to remove these. The ESXi lock files are
+            * meaningless and the ancient hosted lock files have been dead
+            * for over a decade (at the time of writing this comment).
             */
 
-            Log(LGPFX" %s: '%s' exists; an old style lock file?\n",
+           err = FileDeletionRobust(lockDir, FALSE);
+           if (err == 0) {
+              Warning(LGPFX" %s: '%s' is not a directory. Removed.\n",
                       __FUNCTION__, lockDir);
-
-            err = EBUSY;
-            break;
-        }
-
-        if (fileData.fileType != FILE_TYPE_DIRECTORY) {
-           /* Not a directory; attempt to remove the debris */
-           if (FileDeletionRobust(lockDir, FALSE) != 0) {
-              Warning(LGPFX" %s: '%s' exists and is not a directory.\n",
-                      __FUNCTION__, lockDir);
-
-              err = ENOTDIR;
+           } else {
+              Warning(LGPFX" %s: an attempt to remove '%s' failed: %s\n",
+                      __FUNCTION__, lockDir, Err_Errno2String(err));
               break;
            }
 
@@ -1872,8 +1867,8 @@ FileLockIntrinsic(const char *pathName,    // IN:
    myValues.maxWaitTimeMsec = maxWaitTimeMsec;
 
    if (File_SupportsMandatoryLock(pathName)) {
-      LOG(1, ("Requesting %s lock on %s (mandatory, %u).\n",
-          myValues.lockType, pathName, myValues.maxWaitTimeMsec));
+      LOG(1, "Requesting %s lock on %s (mandatory, %u).\n",
+          myValues.lockType, pathName, myValues.maxWaitTimeMsec);
 
       tokenPtr = FileLockIntrinsicMandatory(pathName, lockBase, &myValues, err);
    } else {
@@ -1883,9 +1878,9 @@ FileLockIntrinsic(const char *pathName,    // IN:
       myValues.locationChecksum = FileLockLocationChecksum(lockBase); // free this!
       myValues.memberName = NULL;
 
-      LOG(1, ("Requesting %s lock on %s (%s, %s, %u).\n",
+      LOG(1, "Requesting %s lock on %s (%s, %s, %u).\n",
           myValues.lockType, pathName, myValues.machineID,
-          myValues.executionID, myValues.maxWaitTimeMsec));
+          myValues.executionID, myValues.maxWaitTimeMsec);
 
       tokenPtr = FileLockIntrinsicPortable(pathName, lockBase, &myValues, err);
 

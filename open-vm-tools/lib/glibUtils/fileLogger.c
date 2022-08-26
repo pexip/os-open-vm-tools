@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2019, 2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -29,6 +29,7 @@
 #if defined(G_PLATFORM_WIN32)
 #  include <process.h>
 #  include <windows.h>
+#  include "win32Access.h"
 #else
 #  include <fcntl.h>
 #  include <unistd.h>
@@ -44,7 +45,7 @@ typedef struct FileLogger {
    guint          maxFiles;
    gboolean       append;
    gboolean       error;
-   GStaticMutex   lock;
+   GMutex         lock;
 } FileLogger;
 
 
@@ -57,7 +58,7 @@ typedef struct FileLogger {
  *
  * This is a racy workaround for an issue with glib code; or, rather, two
  * issues. The first issue is that we can't intercept G_LOG_FLAG_RECURSION,
- * and glib just aborts when that happens (see gnome bug 618956). The second
+ * and glib just quits when that happens (see gnome bug 618956). The second
  * is that if a GIOChannel channel write fails, that calls
  * g_io_channel_error_from_errno, which helpfully logs stuff, causing recursion.
  * Don't get me started on why that's, well, at least questionable.
@@ -246,6 +247,15 @@ FileLoggerOpen(FileLogger *data)
       struct stat fstats;
 #endif
 
+      /*
+       * In order to determine whether we should rotate the logs,
+       * we are calling the system call stat() to get the existing log file
+       * size.
+       * The time of check vs. time of use issue does not apply to this use
+       * case, as even the file size is increasing, it will not affect the log
+       * rotation decision. So Suppress the fs_check_call coverity warning.
+       */
+      /* coverity[fs_check_call] */
       if (g_stat(path, &fstats) > -1) {
          data->logSize = (gint) fstats.st_size;
       }
@@ -257,7 +267,6 @@ FileLoggerOpen(FileLogger *data)
           * will always be index "0"). When not rotating, "maxFiles" is 1, so we
           * always keep one backup.
           */
-         gchar *log;
          guint id;
          GPtrArray *logfiles = g_ptr_array_new();
 
@@ -267,7 +276,8 @@ FileLoggerOpen(FileLogger *data)
           * file, which may or may not exist.
           */
          for (id = 0; id < data->maxFiles; id++) {
-            log = FileLoggerGetPath(data, id);
+            gchar *log = FileLoggerGetPath(data, id);
+
             g_ptr_array_add(logfiles, log);
             if (!g_file_test(log, G_FILE_TEST_IS_REGULAR)) {
                break;
@@ -282,6 +292,13 @@ FileLoggerOpen(FileLogger *data)
             if (!g_file_test(dest, G_FILE_TEST_IS_DIR) &&
                 (!g_file_test(dest, G_FILE_TEST_EXISTS) ||
                  g_unlink(dest) == 0)) {
+               /*
+                * We should ignore an unlikely rename() system call failure,
+                * as we should keep our service running with non-critical errors.
+                * We cannot log the error because we are already in the log
+                * handler context to avoid crash or recursive logging loop.
+                */
+               /* coverity[check_return] */
                g_rename(src, dest);
             } else {
                g_unlink(src);
@@ -305,15 +322,12 @@ FileLoggerOpen(FileLogger *data)
 #ifdef VMX86_TOOLS
       /*
        * Make the logfile readable only by user and root/administrator.
-       */
-#ifdef _WIN32
-      /*
-       * XXX TODO: Set the ACLs properly for Windows.
-       */
-#else
-      /*
        * Can't do anything if it fails, so ignore return.
        */
+#ifdef _WIN32
+      (void) Win32Access_SetFileOwnerRW(path);
+#else
+      /* coverity[toctou] */
       (void) chmod(path, 0600);
 #endif
 #endif // VMX86_TOOLS
@@ -348,7 +362,7 @@ FileLoggerLog(const gchar *domain,
    FileLogger *logger = data;
    gsize written;
 
-   g_static_mutex_lock(&logger->lock);
+   g_mutex_lock(&logger->lock);
 
    if (logger->error) {
       goto exit;
@@ -378,6 +392,7 @@ FileLoggerLog(const gchar *domain,
             g_io_channel_unref(logger->file);
             logger->append = FALSE;
             logger->file = FileLoggerOpen(logger);
+            logger->handler.logHeader = TRUE;
          } else {
             g_io_channel_flush(logger->file, NULL);
          }
@@ -387,7 +402,7 @@ FileLoggerLog(const gchar *domain,
    }
 
 exit:
-   g_static_mutex_unlock(&logger->lock);
+   g_mutex_unlock(&logger->lock);
 }
 
 
@@ -409,7 +424,7 @@ FileLoggerDestroy(gpointer data)
    if (logger->file != NULL) {
       g_io_channel_unref(logger->file);
    }
-   g_static_mutex_free(&logger->lock);
+   g_mutex_clear(&logger->lock);
    g_free(logger->path);
    g_free(logger);
 }
@@ -446,6 +461,7 @@ GlibUtils_CreateFileLogger(const char *path,
    data->handler.shared = FALSE;
    data->handler.logfn = FileLoggerLog;
    data->handler.dtor = FileLoggerDestroy;
+   data->handler.logHeader = TRUE;
 
    data->path = g_filename_from_utf8(path, -1, NULL, NULL, NULL);
    if (data->path == NULL) {
@@ -456,7 +472,7 @@ GlibUtils_CreateFileLogger(const char *path,
    data->append = append;
    data->maxSize = maxSize * 1024 * 1024;
    data->maxFiles = maxFiles + 1; /* To account for the active log file. */
-   g_static_mutex_init(&data->lock);
+   g_mutex_init(&data->lock);
 
    return &data->handler;
 }

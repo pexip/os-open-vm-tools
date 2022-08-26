@@ -1,6 +1,5 @@
-
 /*********************************************************
- * Copyright (C) 2008-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -38,6 +37,11 @@
 #include "vmware/tools/i18n.h"
 #include "vmware/tools/log.h"
 #include "vmware/tools/utils.h"
+#if defined(_WIN32)
+#include "vmware/tools/win32util.h"
+#include "globalConfig.h"
+#endif
+
 #include "vm_version.h"
 #include "vm_product_versions.h"
 
@@ -98,21 +102,28 @@ ToolboxCmdHelp(const char *progName,
  * Must go after function declarations
  */
 static CmdTable commands[] = {
-   { "timesync",  TimeSync_Command, TRUE,    FALSE,   TimeSync_Help},
-   { "script",    Script_Command,   FALSE,   TRUE,    Script_Help},
+   { "timesync",   TimeSync_Command,   TRUE,  FALSE, TimeSync_Help},
+   { "script",     Script_Command,     FALSE, TRUE,  Script_Help},
 #if !defined(USERWORLD)
-   { "disk",      Disk_Command,     TRUE,    TRUE,    Disk_Help},
+   { "disk",       Disk_Command,       TRUE,  TRUE,  Disk_Help},
 #endif
-   { "stat",      Stat_Command,     TRUE,    FALSE,   Stat_Help},
-   { "device",    Device_Command,   TRUE,    FALSE,   Device_Help},
+   { "stat",       Stat_Command,       TRUE,  FALSE, Stat_Help},
+   { "device",     Device_Command,     TRUE,  FALSE, Device_Help},
 #if defined(_WIN32) || \
    (defined(__linux__) && !defined(OPEN_VM_TOOLS) && !defined(USERWORLD))
-   { "upgrade",   Upgrade_Command,  TRUE,    TRUE,   Upgrade_Help},
+   { "upgrade",    Upgrade_Command,    TRUE,  TRUE,  Upgrade_Help},
 #endif
-   { "logging",   Logging_Command,  TRUE,    TRUE,    Logging_Help},
-   { "info",      Info_Command,     TRUE,    TRUE,    Info_Help},
-   { "config",    Config_Command,   TRUE,    TRUE,    Config_Help},
-   { "help",      HelpCommand,      FALSE,   FALSE,   ToolboxCmdHelp},
+#if defined(_WIN32) || \
+   (defined(__linux__) && !defined(USERWORLD))
+   { "gueststore", GuestStore_Command, TRUE,  FALSE, GuestStore_Help},
+#endif
+#if defined(GLOBALCONFIG_SUPPORTED)
+   { "globalconf", GlobalConf_Command, TRUE,  TRUE,  GlobalConf_Help},
+#endif
+   { "logging",    Logging_Command,    TRUE,  TRUE,  Logging_Help},
+   { "info",       Info_Command,       TRUE,  TRUE,  Info_Help},
+   { "config",     Config_Command,     TRUE,  TRUE,  Config_Help},
+   { "help",       HelpCommand,        FALSE, FALSE, ToolboxCmdHelp},
 };
 
 
@@ -250,6 +261,30 @@ exit:
 /*
  *-----------------------------------------------------------------------------
  *
+ * ToolsCmd_FreeRPC --
+ *
+ *    Free the memory allocated for the results from
+ *    ToolsCmd_SendRPC calls.
+ *
+ * Results:
+ *    None.
+ *
+ * Side effects:
+ *    None.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+ToolsCmd_FreeRPC(void *ptr)      // IN
+{
+   RpcChannel_Free(ptr);
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * ToolsCmd_UnknownEntityError --
  *
  *      Print out error message regarding unknown argument.
@@ -301,6 +336,8 @@ ToolboxCmdHelp(const char *progName,   // IN
                           "   config\n"
                           "   device\n"
                           "   disk (not available on all operating systems)\n"
+                          "   globalconf (not available on all operating systems)\n"
+                          "   gueststore (not available on all operating systems)\n"
                           "   info\n"
                           "   logging\n"
                           "   script\n"
@@ -423,6 +460,9 @@ main(int argc,    // IN: length of command line arguments
 
 #if defined(_WIN32)
    char **argv;
+
+   WinUtil_EnableSafePathSearching(TRUE);
+
    Unicode_InitW(argc, wargv, NULL, &argv, NULL);
 #else
    Unicode_Init(argc, &argv, NULL);
@@ -430,21 +470,17 @@ main(int argc,    // IN: length of command line arguments
 
    setlocale(LC_ALL, "");
    VMTools_LoadConfig(NULL, G_KEY_FILE_NONE, &conf, NULL);
+
+   TOOLBOXCMD_LOAD_GLOBALCONFIG(conf)
+
    VMTools_ConfigLogging("toolboxcmd", conf, FALSE, FALSE);
    VMTools_BindTextDomain(VMW_TEXT_DOMAIN, NULL, NULL);
 
-   /*
-    * Check if we are in a VM
-    *
-    * Valgrind can't handle the backdoor check, so don't bother.
-    */
-#ifndef USE_VALGRIND
    if (!VmCheck_IsVirtualWorld()) {
       g_printerr(SU_(error.novirtual, "%s must be run inside a virtual machine.\n"),
                  argv[0]);
       goto exit;
    }
-#endif
 
    /*
     * Parse the command line optional arguments

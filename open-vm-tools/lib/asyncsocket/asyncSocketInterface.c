@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2016-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2016-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -234,6 +234,40 @@ AsyncSocket_GetRemoteIPStr(AsyncSocket *asock,      // IN
    if (VALID(asock, getRemoteIPStr)) {
       AsyncSocketLock(asock);
       ret = VT(asock)->getRemoteIPStr(asock, ipRetStr);
+      AsyncSocketUnlock(asock);
+   } else {
+      ret = ASOCKERR_INVAL;
+   }
+   return ret;
+}
+
+
+/*
+ *----------------------------------------------------------------------------
+ *
+ * AsyncSocket_GetRemotePort --
+ *
+ *      Given an AsyncSocket object, returns the remote port associated
+ *      with it, or an error if the request is meaningless for the underlying
+ *      connection.
+ *
+ * Results:
+ *      ASOCKERR_SUCCESS or ASOCKERR_INVAL.
+ *
+ * Side effects:
+ *
+ *
+ *----------------------------------------------------------------------------
+ */
+
+int
+AsyncSocket_GetRemotePort(AsyncSocket *asock,  // IN
+                          uint32 *port)        // OUT
+{
+   int ret;
+   if (VALID(asock, getRemotePort)) {
+      AsyncSocketLock(asock);
+      ret = VT(asock)->getRemotePort(asock, port);
       AsyncSocketUnlock(asock);
    } else {
       ret = ASOCKERR_INVAL;
@@ -725,6 +759,7 @@ AsyncSocket_GetOption(AsyncSocket *asyncSocket,     // IN/OUT
 int
 AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
                             SSLVerifyParam *verifyParam,          // IN/OPT
+                            const char *hostname,                 // IN/OPT
                             void *sslCtx,                         // IN
                             AsyncSocketSslConnectFn sslConnectFn, // IN
                             void *clientData)                     // IN
@@ -732,8 +767,8 @@ AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
    int ret;
    if (VALID(asock, startSslConnect)) {
       AsyncSocketLock(asock);
-      ret = VT(asock)->startSslConnect(asock, verifyParam, sslCtx, sslConnectFn,
-                                       clientData);
+      ret = VT(asock)->startSslConnect(asock, verifyParam, hostname, sslCtx,
+                                       sslConnectFn, clientData);
       AsyncSocketUnlock(asock);
    } else {
       ret = ASOCKERR_INVAL;
@@ -762,12 +797,13 @@ AsyncSocket_StartSslConnect(AsyncSocket *asock,                   // IN
 Bool
 AsyncSocket_ConnectSSL(AsyncSocket *asock,          // IN
                        SSLVerifyParam *verifyParam, // IN/OPT
+                       const char *hostname,        // IN/OPT
                        void *sslContext)            // IN/OPT
 {
    Bool ret;
    if (VALID(asock, connectSSL)) {
       AsyncSocketLock(asock);
-      ret = VT(asock)->connectSSL(asock, verifyParam, sslContext);
+      ret = VT(asock)->connectSSL(asock, verifyParam, hostname, sslContext);
       AsyncSocketUnlock(asock);
    } else {
       ret = FALSE;
@@ -940,6 +976,64 @@ AsyncSocket_RecvPartial(AsyncSocket *asock,         // IN
    if (VALID(asock, recv)) {
       AsyncSocketLock(asock);
       ret = VT(asock)->recv(asock, buf, len, TRUE, cb, cbData);
+      AsyncSocketUnlock(asock);
+   } else {
+      ret = ASOCKERR_INVAL;
+   }
+   return ret;
+}
+
+
+/*
+ *----------------------------------------------------------------------------
+ *
+ * AsyncSocket_Peek --
+ *
+ *      Similar to AsyncSocket_RecvPartial, AsyncSocket_Peek reads the socket
+ *      buffer contents into the provided buffer by registering a callback that
+ *      will fire when data becomes available.
+ *
+ *      Due to underying poll implementation, peeks are always "partial" ie.
+ *      callback returns when less than or equal amount of requested length is
+ *      available to read. Peek callers may use recv() to drain smaller amounts
+ *      notified by peek-callback and then peek for more data if that helps.
+ *
+ *      There are some noteworthy differences compared to Recv():
+ *
+ *      - By definition, Recv() drains the socket buffer while Peek() does not
+ *
+ *      - Asyncsocket Recv() is post-SSL since it internally calls SSL_Read()
+ *        so application always gets decrypted data when entire SSL record is
+ *        decrypted. Peek() on the other hand is SSL agnostic; it reads
+ *        directly from the underlying host socket and makes no attempt to
+ *        decrypt it or check for any data buffered within SSL. So asyncsocket
+ *        user doing a recv() followed by peek() may get different results.
+ *        That is why is it most safe to use peek() before SSL is setup on the
+ *        TCP connection.
+ *
+ *      - Peek is one-shot in nature, meaning that peek callbacks are
+ *        unregistered from poll once fired.
+ *
+ * Results:
+ *      ASOCKERR_*.
+ *
+ * Side effects:
+ *      Could register poll callback.
+ *
+ *----------------------------------------------------------------------------
+ */
+
+int
+AsyncSocket_Peek(AsyncSocket *asock,         // IN
+                 void *buf,                  // IN (buffer to fill)
+                 int len,                    // IN
+                 void *cb,                   // IN
+                 void *cbData)               // IN
+{
+   int ret;
+   if (VALID(asock, recv)) {
+      AsyncSocketLock(asock);
+      ret = VT(asock)->peek(asock, buf, len, cb, cbData);
       AsyncSocketUnlock(asock);
    } else {
       ret = ASOCKERR_INVAL;
@@ -1419,12 +1513,11 @@ AsyncSocket_GetWebSocketCookie(AsyncSocket *asock)    // IN
  *
  * AsyncSocket_SetWebSocketCookie --
  *
- *      Return the Cookie field value supplied during a WebSocket
- *      connection request.
+ *      Insert Set-Cookie HTTP response header during WebSocket connection.
  *
  * Results:
- *      Cookie, if asock is WebSocket.
- *      NULL, if asock is not WebSocket.
+ *      ASOCKERR_SUCCESS if we finished the operation, ASOCKERR_* error codes
+ *      otherwise.
  *
  * Side effects:
  *      None.
@@ -1438,7 +1531,7 @@ AsyncSocket_SetWebSocketCookie(AsyncSocket *asock,      // IN
                                const char *path,        // IN
                                const char *sessionId)   // IN
 {
-   int ret = ASOCKERR_GENERIC;
+   int ret = ASOCKERR_INVAL;
    if (VALID(asock, setWebSocketCookie)) {
       AsyncSocketLock(asock);
       ret = VT(asock)->setWebSocketCookie(asock, clientData, path, sessionId);
@@ -1507,6 +1600,38 @@ AsyncSocket_GetWebSocketProtocol(AsyncSocket *asock)  // IN
       AsyncSocketUnlock(asock);
    } else {
       ret = NULL;
+   }
+   return ret;
+}
+
+
+/*
+ *----------------------------------------------------------------------------
+ *
+ * AsyncSocket_SetDelayWebSocketUpgradeResponse --
+ *
+ *      Set a flag for whether or not to not automatically send the websocket
+ *      upgrade response upon receiving the websocket upgrade request.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      None.
+ *
+ *----------------------------------------------------------------------------
+ */
+
+int
+AsyncSocket_SetDelayWebSocketUpgradeResponse(AsyncSocket *asock,                  // IN
+                                             Bool delayWebSocketUpgradeResponse)  // IN
+{
+   int ret = ASOCKERR_INVAL;
+   if (VALID(asock, setDelayWebSocketUpgradeResponse)) {
+      AsyncSocketLock(asock);
+      ret = VT(asock)->setDelayWebSocketUpgradeResponse(asock,
+                                                        delayWebSocketUpgradeResponse);
+      AsyncSocketUnlock(asock);
    }
    return ret;
 }
@@ -1731,9 +1856,11 @@ AsyncSocket_WaitForReadMultiple(AsyncSocket **asock,  // IN
                                 int timeoutMS,        // IN
                                 int *outIdx)          // OUT
 {
-   int i;
    int ret;
+
    if (numSock > 0 && VALID(asock[0], waitForReadMultiple)) {
+      int i;
+
       for (i = 0; i < numSock; i++) {
          AsyncSocketLock(asock[i]);
       }

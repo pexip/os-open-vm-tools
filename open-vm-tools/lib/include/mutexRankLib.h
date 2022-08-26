@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2010-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2010-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -63,6 +63,10 @@ extern "C" {
 #define RANK_hgfsFileIOLock          (RANK_libLockBase + 0x4050)
 #define RANK_hgfsSearchArrayLock     (RANK_libLockBase + 0x4060)
 #define RANK_hgfsNodeArrayLock       (RANK_libLockBase + 0x4070)
+#define RANK_hgfsActivateLock        (RANK_libLockBase + 0x4080)
+#define RANK_hgfsThreadpoolLock      (RANK_libLockBase + 0x4090)
+
+#define RANK_nfcLibAioCtxLock        (RANK_libLockBase + 0x4300)
 
 /*
  * vigor (must be < VMDB range and < disklib, see bug 741290)
@@ -71,9 +75,23 @@ extern "C" {
 #define RANK_vigorOfflineLock        (RANK_libLockBase + 0x4410)
 
 /*
+ * The lock range for IO filters:
+ * [RANK_libLockBase + 0x4420 , RANK_libLockBase + 0x442F]
+ *
+ * (must be > vigor and < filtlib, see PR 2613901)
+ * Inbox filters may need to use lock ranks and these filters can be loaded
+ * under Vigor-Offline. Therefore, any lock used by a filter in its callbacks
+ * should have a rank greater than RANK_vigorOfflineLock. IO filter lock ranks
+ * should also be lower than RANK_filtLibPollLock because this allows
+ * VMIOF/filtlib APIs that hold filtLibPollLock to be invoked while holding an
+ * IO filter lock.
+ */
+#define RANK_ioFiltersBase            (RANK_libLockBase + 0x4420)
+
+/*
  * filtlib (must be > vigor and < disklib and workercmlp, PR 1340298)
  */
-#define RANK_filtLibPollLock         (RANK_vigorOfflineLock + 1)
+#define RANK_filtLibPollLock         (RANK_libLockBase + 0x4430)
 
 /*
  * filtib lock which protects a disk's allocation bitmap state.
@@ -115,6 +133,9 @@ extern "C" {
  */
 #define RANK_nfcLibInitLock          (RANK_libLockBase + 0x4505)
 #define RANK_nfcLibLock              (RANK_libLockBase + 0x4506)
+#define RANK_nfcLibSessionListLock   (RANK_libLockBase + 0x4507)
+#define RANK_nfcLibAioLock           (RANK_libLockBase + 0x4508)
+#define RANK_nfcLibLastErrorLock     (RANK_libLockBase + 0x4509)
 
 /*
  * Policy lib lock
@@ -134,9 +155,11 @@ extern "C" {
 #define RANK_fsCmdLock               (RANK_libLockBase + 0x5050)
 #define RANK_scsiStateLock           (RANK_libLockBase + 0x5060)
 #define RANK_parInitLock             (RANK_libLockBase + 0x5070)
+#define RANK_datasetsLock            (RANK_libLockBase + 0x5075)
 #define RANK_namespaceLock           (RANK_libLockBase + 0x5080)
 #define RANK_objLibInitLock          (RANK_libLockBase + 0x5085)
 #define RANK_vvolLibLock             (RANK_libLockBase + 0x5090)
+#define RANK_aioMgrInitLock          (RANK_libLockBase + 0x5095)
 
 /*
  * Persistent-memory logical and hardware  management locks
@@ -170,6 +193,9 @@ extern "C" {
 #define RANK_usbArbLibAsockLock      (RANK_libLockBase + 0x6507)
 #define RANK_usbEnumBackendLock      (RANK_libLockBase + 0x6508)
 #define RANK_sensorQueueLock         (RANK_libLockBase + 0x6509)
+#define RANK_ccidListLock            (RANK_libLockBase + 0x650A)
+#define RANK_readerLock              (RANK_libLockBase + 0x650B)
+#define RANK_ccidLock                (RANK_libLockBase + 0x650C)
 
 /*
  * misc locks

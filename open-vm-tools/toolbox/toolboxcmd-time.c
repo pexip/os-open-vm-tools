@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2020 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -28,7 +28,7 @@
 #include "vmware/guestrpc/tclodefs.h"
 #include "vmware/guestrpc/timesync.h"
 #include "vmware/tools/i18n.h"
-#include "vmware/tools/utils.h"
+#include "vmware/tools/log.h"
 
 
 /*
@@ -114,11 +114,12 @@ TimeSyncEnable(void)
        TimeSyncSet(TRUE, &reply, &replyLen)) {
       ToolsCmd_Print("%s\n", SU_(option.enabled, "Enabled"));
    } else {
-      ToolsCmd_PrintErr(SU_(error.message, "Error: %s\n"), reply);
+      ToolsCmd_PrintErr(SU_(error.message, "Error: %s\n"),
+                        VM_SAFE_STR(reply));
       ret = EXIT_FAILURE;
    }
 
-   vm_free(reply);
+   ToolsCmd_FreeRPC(reply);
    return ret;
 }
 
@@ -150,11 +151,12 @@ TimeSyncDisable(void)
        TimeSyncSet(FALSE, &reply, &replyLen)) {
       ToolsCmd_Print("%s\n", SU_(option.disabled, "Disabled"));
    } else {
-      ToolsCmd_PrintErr(SU_(error.message, "Error: %s\n"), reply);
+      ToolsCmd_PrintErr(SU_(error.message, "Error: %s\n"),
+                        VM_SAFE_STR(reply));
       ret = EXIT_FAILURE;
    }
 
-   vm_free(reply);
+   ToolsCmd_FreeRPC(reply);
    return ret;
 }
 

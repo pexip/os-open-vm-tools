@@ -1,0 +1,2 @@
+# Only non versioned symlinks to in the -dev package, not changing unless upstream defines real sonames
+open-vm-tools-dev: package-name-doesnt-match-sonames libDeployPkg0 libguestStoreClient0 libguestlib0 libhgfs0 libvgauth0 libvmtools0

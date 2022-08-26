@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -107,18 +107,16 @@ VixError Vix_TranslateGuestRegistryError(int systemError);
  * enum constant, like an integer. For example, err = VIX_E_FAIL; works.
  * This just leaves the flags and extraError fields as 0.
  */
-typedef
-#include "vmware_pack_begin.h"
-struct VixErrorFields {
+#pragma pack(push, 1)
+typedef struct VixErrorFields {
    uint16   error;
 
    uint8    flags;
 
    uint8    extraErrorType;
    uint32   extraError;
-}
-#include "vmware_pack_end.h"
-VixErrorFields;
+} VixErrorFields;
+#pragma pack(pop)
 
 /*
  * These are the flags for a Vix error.
@@ -368,7 +366,7 @@ typedef struct VixPropertyListImpl
  */
 typedef enum VixPropertyListBadEncodingAction {
    /*
-    * Abort the deserialization and return an error. This is the recommended
+    * Cancel the deserialization and return an error. This is the recommended
     * value since it is the strictest; you don't have to think about how
     * any clients or library code will handle escaped values.
     * This should always be used when parsing property lists passing arguments
@@ -680,11 +678,11 @@ typedef enum VixRegValueDataType {
  *
  *      Use as:
  *
- *      VIX_DEBUG(("test debug message: %s %d\n", stringArg, intArg));
+ *      VIX_DEBUG("test debug message: %s %d\n", stringArg, intArg);
  *
  *       Output will go to logfile if VIX_DEBUG_PREFERENCE_NAME is non-zero
  *
- *      VIX_DEBUG_LEVEL(3, ("test debug message: %s %d\n", stringArg, intArg));
+ *      VIX_DEBUG_LEVEL(3, "test debug message: %s %d\n", stringArg, intArg);
  *
  *       Output will go to logfile if VIX_DEBUG_PREFERENCE_NAME is >=
  *       the first argument to the macro.
@@ -732,31 +730,47 @@ extern VixError VixLogError(VixError err, const char *function, int line,
 #define DEFAULT_VIX_LOG_LEVEL    0
 #define DEFAULT_VIX_API_TRACE_LEVEL 0
 
-#define VIX_DEBUG_LEVEL(logLevel, s) if (logLevel <= vixDebugGlobalSpewLevel) \
-    {  char *debugString = VixAllocDebugString s; \
-       Log("Vix: [%s:%d]: %s", \
-           VixDebug_GetFileBaseName(__FILE__), __LINE__, debugString); \
-       free(debugString); }
+#define VIX_DEBUG_LEVEL(logLevel, ...)                       \
+   if (logLevel <= vixDebugGlobalSpewLevel) {                \
+      char *debugString = VixAllocDebugString(__VA_ARGS__);  \
+                                                             \
+      Log("Vix: [%s:%d]: %s",                                \
+          VixDebug_GetFileBaseName(__FILE__), __LINE__,      \
+          debugString);                                      \
+      free(debugString);                                     \
+   }
 
-#define VIX_DEBUG(s) if (0 != vixDebugGlobalSpewLevel) \
-    {  char *debugString = VixAllocDebugString s; \
-       Log("Vix: [%s:%d]: %s", \
-           VixDebug_GetFileBaseName(__FILE__), __LINE__, debugString); \
-       free(debugString); }
+#define VIX_DEBUG(...)                                       \
+   if (0 != vixDebugGlobalSpewLevel) {                       \
+      char *debugString = VixAllocDebugString(__VA_ARGS__);  \
+                                                             \
+      Log("Vix: [%s:%d]: %s",                                \
+          VixDebug_GetFileBaseName(__FILE__), __LINE__,      \
+          debugString);                                      \
+      free(debugString);                                     \
+   }
 
-#define VIX_DEBUG_ALWAYS(s) {  char *debugString = VixAllocDebugString s; \
-       Log("Vix: [%s:%d]: %s", \
-           VixDebug_GetFileBaseName(__FILE__), __LINE__, debugString); \
-       free(debugString); }
+#define VIX_DEBUG_ALWAYS(...)                                \
+   {                                                         \
+      char *debugString = VixAllocDebugString(__VA_ARGS__);  \
+                                                             \
+      Log("Vix: [%s:%d]: %s",                                \
+          VixDebug_GetFileBaseName(__FILE__), __LINE__,      \
+          debugString);                                      \
+       free(debugString);                                    \
+    }
 
 #define VIX_API_TRACE_ON() (vixApiTraceGlobalSpewLevel > 0)
 
-#define VIX_API_LOG(s) if (VIX_API_TRACE_ON())                       \
-    {  char *debugString = VixAllocDebugString s;                    \
-       Log("VixApiLog: %s %s\n", __FUNCTION__, debugString);         \
-       free(debugString); }
+#define VIX_API_LOG(...)                                     \
+   if (VIX_API_TRACE_ON()) {                                 \
+      char *debugString = VixAllocDebugString(__VA_ARGS__);  \
+                                                             \
+      Log("VixApiLog: %s %s\n", __FUNCTION__, debugString);  \
+      free(debugString);                                     \
+   }
 
-// If no MSG is given, a description of err is suplemented.
+// If no MSG is given, a description of err is supplemented.
 #define VIX_ERROR(err) (VIX_ERROR_MSG(err, NULL))
 #define VIX_ERROR_MSG(err, ...) (VixLogError(err, __FUNCTION__, __LINE__, \
       VixDebug_GetFileBaseName(__FILE__), __VA_ARGS__))

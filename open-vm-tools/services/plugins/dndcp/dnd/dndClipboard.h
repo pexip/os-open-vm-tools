@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2007-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2007-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -39,6 +39,10 @@
 #include "dnd.h"
 #include "dynbuf.h"
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 /*
  * Make sure each clipboard item is at most 64kb - 100 b. This limitation is
  * copied from the current text copy paste limit.
@@ -48,50 +52,42 @@
 #define CPCLIPITEM_MAX_SIZE_V3 (DNDMSG_MAX_ARGSZ - 100)
 
 /* Cross platform formats */
-typedef
-#include "vmware_pack_begin.h"
-struct CPFileList {
+#pragma pack(push, 1)
+typedef struct CPFileList {
    uint64 fileSize;
    uint32 relPathsLen;
    uint32 fulPathsLen;
    uint8 filelists[1];
-}
-#include "vmware_pack_end.h"
-CPFileList;
+} CPFileList;
+#pragma pack(pop)
 
 #define CPFILELIST_HEADER_SIZE (1* sizeof(uint64) + 2 * sizeof(uint32))
 
-typedef
-#include "vmware_pack_begin.h"
-struct UriFileList {
+#pragma pack(push, 1)
+typedef struct UriFileList {
    uint64 fileSize;
    uint32 uriPathsLen;
    uint8 filelists[1];
-}
-#include "vmware_pack_end.h"
-UriFileList;
+} UriFileList;
+#pragma pack(pop)
 
 #define URI_FILELIST_HEADER_SIZE (1* sizeof(uint64) + 1 * sizeof(uint32))
 
-typedef
-#include "vmware_pack_begin.h"
-struct CPFileAttributes {
+#pragma pack(push, 1)
+typedef struct CPFileAttributes {
    // File, Directory, or link. See HgfsFileType.
    uint64 fileType;
    // Read, write, execute permissions. See File_GetFilePermissions().
    uint64 filePermissions;
-}
-#include "vmware_pack_end.h"
-CPFileAttributes;
+} CPFileAttributes;
+#pragma pack(pop)
 
-typedef
-#include "vmware_pack_begin.h"
-struct CPAttributeList {
+#pragma pack(push, 1)
+typedef struct CPAttributeList {
    uint32 attributesLen;
    CPFileAttributes attributeList[1];
-}
-#include "vmware_pack_end.h"
-CPAttributeList;
+} CPAttributeList;
+#pragma pack(pop)
 
 #define URI_ATTRIBUTES_LIST_HEADER_SIZE (1* sizeof(uint32))
 
@@ -135,5 +131,9 @@ Bool CPClipboard_Copy(CPClipboard *dest, const CPClipboard *src);
 Bool CPClipboard_Serialize(const CPClipboard *clip, DynBuf *buf);
 Bool CPClipboard_Unserialize(CPClipboard *clip, const void *buf, size_t len);
 Bool CPClipboard_Strip(CPClipboard *clip, uint32 caps);
+
+#if defined(__cplusplus)
+}  // extern "C"
+#endif
 
 #endif // _DND_CLIPBOARD_H_

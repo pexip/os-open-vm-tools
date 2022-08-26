@@ -1,5 +1,5 @@
 ##########################################################
-# Copyright (C) 2010-2018 VMware, Inc. All rights reserved.
+# Copyright (C) 2010, 2020-2021 VMware, Inc. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU Lesser General Public License as published
@@ -38,7 +38,7 @@ cmdline.install = "서비스 제어 관리자를 사용하여 서비스를 설�
 
 cmdline.install.args = "args"
 
-cmdline.kill = "실행 중인 VMware Tools 서비스의 인스턴스를 중지합니다."
+cmdline.forceQuit = "실행 중인 VMware Tools 서비스의 인스턴스를 중지합니다."
 
 cmdline.log = "무시되며, 이전 버전과의 호환성을 위해 유지됩니다."
 
@@ -55,6 +55,15 @@ cmdline.rpc = "RPC 명령을 호스트에 보내고 종료합니다."
 cmdline.rpc.command = "명령"
 
 cmdline.rpcerror = "VMware 하이퍼바이저에 명령을 보낼 수 없습니다."
+
+cmdline.cmdfile = "파일에서 RPC 명령을 호스트에 보내고 종료합니다."
+
+cmdline.cmdfile.command = "명령 파일"
+
+cmdline.cmdfile.rpcerror = "파일에서 VMware 하이퍼바이저에 명령을 보낼 수 없습니다."
+
+cmdline.cmdfile.read = "%1$s 파일에서 명령을 읽을 수 없습니다.\n"
+
 
 cmdline.state = "실행 중인 서비스 인스턴스의 내부 상태를 로그에 덤프합니다."
 

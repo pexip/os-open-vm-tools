@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -39,6 +39,10 @@
 #   include <unistd.h>
 #endif
 
+#if defined(_WIN32) || (defined(__linux__) && !defined(USERWORLD))
+#include "globalConfig.h"
+#endif
+
 #include "vmGuestLib.h"
 
 /*
@@ -47,23 +51,35 @@
  */
 
 #ifndef EX_USAGE
-#define EX_USAGE 64
+#define EX_USAGE 64 /* command line usage error */
 #endif
 
 #ifndef EX_UNAVAILABLE
-#define EX_UNAVAILABLE 69
+#define EX_UNAVAILABLE 69 /* service unavailable */
+#endif
+
+#ifndef EX_SOFTWARE
+#define EX_SOFTWARE 70 /* internal software error */
+#endif
+
+#ifndef EX_OSERR
+#define EX_OSERR 71 /* system error (e.g., can't fork) */
 #endif
 
 #ifndef EX_OSFILE
-#define EX_OSFILE 72
+#define EX_OSFILE 72 /* critical OS file missing */
 #endif
 
 #ifndef EX_TEMPFAIL
-#define EX_TEMPFAIL 75
+#define EX_TEMPFAIL 75 /* temp failure; user is invited to retry */
 #endif
 
 #ifndef EX_NOPERM
-#define EX_NOPERM 77
+#define EX_NOPERM 77 /* permission denied */
+#endif
+
+#ifndef VM_EX_INTERRUPT
+#define VM_EX_INTERRUPT 130 /* SIGINT received */
 #endif
 
 /*
@@ -104,6 +120,9 @@ ToolsCmd_SendRPC(const char *rpc,
                  char **result,
                  size_t *resultLen);
 
+void
+ToolsCmd_FreeRPC(void *ptr);
+
 /*
  * Command declarations.
  */
@@ -134,6 +153,31 @@ DECLARE_COMMAND(Config);
 #if defined(_WIN32) || \
    (defined(__linux__) && !defined(OPEN_VM_TOOLS) && !defined(USERWORLD))
 DECLARE_COMMAND(Upgrade);
+#endif
+
+#if defined(_WIN32) || \
+   (defined(__linux__) && !defined(USERWORLD))
+DECLARE_COMMAND(GuestStore);
+#endif
+
+#if defined(GLOBALCONFIG_SUPPORTED)
+
+DECLARE_COMMAND(GlobalConf)
+
+#define TOOLBOXCMD_LOAD_GLOBALCONFIG(conf)                        \
+   {                                                              \
+      if (GlobalConfig_GetEnabled(conf)) {                        \
+         GKeyFile *__globalConf = NULL;                           \
+         if (GlobalConfig_LoadConfig(&__globalConf, NULL)) {      \
+            VMTools_AddConfig(__globalConf, conf);                \
+            g_key_file_free(__globalConf);                        \
+         }                                                        \
+      }                                                           \
+   }
+#else
+
+#define TOOLBOXCMD_LOAD_GLOBALCONFIG(conf)
+
 #endif
 
 #endif /*_TOOLBOX_CMD_H_*/

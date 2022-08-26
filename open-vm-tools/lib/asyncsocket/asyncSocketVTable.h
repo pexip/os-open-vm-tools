@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011,2014-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011,2014-2017,2019-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -81,14 +81,16 @@ typedef struct AsyncSocketVTable {
    int (*getGenericErrno)(AsyncSocket *s);
    int (*getFd)(AsyncSocket *asock);
    int (*getRemoteIPStr)(AsyncSocket *asock, const char **ipStr);
+   int (*getRemotePort)(AsyncSocket *asock, uint32 *port);
    int (*getINETIPStr)(AsyncSocket *asock, int socketFamily, char **ipRetStr);
    unsigned int (*getPort)(AsyncSocket *asock);
    int (*setCloseOptions)(AsyncSocket *asock, int flushEnabledMaxWaitMsec,
                            AsyncSocketCloseFn closeCb);
    Bool (*connectSSL)(AsyncSocket *asock, struct _SSLVerifyParam *verifyParam,
-                      void *sslContext);
+                      const char *hostname, void *sslContext);
    int (*startSslConnect)(AsyncSocket *asock,
-                           struct _SSLVerifyParam *verifyParam, void *sslCtx,
+                           struct _SSLVerifyParam *verifyParam,
+                           const char *hostname, void *sslCtx,
                            AsyncSocketSslConnectFn sslConnectFn,
                            void *clientData);
    Bool (*acceptSSL)(AsyncSocket *asock, void *sslCtx);
@@ -119,6 +121,8 @@ typedef struct AsyncSocketVTable {
    const char *(*getWebSocketProtocol)(AsyncSocket *asock);
    int (*setWebSocketCookie)(AsyncSocket *asock, void *clientData,
                              const char *path, const char *sessionId);
+   int (*setDelayWebSocketUpgradeResponse)(AsyncSocket *asock,
+                                           Bool delayWebSocketUpgradeResponse);
    int (*recvBlocking)(AsyncSocket *s, void *buf, int len, int *received,
                       int timeoutMS);
    int (*recvPartialBlocking)(AsyncSocket *s, void *buf, int len,
@@ -127,9 +131,9 @@ typedef struct AsyncSocketVTable {
                        int timeoutMS);
    int (*doOneMsg)(AsyncSocket *s, Bool read, int timeoutMS);
    int (*waitForConnection)(AsyncSocket *s, int timeoutMS);
-   int (*waitForReadMultiple)(AsyncSocket **asock, int numSock, int timeoutMS,
-                              int *outIdx);
-
+   int (*waitForReadMultiple)(AsyncSocket **asock, size_t numSock,
+                              int timeoutMS, int *outIdx);
+   int (*peek)(AsyncSocket *asock, void *buf, int len, void *cb, void *cbData);
 
    /*
     * Internal function, called when refcount drops to zero:

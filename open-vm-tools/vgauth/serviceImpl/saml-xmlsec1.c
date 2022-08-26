@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2016-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2016-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -31,6 +31,8 @@
 #include <libxml/parser.h>
 #include <libxml/catalog.h>
 #include <libxml/xmlschemas.h>
+#include <libxml/xmlIO.h>
+#include <libxml/uri.h>
 
 #include <xmlsec/xmlsec.h>
 #include <xmlsec/xmltree.h>
@@ -44,6 +46,7 @@
 #include "prefs.h"
 #include "serviceInt.h"
 #include "certverify.h"
+#include "vmxlog.h"
 
 static int gClockSkewAdjustment = VGAUTH_PREF_DEFAULT_CLOCK_SKEW_SECS;
 static xmlSchemaPtr gParsedSchemas = NULL;
@@ -51,6 +54,60 @@ static xmlSchemaValidCtxtPtr gSchemaValidateCtx = NULL;
 
 #define CATALOG_FILENAME            "catalog.xml"
 #define SAML_SCHEMA_FILENAME        "saml-schema-assertion-2.0.xsd"
+
+
+/*
+ ******************************************************************************
+ * UserXmlFileOpen --                                                    */ /**
+ *
+ * User defined version of libxml2 export xmlFileOpen.
+ *
+ * This function opens a file with its unescaped name only.
+ *
+ * xmlInitParser() calls xmlRegisterDefaultInputCallbacks() which calls
+ *    xmlRegisterInputCallbacks(xmlFileMatch, xmlFileOpen,
+ *                              xmlFileRead, xmlFileClose)
+ *
+ * UserXmlFileOpen is registered at the end of the xmlInputCallback table by
+ *    xmlRegisterInputCallbacks(xmlFileMatch, UserXmlFileOpen,
+ *                              xmlFileRead, xmlFileClose)
+ *
+ * Based on libxml2 xmlIO.c, precedence is given to user defined handlers.
+ *
+ * @param[in]  filename          The URI file name.
+ *
+ * @return A handler or NULL in case of failure.
+ ******************************************************************************
+ */
+
+static void *
+UserXmlFileOpen(const char *filename)
+{
+   char *unescaped;
+   void *retval = NULL;
+
+   g_debug("%s: Incoming file name is \"%s\"\n", __FUNCTION__, filename);
+
+   unescaped = xmlURIUnescapeString(filename, 0, NULL);
+   if (unescaped != NULL) {
+      g_debug("%s: Opening file \"%s\"\n", __FUNCTION__, unescaped);
+      retval = xmlFileOpen(unescaped);
+      xmlFree(unescaped);
+   }
+
+   if (retval == NULL) {
+      g_warning("%s: Failed to open file \"%s\"\n", __FUNCTION__, filename);
+      /*
+       * Do not retry xmlFileOpen(filename) here.
+       * Calling system API to open escaped file paths is risky. This can
+       * cause unexpected not-secured paths being accessed and expose
+       * privilege escalation vulnerabilities.
+       */
+   }
+
+   return retval;
+}
+
 
 /*
  * Hack to test expired tokens and by-pass the time checks.
@@ -93,6 +150,7 @@ XmlErrorHandler(void *ctx,
     * Treat all as warning.
     */
    g_warning("XML Error: %s", msgStr);
+   VMXLog_Log(VMXLOG_LEVEL_WARNING, "XML Error: %s", msgStr);
 }
 
 
@@ -123,14 +181,20 @@ XmlSecErrorHandler(const char *file,
                    const char *msg)
 {
    /*
-    * Treat all as warning.
-    */
+    * Treat all as warning.  */
    g_warning("XMLSec Error: %s:%s(line %d) object %s"
              " subject %s reason: %d, msg: %s",
              file, func, line,
              errorObject ? errorObject : "<UNSET>",
              errorSubject ? errorSubject : "<UNSET>",
              reason, msg);
+   VMXLog_Log(VMXLOG_LEVEL_WARNING,
+              "XMLSec Error: %s:%s(line %d) object %s"
+              " subject %s reason: %d, msg: %s",
+              file, func, line,
+              errorObject ? errorObject : "<UNSET>",
+              errorSubject ? errorSubject : "<UNSET>",
+              reason, msg);
 }
 
 
@@ -196,9 +260,9 @@ LoadCatalogAndSchema(void)
    catalogPath = g_build_filename(schemaDir, CATALOG_FILENAME, NULL);
    schemaPath = g_build_filename(schemaDir, SAML_SCHEMA_FILENAME, NULL);
 
-   xmlInitializeCatalog();
-
    /*
+    * Skip calling xmlInitializeCatalog().
+    *
     * xmlLoadCatalog() just adds to the default catalog, and won't return an
     * error if it doesn't exist so long as a default catalog is set.
     *
@@ -347,6 +411,12 @@ SAML_Init(void)
    xmlSetGenericErrorFunc(NULL, XmlErrorHandler);
 
    /*
+    * Register user defined UserXmlFileOpen
+    */
+   xmlRegisterInputCallbacks(xmlFileMatch, UserXmlFileOpen,
+                             xmlFileRead, xmlFileClose);
+
+   /*
     * Load schemas
     */
    if (!LoadCatalogAndSchema()) {
@@ -384,6 +454,11 @@ SAML_Init(void)
                   "Make sure that you have xmlsec1-openssl installed and\n"
                   "check shared libraries path\n"
                   "(LD_LIBRARY_PATH) environment variable.\n");
+        VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                   "Error: unable to load openssl xmlsec-crypto library.\n "
+                   "Make sure that you have xmlsec1-openssl installed and\n"
+                   "check shared libraries path\n"
+                   "(LD_LIBRARY_PATH) environment variable.\n");
       return VGAUTH_E_FAIL;
     }
 #endif /* XMLSEC_CRYPTO_DYNAMIC_LOADING */
@@ -414,6 +489,10 @@ SAML_Init(void)
    Log("%s: Using xmlsec1 %d.%d.%d for XML signature support\n",
        __FUNCTION__, XMLSEC_VERSION_MAJOR, XMLSEC_VERSION_MINOR,
        XMLSEC_VERSION_SUBMINOR);
+   VMXLog_Log(VMXLOG_LEVEL_WARNING,
+              "%s: Using xmlsec1 %d.%d.%d for XML signature support\n",
+              __FUNCTION__, XMLSEC_VERSION_MAJOR, XMLSEC_VERSION_MINOR,
+              XMLSEC_VERSION_SUBMINOR);
 
    return VGAUTH_E_OK;
 }
@@ -766,6 +845,10 @@ CheckTimeAttr(const xmlNodePtr node,
       g_warning("%s: FAILED SAML assertion (timeStamp %s, delta %d) %s.\n",
                 __FUNCTION__, timeAttr, (int) diff,
                 notBefore ? "is not yet valid" : "has expired");
+      VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                 "%s: FAILED SAML assertion (timeStamp %s, delta %d) %s.\n",
+                __FUNCTION__, timeAttr, (int) diff,
+                notBefore ? "is not yet valid" : "has expired");
       retVal = FALSE;
       goto done;
    }
@@ -851,7 +934,6 @@ VerifySubject(xmlDocPtr doc,
    xmlNodePtr nameIDNode;
    xmlNodePtr child;
    gchar *subjectVal = NULL;
-   gboolean retCode = FALSE;
    gboolean validSubjectFound = FALSE;
    xmlChar *tmp;
 
@@ -935,14 +1017,13 @@ VerifySubject(xmlDocPtr doc,
       }
    }
 
+done:
    if (validSubjectFound && (NULL != subjectRet)) {
       *subjectRet = subjectVal;
    } else {
       g_free(subjectVal);
    }
-   retCode = validSubjectFound;
-done:
-   return retCode;
+   return validSubjectFound;
 }
 
 
@@ -1099,11 +1180,27 @@ BuildCertChain(xmlNodePtr x509Node,
        */
       ret = xmlSecCryptoAppKeysMngrCertLoadMemory(mgr,
                                                   pemCert,
-                                                  strlen(pemCert),
+                                                  (xmlSecSize) strlen(pemCert),
                                                   xmlSecKeyDataFormatPem,
                                                   xmlSecKeyDataTypeTrusted);
       if (ret < 0) {
-         g_warning("Failed to add cert to key manager\n");
+         g_warning("%s: Failed to add cert to key manager\n", __FUNCTION__);
+         g_warning("PEM cert: %s\n", pemCert);
+         VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                    "%s: Failed to add cert to key manager\n", __FUNCTION__);
+         /*
+          * XXX
+          *
+          * Certificates can have data (eg email addresses)
+          * we don't want to log those to the VMX due to privacy concerns.
+          * So let's not log to VMX at all until we have a reliable way to
+          * cleanse them -- assuming that doesn't make them worthless
+          * since the data won't match anything in the aliasStore
+          * or a SAML token.
+          */
+#if 0
+           VMXLog_Log(VMXLOG_LEVEL_WARNING, "PEM cert: %s\n", pemCert);
+#endif
          goto done;
       }
 
@@ -1260,9 +1357,22 @@ VerifySignature(xmlDocPtr doc,
    /*
     * Check status to verify the signature is correct.
     *
+    * This check can fail due to build issues.  If xmlSecSize is
+    * different between this layer and the xmlsec library,
+    * dsigCtx->status can be at the wrong offset.  So
+    * dump the value of status, which should be either
+    * 1 (xmlSecDSigStatusSucceeded) or 2 (xmlSecDSigStatusInvalid).
+    * If its something else, that's a sign there's a
+    * build issue and XMLSEC_NO_SIZE_T may be set at one layer but
+    * not the other.
+    *
     */
    if (dsigCtx->status != xmlSecDSigStatusSucceeded) {
-      g_warning("Signature is INVALID\n");
+      g_warning("%s: Signature is invalid (got %d)\n",
+                __FUNCTION__, dsigCtx->status);
+      VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                 "%s: signature is invalid (got %d)\n", __FUNCTION__,
+                 dsigCtx->status);
       goto done;
    }
 
@@ -1363,6 +1473,7 @@ VerifySAMLToken(const gchar *token,
    bRet = VerifySignature(doc, numCerts, certChain);
    if (FALSE == bRet) {
       g_warning("Failed to verify Signature\n");
+      // XXX Can we log the token at this point without risking security?
       goto done;
    }
 

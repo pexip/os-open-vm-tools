@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -42,6 +42,7 @@
 #if !defined(WINNT_DDK)
 #  include "hostinfo.h"
 #  include "str.h"
+#  include "x86cpuid.h"
 #endif
 
 /*
@@ -69,16 +70,6 @@
 #endif
 
 typedef Bool (*SafeCheckFn)(void);
-
-#if !defined(WINNT_DDK)
-static const struct {
-   const char *vendorSig;
-   const char *hypervisorName;
-} gHvVendor[] = {
-   {CPUID_KVM_HYPERVISOR_VENDOR_STRING, "Linux KVM"},
-   {CPUID_XEN_HYPERVISOR_VENDOR_STRING, "Xen"},
-};
-#endif
 
 
 #if !defined(_WIN32)
@@ -258,7 +249,8 @@ VmCheck_GetVersion(uint32 *version, // OUT
  *    environment.
  *
  * Return value:
- *    TRUE if we're in a virtual machine, FALSE otherwise.
+ *    TRUE if we're in a virtual machine or a Linux compilation using Valgrind,
+ *    FALSE otherwise.
  *
  * Side effects:
  *    None.
@@ -273,6 +265,13 @@ VmCheck_IsVirtualWorld(void)
    uint32 dummy;
 
 #if !defined(WINNT_DDK)
+#ifdef USE_VALGRIND
+   /*
+    * Valgrind can't handle the backdoor check.
+    */
+   return TRUE;
+#endif
+#if defined VM_X86_ANY
    char *hypervisorSig;
    uint32 i;
 
@@ -284,10 +283,18 @@ VmCheck_IsVirtualWorld(void)
    if (hypervisorSig == NULL ||
          Str_Strcmp(hypervisorSig, CPUID_VMWARE_HYPERVISOR_VENDOR_STRING) != 0) {
       if (hypervisorSig != NULL) {
-         for (i = 0; i < ARRAYSIZE(gHvVendor); i++) {
-            if (Str_Strcmp(hypervisorSig, gHvVendor[i].vendorSig) == 0) {
+         static const struct {
+            const char *vendorSig;
+            const char *hypervisorName;
+         } hvVendors[] = {
+            { CPUID_KVM_HYPERVISOR_VENDOR_STRING, "Linux KVM" },
+            { CPUID_XEN_HYPERVISOR_VENDOR_STRING, "Xen" },
+         };
+
+         for (i = 0; i < ARRAYSIZE(hvVendors); i++) {
+            if (Str_Strcmp(hypervisorSig, hvVendors[i].vendorSig) == 0) {
                Debug("%s: detected %s.\n", __FUNCTION__,
-                     gHvVendor[i].hypervisorName);
+                     hvVendors[i].hypervisorName);
                free(hypervisorSig);
                return FALSE;
             }
@@ -309,6 +316,7 @@ VmCheck_IsVirtualWorld(void)
    } else {
       free(hypervisorSig);
    }
+#endif
 
    if (!VmCheckSafe(Hostinfo_TouchBackDoor)) {
       Debug("%s: backdoor not detected.\n", __FUNCTION__);
@@ -316,14 +324,20 @@ VmCheck_IsVirtualWorld(void)
    }
 
    /* It should be safe to use the backdoor without a crash handler now. */
-   VmCheck_GetVersion(&version, &dummy);
+   if (!VmCheck_GetVersion(&version, &dummy)) {
+      Debug("%s: VmCheck_GetVersion failed.\n", __FUNCTION__);
+      return FALSE;
+   }
 #else
    /*
     * The Win32 vmwvaudio driver uses this function, so keep the old,
     * VMware-only check.
     */
    __try {
-      VmCheck_GetVersion(&version, &dummy);
+      if (!VmCheck_GetVersion(&version, &dummy)) {
+         Debug("%s: VmCheck_GetVersion failed.\n", __FUNCTION__);
+         return FALSE;
+      }
    } __except (GetExceptionCode() == STATUS_PRIVILEGED_INSTRUCTION) {
       return FALSE;
    }
@@ -331,8 +345,9 @@ VmCheck_IsVirtualWorld(void)
 
    if (version != VERSION_MAGIC) {
       Debug("The version of this program is incompatible with your %s.\n"
-            "For information on updating your VMware Tools please see\n"
-            "http://www.vmware.com/info?id=99\n"
+            "For information on updating your VMware Tools please see the\n"
+            "'Upgrading VMware Tools' section of the 'VMware Tools User Guide'"
+            "\nat https://docs.vmware.com/en/VMware-Tools/index.html\n"
             "\n", PRODUCT_LINE_NAME);
       return FALSE;
    }

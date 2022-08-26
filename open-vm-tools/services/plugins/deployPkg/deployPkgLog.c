@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -34,7 +34,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include "win32Access.h"
 #endif
+
+#define G_LOG_DOMAIN "deployPkg"
 
 static FILE* _file = NULL;
 
@@ -82,9 +85,17 @@ DeployPkgLog_Open()
 #ifndef _WIN32
          setlinebuf(_file);
          (void) chmod(logPath, 0600);
+#else
+         (void)Win32Access_SetFileOwnerRW(logPath);
 #endif
          DeployPkgLog_Log(log_debug, "## Starting deploy pkg operation");
+      } else {
+         g_debug("%s: failed to open DeployPkg log file: %s\n",
+                   __FUNCTION__, logPath);
       }
+   } else {
+      g_debug("%s: failed to create DeployPkg log directory: %s\n",
+                   __FUNCTION__, logPath);
    }
 }
 
@@ -122,6 +133,11 @@ DeployPkgLog_Close()
  * DeployPkgLog_Log --
  *
  *    If the log file was opened successfully, write to it.
+ *    Otherwise call the glib logger, messages are logged
+ *    per tools logging configuration.
+ *    Note: since g_error() is always fatal and terminate the application,
+ *    log_error will be logged as g_warning to avoid terminating the
+ *    application.
  *
  * Results:
  *    None.
@@ -138,39 +154,64 @@ DeployPkgLog_Log(int level,          // IN
                  ...)                // IN
 {
    va_list args;
-   gchar *tstamp;
-   const char *logLevel;
 
-   /* Make sure init succeeded */
-   if (_file == NULL) {
+   if (fmtstr == NULL) {
       return;
    }
 
-   switch (level) {
-      case log_debug:
-         logLevel = "debug";
-         break;
-      case log_info:
-         logLevel = "info";
-         break;
-      case log_warning:
-         logLevel = "warning";
-         break;
-      case log_error:
-         logLevel = "error";
-         break;
-      default:
-         logLevel = "unknown";
-         break;
+   va_start(args, fmtstr);
+
+   if (_file != NULL) {
+      const char *logLevel;
+      gchar *tstamp;
+      size_t fmtstrLen = strlen(fmtstr);
+      switch (level) {
+         case log_debug:
+            logLevel = "debug";
+            break;
+         case log_info:
+            logLevel = "info";
+            break;
+         case log_warning:
+            logLevel = "warning";
+            break;
+         case log_error:
+            logLevel = "error";
+            break;
+         default:
+            logLevel = "unknown";
+            break;
+      }
+
+      tstamp = VMTools_GetTimeAsString();
+      fprintf(_file, "[%s] [%8s] ",
+              (tstamp != NULL) ? tstamp : "no time", logLevel);
+      vfprintf(_file, fmtstr, args);
+      if (fmtstrLen > 0 && fmtstr[fmtstrLen - 1] != '\n') {
+         fprintf(_file, "\n");
+      }
+      g_free(tstamp);
+   } else {
+      GLogLevelFlags glogLevel;
+      switch (level) {
+         case log_debug:
+            glogLevel = G_LOG_LEVEL_DEBUG;
+            break;
+         case log_info:
+            glogLevel = G_LOG_LEVEL_INFO;
+            break;
+         case log_warning:
+         case log_error:
+            glogLevel = G_LOG_LEVEL_WARNING;
+            break;
+         default:
+            glogLevel = G_LOG_LEVEL_INFO;
+            break;
+      }
+
+      g_logv(G_LOG_DOMAIN, glogLevel, fmtstr, args);
    }
 
-   va_start(args, fmtstr);
-   tstamp = VMTools_GetTimeAsString();
-   fprintf(_file, "[%s] [%8s] ",
-           (tstamp != NULL) ? tstamp : "no time", logLevel);
-   vfprintf(_file, fmtstr, args);
-   fprintf(_file, "\n");
-   g_free(tstamp);
    va_end(args);
 }
 

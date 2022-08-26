@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -87,6 +87,36 @@ DynBuf_InitWithMemory(DynBuf *b,        // IN/OUT:
    b->size = 0;
    b->data = data;
    b->allocated = dataSize;
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * DynBuf_InitWithString --
+ *
+ *      Initialize buffer with a pre-allocated string.
+ *
+ * Results:
+ *      None
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+DynBuf_InitWithString(DynBuf *b, // IN/OUT
+                      char *str) // IN
+{
+   if (str != NULL) {
+      int len = strlen(str);
+      DynBuf_InitWithMemory(b, len + 1, str);
+      DynBuf_SetSize(b, len);
+   } else {
+      DynBuf_Init(b);
+   }
 }
 
 
@@ -316,10 +346,40 @@ DynBuf_Enlarge(DynBuf *b,       // IN/OUT:
 /*
  *-----------------------------------------------------------------------------
  *
- * DynBuf_Append --
+ * DynBuf_SafeInternalEnlarge --
  *
- *      Append data at the end of a dynamic buffer. 'size' is the size of the
- *      data. If it is <= 0, no operation is performed --hpreg
+ *      Enlarge a dynamic buffer. Memory allocation failure is handled the
+ *      same way as Util_SafeMalloc, that is to say, with a Panic.
+ *
+ * Results:
+ *      None
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+DynBuf_SafeInternalEnlarge(DynBuf *b,           // IN/OUT:
+                           size_t minSize,      // IN:
+                           char const *file,    // IN:
+                           unsigned int lineno) // IN:
+{
+   if (!DynBuf_Enlarge(b, minSize)) {
+      Panic("Unrecoverable memory allocation failure at %s:%u\n",
+            file, lineno);
+   }
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * DynBuf_Insert --
+ *
+ *      Insert data at a given offset within a dynamic buffer. 'size' is the
+ *      size of the data. If it is <= 0, no operation is performed.
  *
  * Results:
  *      TRUE on success
@@ -332,13 +392,15 @@ DynBuf_Enlarge(DynBuf *b,       // IN/OUT:
  */
 
 Bool
-DynBuf_Append(DynBuf *b,        // IN/OUT:
+DynBuf_Insert(DynBuf *b,        // IN/OUT:
+              size_t offset,    // IN:
               void const *data, // IN:
               size_t size)      // IN:
 {
    size_t new_size;
 
    ASSERT(b);
+   ASSERT(offset <= b->size);
 
    if (size <= 0) {
       return TRUE;
@@ -359,7 +421,8 @@ DynBuf_Append(DynBuf *b,        // IN/OUT:
       }
    }
 
-   memcpy(b->data + b->size, data, size);
+   memmove(b->data + offset + size, b->data + offset, b->size - offset);
+   memcpy(b->data + offset, data, size);
    b->size = new_size;
 
    return TRUE;
@@ -369,10 +432,70 @@ DynBuf_Append(DynBuf *b,        // IN/OUT:
 /*
  *-----------------------------------------------------------------------------
  *
+ * DynBuf_SafeInternalInsert --
+ *
+ *      Insert data at a given offset within a dynamic buffer. Memory
+ *      allocation failure is handled the same way as Util_SafeMalloc, that is
+ *      to say, with a Panic.
+ *
+ * Results:
+ *      None
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+DynBuf_SafeInternalInsert(DynBuf *b,            // IN/OUT:
+                          size_t offset,        // IN:
+                          void const *data,     // IN:
+                          size_t size,          // IN:
+                          char const *file,     // IN:
+                          unsigned int lineno)  // IN:
+{
+   if (!DynBuf_Insert(b, offset, data, size)) {
+      Panic("Unrecoverable memory allocation failure at %s:%u\n",
+            file, lineno);
+   }
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * DynBuf_Append --
+ *
+ *      Append data at the end of a dynamic buffer. 'size' is the size of the
+ *      data. If it is <= 0, no operation is performed.
+ *
+ * Results:
+ *      TRUE on success
+ *      FALSE on failure (not enough memory)
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+Bool
+DynBuf_Append(DynBuf *b,        // IN/OUT:
+              void const *data, // IN:
+              size_t size)      // IN:
+{
+   return DynBuf_Insert(b, b->size, data, size);
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * DynBuf_SafeInternalAppend --
  *
  *      Append data at the end of a dynamic buffer. Memory allocation failure
- *      are handled the same way as Util_SafeMalloc, that is to say, with a
+ *      is handled the same way as Util_SafeMalloc, that is to say, with a
  *      Panic.
  *
  * Results:

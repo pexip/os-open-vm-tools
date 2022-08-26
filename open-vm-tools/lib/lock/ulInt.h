@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2019, 2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -454,18 +454,16 @@ typedef enum {
  */
 
 typedef struct MXUserHeader {
-   uint32       signature;
    char        *name;
+   uint32       signature;
    MX_Rank      rank;
-
-   struct {
-      unsigned int serialNumber : 24;
-      unsigned int badHeader: 1;
-   } bits;
 
    void       (*dumpFunc)(struct MXUserHeader *);
    void       (*statsFunc)(struct MXUserHeader *);
    ListItem     item;
+
+   uint64       serialNumber;
+   Bool         badHeader;
 } MXUserHeader;
 
 
@@ -568,7 +566,7 @@ typedef struct
    Atomic_Ptr        histo;
 } MXUserHeldStats;
 
-uint32 MXUserAllocSerialNumber(void);
+uint64 MXUserAllocSerialNumber(void);
 
 void MXUserAddToList(MXUserHeader *header);
 void MXUserRemoveFromList(MXUserHeader *header);
@@ -577,7 +575,7 @@ uint32 MXUserStatsMode(void);
 
 typedef struct MXUserHisto MXUserHisto;
 
-MXUserHisto *MXUserHistoSetUp(char *typeName,
+MXUserHisto *MXUserHistoSetUp(const char *typeName,
                               uint64 minValue,
                               uint32 decades);
 
@@ -604,7 +602,7 @@ void MXUserAcquisitionStatsTearDown(MXUserAcquisitionStats *stats);
 
 void
 MXUserBasicStatsSetUp(MXUserBasicStats *stats,
-                      char *typeName);
+                      const char *typeName);
 
 void
 MXUserBasicStatsSample(MXUserBasicStats *stats,

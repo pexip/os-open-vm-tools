@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,6 +33,7 @@
 #include "conf.h"
 #include "guestApp.h"
 #include "serviceObj.h"
+#include "toolsHangDetector.h"
 #include "str.h"
 #include "system.h"
 #include "util.h"
@@ -43,6 +44,29 @@
 #include "vmware/tools/log.h"
 #include "vmware/tools/utils.h"
 #include "vmware/tools/vmbackup.h"
+
+#if defined(_WIN32) || \
+   (defined(__linux__) && !defined(USERWORLD))
+#  include "vmware/tools/guestStore.h"
+#  include "globalConfig.h"
+#endif
+
+/*
+ * guestStoreClient library is needed for both Gueststore based tools upgrade
+ * and also for GlobalConfig module.
+ */
+#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+#  include "guestStoreClient.h"
+#endif
+
+#if defined(_WIN32)
+#  include "codeset.h"
+#  include "toolsNotify.h"
+#  include "vsockets.h"
+#  include "windowsu.h"
+#else
+#  include "posix.h"
+#endif
 
 
 /*
@@ -71,6 +95,13 @@
 
 #define CONFNAME_MAX_CHANNEL_ATTEMPTS "maxChannelAttempts"
 
+#if defined(GLOBALCONFIG_SUPPORTED)
+/*
+ * The state of the global conf module.
+ */
+static gboolean gGlobalConfStarted = FALSE;
+#endif
+
 
 /*
  ******************************************************************************
@@ -87,6 +118,17 @@
 static void
 ToolsCoreCleanup(ToolsServiceState *state)
 {
+#if defined(_WIN32) || \
+   (defined(__linux__) && !defined(USERWORLD))
+   if (state->mainService) {
+      /*
+       * Shut down guestStore plugin first to prevent worker threads from being
+       * blocked in client lib synchronous recv() call.
+       */
+      ToolsPluginSvcGuestStore_Shutdown(&state->ctx);
+   }
+#endif
+
    ToolsCorePool_Shutdown(&state->ctx);
    ToolsCore_UnloadPlugins(state);
 #if defined(__linux__)
@@ -94,6 +136,23 @@ ToolsCoreCleanup(ToolsServiceState *state)
       ToolsCore_ReleaseVsockFamily(state);
    }
 #endif
+
+/*
+ * guestStoreClient library is needed for both Gueststore based tools upgrade
+ * and also for GlobalConfig module.
+ */
+#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+   if (state->mainService && GuestStoreClient_DeInit()) {
+      g_info("%s: De-initialized GuestStore client.\n", __FUNCTION__);
+   }
+#endif
+
+#if defined(_WIN32)
+   if (state->mainService && ToolsNotify_End()) {
+      g_info("%s: End Tools notifications.\n", __FUNCTION__);
+   }
+#endif
+
    if (state->ctx.rpc != NULL) {
       RpcChannel_Stop(state->ctx.rpc);
       RpcChannel_Destroy(state->ctx.rpc);
@@ -102,7 +161,7 @@ ToolsCoreCleanup(ToolsServiceState *state)
    g_key_file_free(state->ctx.config);
    g_main_loop_unref(state->ctx.mainLoop);
 
-#if defined(G_PLATFORM_WIN32)
+#if defined(_WIN32)
    if (state->ctx.comInitialized) {
       CoUninitialize();
       state->ctx.comInitialized = FALSE;
@@ -286,6 +345,81 @@ ToolsCoreReportVersionData(ToolsServiceState *state)
 
 /*
  ******************************************************************************
+ * ToolsCoreSetOptionSignalCb --
+ *
+ *  The SET_OPTION signal callback. The signal was triggered from
+ *  ToolsCoreRpcSetOption. This function is needed to safely run code
+ *  outside of the TCLO RPC handler.
+ *
+ *  Check for TOOLSOPTION_GUEST_LOG_LEVEL,
+ *  and reinitialize the Vmx Guest Logger.
+ *
+ * @param[in]  src      The source object.
+ * @param[in]  ctx      The ToolsAppCtx for passing config.
+ * @param[in]  option   The option key.
+ * @param[in]  value    The option value.
+ * @param[in]  data     Unused.
+ *
+ * Result:
+ *      TRUE on success.
+ *
+ * Side-effects:
+ *      None
+ *
+ ******************************************************************************
+ */
+
+static gboolean
+ToolsCoreSetOptionSignalCb(gpointer src,               // IN
+                           ToolsAppCtx *ctx,           // IN
+                           const gchar *option,        // IN
+                           const gchar *value,         // IN
+                           gpointer data)              // IN
+{
+   if (strcmp(option, TOOLSOPTION_GUEST_LOG_LEVEL) == 0) {
+      ASSERT(value); /* Caller ensures */
+      g_info("Received the tools set option for the guest log level '%s'.\n",
+             value);
+
+      /* Reuse the existing RPC channel */
+      VMTools_SetupVmxGuestLog(FALSE, ctx->config, value);
+   }
+
+   return TRUE;
+}
+
+
+/*
+ ******************************************************************************
+ *
+ * ToolsCoreResetSignalCb --
+ *  The RESET signal callback. The signal was triggered from
+ *  ToolsCoreCheckReset. This function is needed to safely run code
+ *  outside of the RPC Channel reset code.
+ *
+ *  Reinitialize the Vmx Guest Logger.
+ *
+ * @param[in]  src      The source object.
+ * @param[in]  ctx      The ToolsAppCtx for passing the config.
+ * @param[in]  data     Unused.
+ *
+ ******************************************************************************
+ */
+
+static void
+ToolsCoreResetSignalCb(gpointer src,          // IN
+                       ToolsAppCtx *ctx,      // IN
+                       gpointer data)         // IN
+{
+   g_info("Reinitialize the Vmx Guest Logger with a new RPC channel.\n");
+   VMTools_SetupVmxGuestLog(TRUE, ctx->config, NULL); /* New RPC channel */
+   g_info("Clear out the tools hang detector RPC cache state\n");
+   ToolsCoreHangDetector_RpcReset();
+}
+
+
+/*
+ ******************************************************************************
  * ToolsCoreRunLoop --                                                  */ /**
  *
  * Loads and registers all plugins, and runs the service's main loop.
@@ -300,6 +434,16 @@ ToolsCoreReportVersionData(ToolsServiceState *state)
 static int
 ToolsCoreRunLoop(ToolsServiceState *state)
 {
+#if defined(_WIN32)
+   /*
+    * Verify VSockets are fully initialized before any real work.
+    * For example, this can be broken by OS upgrades, see PR 2743009.
+    */
+   if (state->mainService) {
+      VSockets_Initialized();
+   }
+#endif
+
    if (!ToolsCore_InitRpc(state)) {
       return 1;
    }
@@ -316,6 +460,16 @@ ToolsCoreRunLoop(ToolsServiceState *state)
    if (state->ctx.rpc) {
       ToolsCoreReportVersionData(state);
    }
+
+/*
+ * guestStoreClient library is needed for both Gueststore based tools upgrade
+ * and also for GlobalConfig module.
+ */
+#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+   if (state->mainService && GuestStoreClient_Init()) {
+      g_info("%s: Initialized GuestStore client.\n", __FUNCTION__);
+   }
+#endif
 
    if (!ToolsCore_LoadPlugins(state)) {
       return 1;
@@ -359,6 +513,22 @@ ToolsCoreRunLoop(ToolsServiceState *state)
                           state);
       }
 
+      if (g_signal_lookup(TOOLS_CORE_SIG_SET_OPTION,
+                          G_OBJECT_TYPE(state->ctx.serviceObj)) != 0) {
+         g_signal_connect(state->ctx.serviceObj,
+                          TOOLS_CORE_SIG_SET_OPTION,
+                          G_CALLBACK(ToolsCoreSetOptionSignalCb),
+                          NULL);
+      }
+
+      if (g_signal_lookup(TOOLS_CORE_SIG_RESET,
+                          G_OBJECT_TYPE(state->ctx.serviceObj)) != 0) {
+         g_signal_connect(state->ctx.serviceObj,
+                          TOOLS_CORE_SIG_RESET,
+                          G_CALLBACK(ToolsCoreResetSignalCb),
+                          NULL);
+      }
+
       state->configCheckTask = g_timeout_add(CONF_POLL_TIME * 1000,
                                              ToolsCoreConfFileCb,
                                              state);
@@ -366,6 +536,30 @@ ToolsCoreRunLoop(ToolsServiceState *state)
 #if defined(__APPLE__)
       ToolsCore_CFRunLoop(state);
 #else
+      /*
+       * For now exclude the MAC due to limited testing.
+       */
+      if (state->mainService) {
+         if (ToolsCoreHangDetector_Start(&state->ctx)) {
+            g_info("%s: Successfully started tools hang detector",
+                   __FUNCTION__);
+         }
+#if defined(_WIN32)
+         if (ToolsNotify_Start(&state->ctx)) {
+            g_info("%s: Successfully started tools notifications",
+                   __FUNCTION__);
+         }
+#endif
+      }
+
+#if defined(GLOBALCONFIG_SUPPORTED)
+      if (GlobalConfig_Start(&state->ctx)) {
+         g_info("%s: Successfully started global config module.",
+                  __FUNCTION__);
+         gGlobalConfStarted = TRUE;
+      }
+#endif
+
       g_main_loop_run(state->ctx.mainLoop);
 #endif
    }
@@ -507,13 +701,39 @@ ToolsCore_ReloadConfig(ToolsServiceState *state,
    gboolean first = state->ctx.config == NULL;
    gboolean loaded;
 
+#if defined(GLOBALCONFIG_SUPPORTED)
+   gboolean globalConfLoaded = FALSE;
+
+   if (gGlobalConfStarted) {
+      globalConfLoaded =  GlobalConfig_LoadConfig(&state->globalConfig,
+                                                  &state->globalConfigMtime);
+      if (globalConfLoaded) {
+         /*
+         * Set the configMtime to 0 so that the config file from the file system
+         * is reloaded. Else, the config is loaded only if it's been modified
+         * since the last check.
+         */
+         g_info("%s: globalconfig reloaded.\n", __FUNCTION__);
+         state->configMtime = 0;
+      }
+   }
+#endif
+
    loaded = VMTools_LoadConfig(state->configFile,
                                G_KEY_FILE_NONE,
                                &state->ctx.config,
                                &state->configMtime);
 
+#if defined(GLOBALCONFIG_SUPPORTED)
+   if (loaded || globalConfLoaded) {
+      gboolean configUpdated = VMTools_AddConfig(state->globalConfig,
+                                                 state->ctx.config);
+      loaded = loaded || configUpdated;
+   }
+#endif
+
    if (!first && loaded) {
-      g_debug("Config file reloaded.\n");
+      g_info("Config file reloaded.\n");
 
       /*
        * Inform plugins of config file update.
@@ -534,7 +754,419 @@ ToolsCore_ReloadConfig(ToolsServiceState *state,
                             state->ctx.config,
                             TRUE,
                             reset);
+
+      /*
+       * Reinitialize the level setting of the VMX Guest Logger
+       * since either the config is changing or we are forcing a reload
+       * of the tools logging subsystem.
+       * However, reuse the RPC channel since it is not affected.
+       */
+      VMTools_SetupVmxGuestLog(FALSE, state->ctx.config, NULL);
    }
+}
+
+
+#if defined(_WIN32)
+
+/**
+ * Gets error message for the last error.
+ *
+ * @param[in]  error    Error code to be converted to string message.
+ *
+ * @return The error message, or NULL in case of failure.
+ */
+
+static char *
+ToolCoreGetLastErrorMsg(DWORD error)
+{
+   char *msg = Win32U_FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+                                     FORMAT_MESSAGE_IGNORE_INSERTS,
+                                     NULL,
+                                     error,
+                                     0,       // Default language
+                                     NULL);
+   if (msg == NULL) {
+      g_warning("Failed to get error message for %d, error=%d.\n",
+                error, GetLastError());
+      return NULL;
+   }
+
+   return msg;
+}
+
+
+/**
+ * Check the version for a file using GetFileVersionInfo method
+ *
+ * @param[in]  pluginPath        plugin path name.
+ * @param[in]  checkBuildNumber  inlcude check for build number.
+ *
+ * @return TRUE if plugin version matches the tools version,
+ *         FALSE in case of a mismatch.
+ */
+
+gboolean
+ToolsCore_CheckModuleVersion(const gchar *pluginPath,
+                             gboolean checkBuildNumber)
+{
+   WCHAR *pluginPathW = NULL;
+   void *buffer = NULL;
+   DWORD bufferLen = 0;
+   DWORD dummy = 0;
+   VS_FIXEDFILEINFO *fixedFileInfo = NULL;
+   UINT fixedFileInfoLen = 0;
+   ToolsVersionComponents toolsVer = {0};
+   uint32 pluginVersion[4] = {0};
+   gboolean result = FALSE;
+   static const uint32 toolsBuildNumber = PRODUCT_BUILD_NUMBER_NUMERIC;
+
+   if (!CodeSet_Utf8ToUtf16le(pluginPath,
+                              strlen(pluginPath),
+                              (char **)&pluginPathW,
+                              NULL)) {
+      g_debug("%s: Could not convert file %s to UTF-16\n",
+              __FUNCTION__, pluginPath);
+      goto exit;
+   }
+
+   bufferLen = GetFileVersionInfoSizeW(pluginPathW, &dummy);
+   if (bufferLen == 0) {
+      g_debug("%s: Failed to get info size from %s %u",
+              __FUNCTION__, pluginPath, GetLastError());
+      goto exit;
+   }
+
+   buffer = g_malloc(bufferLen);
+   if (!buffer) {
+      g_debug("%s: malloc failed for %s", __FUNCTION__, pluginPath);
+      goto exit;
+   }
+
+   if (!GetFileVersionInfoW(pluginPathW, 0, bufferLen, buffer)) {
+      g_debug("%s: Failed to get info size from %s %u",
+              __FUNCTION__, pluginPath, GetLastError());
+      goto exit;
+   }
+
+   if (!VerQueryValueW(buffer, L"\\", (void **)&fixedFileInfo, &fixedFileInfoLen)) {
+      g_debug("%s: Failed to get fixed file info from %s %u",
+              __FUNCTION__, pluginPath, GetLastError());
+      goto exit;
+   }
+
+   if (fixedFileInfoLen < sizeof *fixedFileInfo) {
+      g_debug("%s: Fixed file info from %s is too short: %d",
+                __FUNCTION__, pluginPath, fixedFileInfoLen);
+      goto exit;
+   }
+
+   /* Using Product version. File version is also available. */
+   pluginVersion[0] = (uint16)(fixedFileInfo->dwProductVersionMS >> 16);
+   pluginVersion[1] = (uint16)(fixedFileInfo->dwProductVersionMS >>  0);
+   pluginVersion[2] = (uint16)(fixedFileInfo->dwProductVersionLS >> 16);
+   pluginVersion[3] = (uint16)(fixedFileInfo->dwProductVersionLS >>  0);
+
+   TOOLS_VERSION_UINT_TO_COMPONENTS(TOOLS_VERSION_CURRENT, &toolsVer);
+
+   result = (pluginVersion[0] == toolsVer.major &&
+             pluginVersion[1] == toolsVer.minor &&
+             pluginVersion[2] == toolsVer.base);
+
+   if (result && checkBuildNumber) {
+      result =  pluginVersion[3] == toolsBuildNumber;
+   }
+
+exit:
+   if (!result) {
+      g_warning("%s: Failed or no version check %s : %u.%u.%u.%u",
+                __FUNCTION__, pluginPath, pluginVersion[0], pluginVersion[1],
+                pluginVersion[2], pluginVersion[3]);
+   }
+   g_free(buffer);
+   free(pluginPathW);
+   return result;
+}
+#endif
+
+
+/**
+ * Gets an environment variable for the current process.
+ *
+ * @param[in]  name       Name of the env variable.
+ *
+ * @return The value of env variable, or NULL in case of error.
+ */
+
+static gchar *
+ToolsCoreEnvGetVar(const char *name)      // IN
+{
+   gchar *value;
+
+#if defined(_WIN32)
+   DWORD valueSize;
+   /*
+    * Win32U_GetEnvironmentVariable requires buffer to be accurate size.
+    * So, we need to get the value size first.
+    *
+    * Windows bug: GetEnvironmentVariable() does not clear stale
+    * error when the return value is 0 because of env variable
+    * holding empty string value (just NUL-char). So, we need to
+    * clear it before we call the Win32 API.
+    */
+   SetLastError(ERROR_SUCCESS);
+   valueSize = Win32U_GetEnvironmentVariable(name, NULL, 0);
+   if (valueSize == 0) {
+      goto error;
+   }
+
+   value = g_malloc(valueSize);
+   SetLastError(ERROR_SUCCESS);
+   if (Win32U_GetEnvironmentVariable(name, value, valueSize) == 0) {
+      g_free(value);
+      goto error;
+   }
+
+   return value;
+
+error:
+{
+   DWORD error = GetLastError();
+   if (error == ERROR_SUCCESS) {
+      g_message("Env variable %s is empty.\n", name);
+   } else if (error == ERROR_ENVVAR_NOT_FOUND) {
+      g_message("Env variable %s not found.\n", name);
+   } else {
+      char *errorMsg = ToolCoreGetLastErrorMsg(error);
+      if (errorMsg != NULL) {
+         g_warning("Failed to get env variable size %s, error=%s.\n",
+                   name, errorMsg);
+         free(errorMsg);
+      } else {
+         g_warning("Failed to get env variable size %s, error=%d.\n",
+                   name, error);
+      }
+   }
+   return NULL;
+}
+#else
+   value = Posix_Getenv(name);
+   return value == NULL ? value : g_strdup(value);
+#endif
+}
+
+
+/**
+ * Sets an environment variable for the current process.
+ *
+ * @param[in]  name       Name of the env variable.
+ * @param[in]  value      Value for the env variable.
+ *
+ * @return gboolean, TRUE on success or FALSE in case of error.
+ */
+
+static gboolean
+ToolsCoreEnvSetVar(const char *name,      // IN
+                   const char *value)     // IN
+{
+#if defined(_WIN32)
+   if (!Win32U_SetEnvironmentVariable(name, value)) {
+      char *errorMsg;
+      DWORD error = GetLastError();
+
+      errorMsg = ToolCoreGetLastErrorMsg(error);
+      if (errorMsg != NULL) {
+         g_warning("Failed to set env variable %s=%s, error=%s.\n",
+                   name, value, errorMsg);
+         free(errorMsg);
+      } else {
+         g_warning("Failed to set env variable %s=%s, error=%d.\n",
+                   name, value, error);
+      }
+      return FALSE;
+   }
+#else
+   if (Posix_Setenv(name, value, TRUE) != 0) {
+      g_warning("Failed to set env variable %s=%s, error=%s.\n",
+                name, value, strerror(errno));
+      return FALSE;
+   }
+#endif
+   return TRUE;
+}
+
+
+/**
+ * Unsets an environment variable for the current process.
+ *
+ * @param[in]  name       Name of the env variable.
+ *
+ * @return gboolean, TRUE on success or FALSE in case of error.
+ */
+
+static gboolean
+ToolsCoreEnvUnsetVar(const char *name)    // IN
+{
+#if defined(_WIN32)
+   if (!Win32U_SetEnvironmentVariable(name, NULL)) {
+      char *errorMsg;
+      DWORD error = GetLastError();
+
+      errorMsg = ToolCoreGetLastErrorMsg(error);
+      if (errorMsg != NULL) {
+         g_warning("Failed to unset env variable %s, error=%s.\n",
+                   name, errorMsg);
+         free(errorMsg);
+      } else {
+         g_warning("Failed to unset env variable %s, error=%d.\n",
+                   name, error);
+      }
+      return FALSE;
+   }
+#else
+   if (Posix_Unsetenv(name) != 0) {
+      g_warning("Failed to unset env variable %s, error=%s.\n",
+                name, strerror(errno));
+      return FALSE;
+   }
+#endif
+   return TRUE;
+}
+
+
+/**
+ * Setup environment variables for the current process from
+ * a given config group.
+ *
+ * @param[in]  ctx       Application context.
+ * @param[in]  group     Configuration group to be read.
+ * @param[in]  doUnset   Whether to unset the environment vars.
+ */
+
+static void
+ToolsCoreInitEnvGroup(ToolsAppCtx *ctx,   // IN
+                      const gchar *group, // IN
+                      gboolean doUnset)   // IN
+{
+   gsize i;
+   gsize length;
+   GError *err = NULL;
+   gchar **keys = g_key_file_get_keys(ctx->config, group, &length, &err);
+   if (err != NULL) {
+      if (err->code != G_KEY_FILE_ERROR_GROUP_NOT_FOUND) {
+         g_warning("Failed to get keys for config group %s (err=%d).\n",
+                   group, err->code);
+      }
+      g_clear_error(&err);
+      g_info("Skipping environment initialization for %s from %s config.\n",
+             ctx->name, group);
+      return;
+   }
+
+   g_info("Found %"FMTSZ"d environment variable(s) in %s config.\n",
+          length, group);
+
+   /*
+    * Following 2 formats are supported:
+    * 1. <variableName> = <value>
+    * 2. <serviceName>.<variableName> = <value>
+    *
+    * Variables specified in format #1 are applied to all services and
+    * variables specified in format #2 are applied to specified service only.
+    */
+   for (i = 0; i < length; i++) {
+      const gchar *name = NULL;
+      const gchar *key = keys[i];
+      const gchar *delim;
+
+      /*
+       * Pick the keys that have service name prefix or no prefix.
+       */
+      delim = strchr(key, '.');
+      if (delim == NULL) {
+         name = key;
+      } else if (strncmp(key, ctx->name, delim - key) == 0) {
+         name = delim + 1;
+      }
+
+      /*
+       * Ignore entries with empty env variable names.
+       */
+      if (name != NULL && *name != '\0') {
+         gchar *oldValue = ToolsCoreEnvGetVar(name);
+         if (doUnset) {
+            /*
+             * We can't avoid duplicate removals, but removing a non-existing
+             * environment variable is a no-op anyway.
+             */
+            if (ToolsCoreEnvUnsetVar(name)) {
+               g_message("Removed env var %s=[%s]\n",
+                         name, oldValue == NULL ? "(null)" : oldValue);
+            }
+         } else {
+            gchar *value = VMTools_ConfigGetString(ctx->config, group,
+                                                   key, NULL);
+            if (value != NULL) {
+               /*
+                * Get rid of trailing space.
+                */
+               g_strchomp(value);
+
+               /*
+                * Avoid updating environment var if it is already set to
+                * the same value.
+                *
+                * Also, g_key_file_get_keys() does not filter out duplicates
+                * but, VMTools_ConfigGetString returns only last entry
+                * for the key. So, by comparing old value, we avoid setting
+                * the environment multiple times when there are duplicates.
+                *
+                * NOTE: Need to use g_strcmp0 because oldValue can be NULL.
+                * As value can't be NULL but oldValue can be NULL, we might
+                * still do an unnecessary update in cases like setting a
+                * variable to empty/no value twice. However, it does not harm
+                * and is not worth avoiding it.
+                */
+               if (g_strcmp0(oldValue, value) == 0) {
+                  g_info("Env var %s already set to [%s], skipping.\n",
+                         name, oldValue);
+                  g_free(oldValue);
+                  g_free(value);
+                  continue;
+               }
+               g_debug("Changing env var %s from [%s] -> [%s]\n",
+                       name, oldValue == NULL ? "(null)" : oldValue, value);
+               if (ToolsCoreEnvSetVar(name, value)) {
+                  g_message("Updated env var %s from [%s] -> [%s]\n",
+                            name, oldValue == NULL ? "(null)" : oldValue,
+                            value);
+               }
+               g_free(value);
+            }
+         }
+         g_free(oldValue);
+      }
+   }
+
+   g_info("Initialized environment for %s from %s config.\n",
+          ctx->name, group);
+   g_strfreev(keys);
+}
+
+
+/**
+ * Setup environment variables for the current process.
+ *
+ * @param[in]  ctx       Application context.
+ */
+
+static void
+ToolsCoreInitEnv(ToolsAppCtx *ctx)
+{
+   /*
+    * First apply unset environment configuration to start clean.
+    */
+   ToolsCoreInitEnvGroup(ctx, CONFGROUPNAME_UNSET_ENVIRONMENT, TRUE);
+   ToolsCoreInitEnvGroup(ctx, CONFGROUPNAME_SET_ENVIRONMENT, FALSE);
 }
 
 
@@ -550,15 +1182,6 @@ ToolsCore_Setup(ToolsServiceState *state)
    GMainContext *gctx;
    ToolsServiceProperty ctxProp = { TOOLS_CORE_PROP_CTX };
 
-   if (!g_thread_supported()) {
-      g_thread_init(NULL);
-   }
-
-   /*
-    * Useful for debugging purposes. Log the vesion and build information.
-    */
-   g_message("Tools Version: %s (%s)\n", TOOLS_VERSION_EXT_CURRENT_STR, BUILD_NUMBER);
-
    /* Initializes the app context. */
    gctx = g_main_context_default();
    state->ctx.version = TOOLS_CORE_API_V1;
@@ -573,23 +1196,20 @@ ToolsCore_Setup(ToolsServiceState *state)
 #else
    state->ctx.mainLoop = g_main_loop_new(gctx, FALSE);
 #endif
-   /*
-    * Valgrind can't handle the backdoor check.
-    */
-#ifdef USE_VALGRIND
-   state->ctx.isVMware = TRUE;
-#else
    state->ctx.isVMware = VmCheck_IsVirtualWorld();
-#endif
    g_main_context_unref(gctx);
 
    g_type_init();
    state->ctx.serviceObj = g_object_new(TOOLSCORE_TYPE_SERVICE, NULL);
+   state->ctx.registerServiceProperty =
+      (RegisterServiceProperty)ToolsCoreService_RegisterProperty;
 
    /* Register the core properties. */
    ToolsCoreService_RegisterProperty(state->ctx.serviceObj,
                                      &ctxProp);
    g_object_set(state->ctx.serviceObj, TOOLS_CORE_PROP_CTX, &state->ctx, NULL);
+   /* Initialize the environment from config. */
+   ToolsCoreInitEnv(&state->ctx);
    ToolsCorePool_Init(&state->ctx);
 
    /* Initializes the debug library if needed. */

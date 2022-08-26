@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -40,6 +40,7 @@
 #include "serviceInt.h"
 #include "certverify.h"
 #include "VGAuthProto.h"
+#include "vmxlog.h"
 
 // puts the identity store in an easy to find place
 #undef WIN_TEST_MODE
@@ -674,6 +675,14 @@ ServiceLoadFileContentsPosix(const gchar *fileName,
 
    *fileSize = 0;
    *contents = NULL;
+
+   /*
+    * No time-of-check to time-of-use issue between this lstat() call and the
+    * subsequent open() since the open() is followed by fstat() and a series
+    * of checks of the fstat results against the lstat results to ensure that
+    * key file attributes did not change between the lstat() and the open().
+    */
+   /* coverity[fs_check_call] */
    ret = g_lstat(fileName, &lstatBuf);
    if (ret != 0) {
       Warning("%s: lstat(%s) failed (%d %d)\n",
@@ -836,9 +845,8 @@ done:
       *contents = buf;
       *fileSize = lstatBuf.st_size;
    }
-   if (fd >= 0) {
-      close(fd);
-   }
+
+   close(fd);
 
    return err;
 }
@@ -1078,7 +1086,6 @@ AliasStartElement(GMarkupParseContext *parseContext,
 {
    AliasParseList *list = (AliasParseList *) userData;
    ServiceAliasInfo *infos;
-   int n;
 
    ASSERT(list);
 
@@ -1123,6 +1130,8 @@ AliasStartElement(GMarkupParseContext *parseContext,
       break;
    case ALIAS_PARSE_STATE_ALIASINFOS:
       if (g_strcmp0(elementName, ALIASINFO_ALIASINFO_ELEMENT_NAME) == 0) {
+         int n;
+
          list->state = ALIAS_PARSE_STATE_ALIASINFO;
 
          // grow
@@ -1428,7 +1437,7 @@ AliasLoadAliases(const gchar *userName,
       NULL,
       NULL,
    };
-   GMarkupParseContext *context = NULL;
+   GMarkupParseContext *context;
    gboolean bRet;
    gchar *fileContents = NULL;
    gsize fileSize;
@@ -2225,7 +2234,10 @@ updateMap:
          Debug("%s: removed empty map file '%s'\n", __FUNCTION__, mapFilename);
          g_free(mapFilename);
 
-         goto done;
+         if (emptyAliasFile) {
+            goto done;
+         }
+         goto rename;
       }
 
       tmpMapFilename = g_strdup_printf("%s"DIRSEP"%sXXXXXX",
@@ -2319,6 +2331,7 @@ updateMap:
 #endif
    }
 
+rename:
    /*
     * Make the tmpfiles become the real in a way we can try to recover from.
     */
@@ -2679,6 +2692,11 @@ check_map:
                  SU_(alias.addid,
                      "Alias added to Alias store owned by '%s' by user '%s'"),
                  userName, reqUserName);
+      // security -- don't expose username
+      VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                 "%s: alias added with Subject '%s'",
+                 __FUNCTION__,
+                 (ai->type == SUBJECT_TYPE_ANY) ? "<ANY>" : ai->name);
    }
 
 done:
@@ -2947,6 +2965,18 @@ update:
                  SU_(alias.removeid,
                      "Alias removed from Alias store owned by '%s' by user '%s'"),
                  userName, reqUserName);
+      if (removeAll) {
+         // security -- don't expose username
+         VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                    "%s: all aliases removed for requested username",
+                    __FUNCTION__);
+      } else {
+         // security -- don't expose username
+         VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                    "%s: alias removed with Subject '%s'",
+                    __FUNCTION__,
+                    (subj->type == SUBJECT_TYPE_ANY) ? "<ANY>" : subj->name);
+      }
    }
 
 done:
@@ -3070,7 +3100,6 @@ ServiceIDVerifyStoreContents(void)
    GDir *dir;
    GError *gErr;
    const gchar *fileName;
-   gchar *fullFileName;
    gboolean saveBadFile = FALSE;
 
    dir = g_dir_open(aliasStoreRootDir, 0, &gErr);
@@ -3082,9 +3111,9 @@ ServiceIDVerifyStoreContents(void)
    }
 
    while ((fileName = g_dir_read_name(dir)) != NULL) {
-      fullFileName = g_strdup_printf("%s"DIRSEP"%s",
-                                     aliasStoreRootDir,
-                                     fileName);
+      gchar *fullFileName = g_strdup_printf("%s"DIRSEP"%s",
+                                            aliasStoreRootDir,
+                                            fileName);
       // mapping file is special
       if (g_strcmp0(ALIASSTORE_MAPFILE_NAME, fileName) == 0) {
          err = AliasCheckMapFilePerms(fullFileName);
@@ -3125,9 +3154,12 @@ ServiceIDVerifyStoreContents(void)
                         fullFileName, badFileName);
             /*
              * XXX the best way to handle this would be to add it to
-             * a blacklist of bad files and keep going.  but that's
+             * a list of prohibited bad files and keep going.  but that's
              * a lot of risky work that's very hard to test, so punt for now.
              */
+            g_free(badFileName);
+            g_free(fullFileName);
+            g_dir_close(dir);
             return VGAUTH_E_FAIL;
          } else {
             Audit_Event(TRUE,
@@ -3218,6 +3250,8 @@ ServiceValidateAliases(void)
 next:
       ServiceAliasFreeAliasList(numIds, aList);
       if (!foundMatch) {
+         /* badSubj should always have a value because maList won't be empty */
+         /* coverity[var_deref_op] */
          Warning("%s: orphaned mapped alias: user %s subj %s cert %s\n",
                  __FUNCTION__, maList[i].userName,
                  (badSubj->type == SUBJECT_TYPE_NAMED ? badSubj->name : "ANY"),
@@ -3376,6 +3410,7 @@ ServiceAliasInitAliasStore(void)
                          "Failed to rename suspect Alias store directory '%s' to '%s'"),
                      aliasStoreRootDir, badRootDirName);
          // XXX making this fatal for now.  can we do anything better?
+         g_free(badRootDirName);
          return VGAUTH_E_FAIL;
       }
       g_free(badRootDirName);

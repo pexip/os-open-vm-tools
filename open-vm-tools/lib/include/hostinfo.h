@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -32,12 +32,15 @@
 
 #include "vm_basic_types.h"
 #include "vm_basic_defs.h"
-#include "x86cpuid.h"
+#include "x86vendor.h"
 #include "unicodeTypes.h"
 
 #if defined(__cplusplus)
 extern "C" {
 #endif
+
+#define MAX_OS_NAME_LEN 128
+#define MAX_OS_FULLNAME_LEN 512
 
 typedef enum {
    HOSTINFO_PROCESS_QUERY_DEAD,    // Procss is dead (does not exist)
@@ -45,12 +48,35 @@ typedef enum {
    HOSTINFO_PROCESS_QUERY_UNKNOWN  // Process existence cannot be determined
 } HostinfoProcessQuery;
 
+typedef struct HostinfoProcessSnapshot HostinfoProcessSnapshot;
+
+HostinfoProcessSnapshot *Hostinfo_AcquireProcessSnapshot(void);
+void Hostinfo_ReleaseProcessSnapshot(HostinfoProcessSnapshot *s);
+
+HostinfoProcessQuery Hostinfo_QueryProcessSnapshot(HostinfoProcessSnapshot *s,
+                                                   int pid);
+
 HostinfoProcessQuery Hostinfo_QueryProcessExistence(int pid);
 
-char *Hostinfo_NameGet(void);           // Don't free result
-char *Hostinfo_HostName(void);          // free result
-char *Hostinfo_GetOSName(void);         // free result
-char *Hostinfo_GetOSGuestString(void);  // free result
+/* This macro defines the current version of the structured header. */
+#define HOSTINFO_STRUCT_HEADER_VERSION 1
+
+/*
+ * This struct is used to build a detailed OS data. The detailed OS data will
+ * be composed of two parts. The first part is the header and the second part
+ * will be a string that is appended to this header in memory.
+ */
+typedef struct HostinfoDetailedDataHeader {
+   uint32  version;
+   char    shortName[MAX_OS_NAME_LEN + 1];
+   char    fullName[MAX_OS_FULLNAME_LEN + 1];
+} HostinfoDetailedDataHeader;
+
+char *Hostinfo_NameGet(void);            // Don't free result
+char *Hostinfo_HostName(void);           // free result
+char *Hostinfo_GetOSName(void);          // free result
+char *Hostinfo_GetOSGuestString(void);   // free result
+char *Hostinfo_GetOSDetailedData(void);  // free result
 
 void Hostinfo_MachineID(uint32 *hostNameHash,
                         uint64 *hostHardwareID);
@@ -96,19 +122,18 @@ enum {
    HOSTINFO_OS_VERSION_MACOS_10_11 = 15,
    HOSTINFO_OS_VERSION_MACOS_10_12 = 16,
    HOSTINFO_OS_VERSION_MACOS_10_13 = 17,
+   HOSTINFO_OS_VERSION_MACOS_10_14 = 18,
+   HOSTINFO_OS_VERSION_MACOS_10_15 = 19,
+   HOSTINFO_OS_VERSION_MACOS_11    = 20,
 };
 
 int Hostinfo_OSVersion(unsigned int i);
 int Hostinfo_GetSystemBitness(void);
 const char *Hostinfo_OSVersionString(void);
 
-char *Hostinfo_GetOSName(void);
-char *Hostinfo_GetOSGuestString(void);
-
 #if defined(_WIN32)
 Bool Hostinfo_OSIsWinNT(void);
 Bool Hostinfo_OSIsWow64(void);
-Bool Hostinfo_TSCInvariant(void);
 int Hostinfo_EnumerateAllProcessPids(uint32 **processIds);
 #else
 void Hostinfo_ResetProcessState(const int *keepFds,
@@ -139,13 +164,14 @@ Bool Hostinfo_Daemonize(const char *path,
 Bool Hostinfo_NestingSupported(void);
 Bool Hostinfo_VCPUInfoBackdoor(unsigned bit);
 Bool Hostinfo_SynchronizedVTSCs(void);
-Bool Hostinfo_NestedHVReplaySupported(void);
 Bool Hostinfo_TouchBackDoor(void);
 Bool Hostinfo_TouchVirtualPC(void);
 Bool Hostinfo_TouchXen(void);
+Bool Hostinfo_HyperV(void);
 char *Hostinfo_HypervisorCPUIDSig(void);
 void Hostinfo_LogHypervisorCPUID(void);
 char *Hostinfo_HypervisorInterfaceSig(void);
+uint32 Hostinfo_GetNestedBuildNum(void);
 
 #define HGMP_PRIVILEGE    0
 #define HGMP_NO_PRIVILEGE 1
@@ -193,6 +219,7 @@ typedef enum {
    OS_WINSEVEN               = 9,
    OS_WIN8                   = 10,
    OS_WIN10                  = 11,
+   OS_WIN11                  = 12,
    OS_UNKNOWN                = 99999 // last, highest value
 } OS_TYPE;
 
@@ -222,6 +249,8 @@ typedef enum {
    OS_DETAIL_WIN8SERVER      = 23,
    OS_DETAIL_WIN10           = 24,
    OS_DETAIL_WIN10SERVER     = 25,
+   OS_DETAIL_WIN11           = 26,
+   OS_DETAIL_WIN11SERVER     = 27,
    OS_DETAIL_UNKNOWN         = 99999  // last, highest value
 } OS_DETAIL_TYPE;
 
@@ -233,13 +262,7 @@ Bool Hostinfo_GetMhzOfProcessor(int32 processorNumber,
 				uint32 *currentMhz,
                                 uint32 *maxMhz);
 uint64 Hostinfo_SystemIdleTime(void);
-Bool Hostinfo_GetAllCpuid(CPUIDQuery *query);
 
-static INLINE Bool
-Hostinfo_AtLeastVista(void)
-{
-   return (Hostinfo_GetOSType() >= OS_VISTA);
-}
 #endif
 void Hostinfo_LogLoadAverage(void);
 Bool Hostinfo_GetLoadAverage(uint32 *l);
@@ -247,6 +270,7 @@ Bool Hostinfo_GetLoadAverage(uint32 *l);
 #ifdef __APPLE__
 size_t Hostinfo_GetKernelZoneElemSize(char const *name);
 char *Hostinfo_GetHardwareModel(void);
+int Hostinfo_ProcessIsRosetta(void);
 #endif
 
 #if defined(__cplusplus)

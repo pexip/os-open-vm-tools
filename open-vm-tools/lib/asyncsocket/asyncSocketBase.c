@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2016-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -54,14 +54,23 @@
  * implicitly calls.  We don't log fd as that isn't available at the
  * base class level.
  */
-#define ASOCKLOG_NORECURSION(_level, _asock, _logargs)                  \
-   do {                                                                 \
-      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) {     \
-         Log(ASOCKPREFIX "%d ", (_asock)->id);                          \
-         Log _logargs;                                                  \
-      }                                                                 \
-   } while(0)
 
+/* gcc needs special syntax to handle zero-length variadic arguments */
+#if defined(_MSC_VER)
+#define ASOCKLOG_NORECURSION(_level, _asock, fmt, ...)               \
+   do {                                                              \
+      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) {  \
+         Log(ASOCKPREFIX "%d " fmt, (_asock)->id, __VA_ARGS__);      \
+      }                                                              \
+   } while(0)
+#else
+#define ASOCKLOG_NORECURSION(_level, _asock, fmt, ...)               \
+   do {                                                              \
+      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) {  \
+         Log(ASOCKPREFIX "%d " fmt, (_asock)->id, ##__VA_ARGS__);    \
+      }                                                              \
+   } while(0)
+#endif
 
 /*
  *-----------------------------------------------------------------------------
@@ -125,10 +134,10 @@ AsyncSocketInternalDecRef(AsyncSocket *s, // IN
 
    ASSERT(count >= 0);
    if (UNLIKELY(count == 0)) {
-      ASOCKLOG_NORECURSION(1, s, ("Final release; freeing asock struct\n"));
+      ASOCKLOG_NORECURSION(1, s, "Final release; freeing asock struct\n");
       VT(s)->destroy(s);
    } else {
-      ASOCKLOG_NORECURSION(1, s, ("Release (count now %d)\n", count));
+      ASOCKLOG_NORECURSION(1, s, "Release (count now %d)\n", count);
    }
 }
 
@@ -425,7 +434,11 @@ AsyncSocket_GetID(AsyncSocket *asock)         // IN
  * AsyncSocket_SetErrorFn --
  *
  *      Sets the error handling function for the asock. The error function
- *      is invoked automatically on I/O errors.
+ *      is invoked automatically on I/O errors. This should be done
+ *      before an internal callback that may call the error handler can be
+ *      fired. This usually means doing so immediately after the asyncsocket
+ *      is created, either from the poll thread or with the asyncsocket lock
+ *      (passed in pollParams) held throughout both calls.
  *
  * Results:
  *      ASOCKERR_SUCCESS or ASOCKERR_INVAL.
@@ -477,12 +490,12 @@ AsyncSocketHandleError(AsyncSocket *asock,   // IN
    ASSERT(asock);
    asock->errorSeen = TRUE;
    if (asock->errorFn) {
-      ASOCKLOG(3, asock, ("firing error callback (%s)\n",
-                          AsyncSocket_Err2String(asockErr)));
+      ASOCKLOG(3, asock, "firing error callback (%s)\n",
+               AsyncSocket_Err2String(asockErr));
       asock->errorFn(asockErr, asock, asock->errorClientData);
    } else {
-      ASOCKLOG(3, asock, ("no error callback, closing socket (%s)\n",
-                          AsyncSocket_Err2String(asockErr)));
+      ASOCKLOG(3, asock, "no error callback, closing socket (%s)\n",
+               AsyncSocket_Err2String(asockErr));
       AsyncSocket_Close(asock);
    }
 }
@@ -529,13 +542,13 @@ AsyncSocketCheckAndDispatchRecv(AsyncSocket *s,  // IN
 
    if (s->recvPos == s->recvLen || s->recvFireOnPartial) {
       void *recvBuf = s->recvBuf;
-      ASOCKLOG(3, s, ("recv buffer full, calling recvFn\n"));
+      ASOCKLOG(3, s, "recv buffer full, calling recvFn\n");
 
       /*
        * We do this dance in case the handler frees the buffer (so
        * that there's no possible window where there are dangling
        * references here.  Obviously if the handler frees the buffer,
-       * but them fails to register a new one, we'll put back the
+       * but then fails to register a new one, we'll put back the
        * dangling reference in the automatic reset case below, but
        * there's currently a limit to how far we go to shield clients
        * who use our API in a broken way.
@@ -544,7 +557,7 @@ AsyncSocketCheckAndDispatchRecv(AsyncSocket *s,  // IN
       s->recvBuf = NULL;
       s->recvFn(recvBuf, s->recvPos, s, s->recvClientData);
       if (s->state == AsyncSocketClosed) {
-         ASOCKLG0(s, ("owner closed connection in recv callback\n"));
+         ASOCKLG0(s, "owner closed connection in recv callback\n");
          *result = ASOCKERR_CLOSED;
          return TRUE;
       } else if (s->recvFn == NULL && s->recvLen == 0) {
@@ -605,22 +618,22 @@ AsyncSocketSetRecvBuf(AsyncSocket *asock,  // IN:
    ASSERT(AsyncSocketIsLocked(asock));
 
    if (!asock->errorFn) {
-      ASOCKWARN(asock, ("%s: no registered error handler!\n", __FUNCTION__));
+      ASOCKWARN(asock, "%s: no registered error handler!\n", __FUNCTION__);
       return ASOCKERR_INVAL;
    }
 
    if (!buf || !cb || len <= 0) {
-      ASOCKWARN(asock, ("Recv called with invalid arguments!\n"));
+      ASOCKWARN(asock, "Recv called with invalid arguments!\n");
       return ASOCKERR_INVAL;
    }
 
    if (AsyncSocketGetState(asock) != AsyncSocketConnected) {
-      ASOCKWARN(asock, ("recv called but state is not connected!\n"));
+      ASOCKWARN(asock, "recv called but state is not connected!\n");
       return ASOCKERR_NOTCONNECTED;
    }
 
    if (asock->recvBuf && asock->recvPos != 0) {
-      ASOCKWARN(asock, ("Recv called -- partially read buffer discarded.\n"));
+      ASOCKWARN(asock, "Recv called -- partially read buffer discarded.\n");
    }
 
    asock->recvBuf = buf;
@@ -637,7 +650,7 @@ AsyncSocketSetRecvBuf(AsyncSocket *asock,  // IN:
 /*
  *-----------------------------------------------------------------------------
  *
- * WebSocketCancelRecv --
+ * AsyncSocketCancelRecv --
  *
  *    Call this function if you know what you are doing. This should
  *    be called if you want to synchronously receive the outstanding
@@ -769,6 +782,28 @@ AsyncSocket_MsgError(int asyncSockError)   // IN
       break;
    case ASOCKERR_BUSY:
       result = MSGID(asyncsocket.busy) "Concurrent operations on socket";
+      break;
+   case ASOCKERR_PROXY_NEEDS_AUTHENTICATION:
+      result = MSGID(asyncsocket.proxyneedsauthentication)
+                     "Proxy needs authentication";
+      break;
+   case ASOCKERR_PROXY_CONNECT_FAILED:
+      result = MSGID(asyncsocket.proxyconnectfailed)
+                     "Connection failed through proxy";
+      break;
+   case ASOCKERR_PROXY_INVALID_OR_NOT_SUPPORTED:
+      result = MSGID(asyncsocket.proxyinvalidornotsupported)
+                     "Invalid or not supported type proxy";
+      break;
+   case ASOCKERR_WEBSOCK_UPGRADE_NOT_FOUND:
+      result = MSGID(asyncsocket.websocketupgradefailed)
+                     "Upgrade to websocket error: NOT FOUND, status code 404";
+      break;
+   case ASOCKERR_WEBSOCK_TOO_MANY_CONNECTION:
+      result = MSGID(asyncsocket.websockettoomanyconnection)
+                     "The server-side WebSocket connection limit has been exceeded,"
+                     " HTTP status code 429";
+      break;
    }
 
    if (!result) {

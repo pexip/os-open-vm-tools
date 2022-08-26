@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016,2019-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -953,9 +953,8 @@ static GMarkupParser wireParser = {
 ProtoRequest *
 Proto_NewRequest(void)
 {
-   ProtoRequest *req = NULL;
+   ProtoRequest *req = g_malloc0(sizeof(ProtoRequest));
 
-   req = g_malloc0(sizeof(ProtoRequest));
    req->parseState = PARSE_STATE_NONE;
    req->complete = FALSE;
 #if VGAUTH_PROTO_TRACE
@@ -1118,11 +1117,11 @@ ServiceProtoReadAndProcessRequest(ServiceConnection *conn)
       if (conn->eof) { // EOF
          err = VGAUTH_E_COMM;
          Debug("%s: read EOF on Connection %d\n", __FUNCTION__, conn->connId);
-         goto abort;
+         goto quit;
       }
 
       if (err != VGAUTH_E_OK) {
-         goto abort;
+         goto quit;
       }
 #if VGAUTH_PROTO_TRACE
       if (req->rawData) {
@@ -1141,7 +1140,7 @@ ServiceProtoReadAndProcessRequest(ServiceConnection *conn)
          Warning("%s: g_markup_parse_context_parse() failed: %s\n",
                  __FUNCTION__, gErr->message);
          g_error_free(gErr);
-         goto abort;
+         goto quit;
       }
    }
 
@@ -1166,7 +1165,7 @@ ServiceProtoReadAndProcessRequest(ServiceConnection *conn)
       ServiceProtoCleanupParseState(conn);
    }
 
-abort:
+quit:
    /*
     * If something went wrong, clean up.  Any error means bad data coming
     * from the client, and we don't even try to recover -- just slam
@@ -1201,6 +1200,10 @@ Proto_SecurityCheckRequest(ServiceConnection *conn,
 {
    VGAuthError err;
    gboolean isSecure = ServiceNetworkIsConnectionPrivateSuperUser(conn);
+
+   if (conn->isPublic && req->reqType != PROTO_REQUEST_SESSION_REQ) {
+      return VGAUTH_E_PERMISSION_DENIED;
+   }
 
    switch (req->reqType) {
       /*
@@ -1518,6 +1521,7 @@ ServiceProtoHandleSessionRequest(ServiceConnection *conn,
               atoi(VGAUTH_PROTOCOL_VERSION));
       packet = Proto_MakeErrorReply(conn, req, err,
                                     "sessionRequest failed; version mismatch");
+      goto send_err;
    }
 
    err = ServiceStartUserConnection(req->reqData.sessionReq.userName,
@@ -1530,6 +1534,7 @@ ServiceProtoHandleSessionRequest(ServiceConnection *conn,
                                        pipeName);
    }
 
+send_err:
    err = ServiceNetworkWriteData(conn, strlen(packet), packet);
    if (err != VGAUTH_E_OK) {
       Warning("%s: failed to send SessionReq reply\n", __FUNCTION__);
@@ -1570,8 +1575,12 @@ ServiceProtoHandleConnection(ServiceConnection *conn,
 #endif
 
    if (err != VGAUTH_E_OK) {
+      /* Value of err is always VGAUTH_E_OK on non-Windows platforms */
+      /* coverity[dead_error_line] */
       packet = Proto_MakeErrorReply(conn, req, err, "connect failed");
    } else {
+      /* Value of event is always NULL on non-Windows platforms */
+      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_CONNECT_REPLY_FORMAT,
                                        req->sequenceNumber,
                                        event ? event : "");
@@ -1742,11 +1751,8 @@ ServiceProtoQueryAliases(ServiceConnection *conn,
 {
    VGAuthError err;
    gchar *packet;
-   gchar *endPacket;
    int num;
    ServiceAlias *aList;
-   int i;
-   int j;
 
    /*
     * The alias code will do argument validation.
@@ -1758,11 +1764,15 @@ ServiceProtoQueryAliases(ServiceConnection *conn,
    if (err != VGAUTH_E_OK) {
       packet = Proto_MakeErrorReply(conn, req, err, "queryAliases failed");
    } else {
+      int i;
+      gchar *endPacket;
+
       packet = g_markup_printf_escaped(VGAUTH_QUERYALIASES_REPLY_FORMAT_START,
                                        req->sequenceNumber);
       // now the aliases
       for (i = 0; i < num; i++) {
          gchar *certPacket;
+         int j;
 
          certPacket = g_markup_printf_escaped(VGAUTH_ALIAS_FORMAT_START,
                                               aList[i].pemCert);
@@ -1828,10 +1838,7 @@ ServiceProtoQueryMappedAliases(ServiceConnection *conn,
 {
    VGAuthError err;
    gchar *packet;
-   gchar *endPacket;
    int num;
-   int i;
-   int j;
    ServiceMappedAlias *maList;
 
    /*
@@ -1843,10 +1850,14 @@ ServiceProtoQueryMappedAliases(ServiceConnection *conn,
    if (err != VGAUTH_E_OK) {
       packet = Proto_MakeErrorReply(conn, req, err, "queryMappedIds failed");
    } else {
+      int i;
+      gchar *endPacket;
+
       packet = g_markup_printf_escaped(VGAUTH_QUERYMAPPEDALIASES_REPLY_FORMAT_START,
                                        req->sequenceNumber);
       for (i = 0; i < num; i++) {
          gchar *tPacket;
+         int j;
 
          tPacket = g_markup_printf_escaped(VGAUTH_MAPPEDALIASES_FORMAT_START,
                                            maList[i].userName,
@@ -1993,6 +2004,8 @@ ServiceProtoValidateTicket(ServiceConnection *conn,
    if (err != VGAUTH_E_OK) {
       packet = Proto_MakeErrorReply(conn, req, err, "validateTicket failed");
    } else {
+      /* Value of token is always NULL on non-Windows platforms */
+      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_VALIDATETICKET_REPLY_FORMAT_START,
                                        req->sequenceNumber,
                                        userName,
@@ -2096,7 +2109,7 @@ static VGAuthError
 ServiceProtoValidateSamlBearerToken(ServiceConnection *conn,
                                     ProtoRequest *req)
 {
-   VGAuthError err = VGAUTH_E_FAIL;
+   VGAuthError err;
    gchar *packet;
    gchar *sPacket;
    char *userName = NULL;
@@ -2163,6 +2176,8 @@ ServiceProtoValidateSamlBearerToken(ServiceConnection *conn,
                   SU_(validate.samlBearer.success,
                       "Validated SAML bearer token for user '%s'"),
                   userName);
+      /* Value of tokenStr is always NULL on non-Windows platforms */
+      /* coverity[dead_error_line] */
       packet = g_markup_printf_escaped(VGAUTH_VALIDATESAMLBEARERTOKEN_REPLY_FORMAT_START,
                                        req->sequenceNumber,
                                        userName ? userName : "",

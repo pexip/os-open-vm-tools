@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -33,7 +33,7 @@
 /*
  * vm_basic_asm_x86_64.h
  *
- *	Basic x86_64 asm macros.
+ *      Basic x86_64 asm macros.
  */
 
 #ifndef _VM_BASIC_ASM_X86_64_H_
@@ -53,27 +53,10 @@
 #error "This file is x86-64 only!"
 #endif
 
-#if defined(_MSC_VER) && !defined(BORA_NO_WIN32_INTRINS)
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-uint64 _umul128(uint64 multiplier, uint64 multiplicand,
-                uint64 *highProduct);
-int64 _mul128(int64 multiplier, int64 multiplicand,
-              int64 *highProduct);
-uint64 __shiftright128(uint64 lowPart, uint64 highPart, uint8 shift);
-#ifdef __cplusplus
-}
-#endif
-
-#pragma intrinsic(_umul128, _mul128, __shiftright128)
-
-#endif // _MSC_VER
-
 #if defined(__GNUC__)
 /*
- * GET_CURRENT_PC
+ * _GET_CURRENT_PC --
+ * GET_CURRENT_PC --
  *
  * Returns the current program counter (i.e. instruction pointer i.e. rip
  * register on x86_64). In the example below:
@@ -83,28 +66,36 @@ uint64 __shiftright128(uint64 lowPart, uint64 highPart, uint8 shift);
  *
  * the return value from GET_CURRENT_PC will point a debugger to L123.
  */
-#define GET_CURRENT_PC() ({                                           \
-      void *__rip;                                                    \
-      asm("lea 0(%%rip), %0;\n\t"                                     \
-         : "=r" (__rip));                                             \
-      __rip;                                                          \
-})
+
+#define _GET_CURRENT_PC(rip)                                                  \
+   asm volatile("lea 0(%%rip), %0" : "=r" (rip))
+
+static INLINE_ALWAYS void *
+GET_CURRENT_PC(void)
+{
+   void *rip;
+
+   _GET_CURRENT_PC(rip);
+   return rip;
+}
 
 /*
- * GET_CURRENT_LOCATION
+ * GET_CURRENT_LOCATION --
  *
  * Updates the arguments with the values of the %rip, %rbp, and %rsp
- * registers at the current code location where the macro is invoked,
- * and the return address.
+ * registers and the return address at the current code location where
+ * the macro is invoked.
  */
-#define GET_CURRENT_LOCATION(rip, rbp, rsp, retAddr)  do {         \
-      asm("lea 0(%%rip), %0\n"                                     \
-          "mov %%rbp, %1\n"                                        \
-          "mov %%rsp, %2\n"                                        \
-          : "=r" (rip), "=r" (rbp), "=r" (rsp));                   \
-      retAddr = (uint64) GetReturnAddress();                       \
-   } while (0)
+
+#define GET_CURRENT_LOCATION(rip, rbp, rsp, retAddr) do {                     \
+   _GET_CURRENT_PC(rip);                                                      \
+   asm volatile("mov %%rbp, %0" "\n\t"                                        \
+                "mov %%rsp, %1"                                               \
+                : "=r" (rbp), "=r" (rsp));                                    \
+   retAddr = (uint64)GetReturnAddress();                                      \
+} while (0)
 #endif
+
 
 /*
  * FXSAVE/FXRSTOR
@@ -127,40 +118,57 @@ uint64 __shiftright128(uint64 lowPart, uint64 highPart, uint8 shift);
  * The workaround (FXRSTOR_AMD_ES0) only costs 1 cycle more than just doing an
  * fxrstor, on both AMD Opteron and Intel Core CPUs.
  */
-#if defined(__GNUC__)
 
-static INLINE void 
+#if defined(VMM) || defined(VMKERNEL) || defined(FROBOS) || defined(ULM)
+static INLINE void
 FXSAVE_ES1(void *save)
 {
+#ifdef __GNUC__
    __asm__ __volatile__ ("fxsaveq %0  \n" : "=m" (*(uint8 *)save) : : "memory");
+#elif defined(_MSC_VER)
+   _fxsave64(save);
+#endif
 }
 
-static INLINE void 
+static INLINE void
 FXSAVE_COMPAT_ES1(void *save)
 {
+#ifdef __GNUC__
    __asm__ __volatile__ ("fxsave %0  \n" : "=m" (*(uint8 *)save) : : "memory");
+#elif defined(_MSC_VER)
+   _fxsave(save);
+#endif
 }
 
-static INLINE void 
+static INLINE void
 FXRSTOR_ES1(const void *load)
 {
+#ifdef __GNUC__
    __asm__ __volatile__ ("fxrstorq %0 \n"
                          : : "m" (*(const uint8 *)load) : "memory");
+#elif defined(_MSC_VER)
+   _fxrstor64(load);
+#endif
 }
 
-static INLINE void 
+static INLINE void
 FXRSTOR_COMPAT_ES1(const void *load)
 {
+#ifdef __GNUC__
    __asm__ __volatile__ ("fxrstor %0 \n"
                          : : "m" (*(const uint8 *)load) : "memory");
+#elif defined(_MSC_VER)
+   _fxrstor(load);
+#endif
 }
 
-static INLINE void 
+#if defined(__GNUC__)
+static INLINE void
 FXRSTOR_AMD_ES0(const void *load)
 {
    uint64 dummy = 0;
 
-   __asm__ __volatile__ 
+   __asm__ __volatile__
        ("fnstsw  %%ax    \n"     // Grab x87 ES bit
         "bt      $7,%%ax \n"     // Test ES bit
         "jnc     1f      \n"     // Jump if ES=0
@@ -184,100 +192,100 @@ FXRSTOR_AMD_ES0(const void *load)
  * The pointer passed in must be 64-byte aligned.
  * See above comment for more information.
  */
-#if defined(__GNUC__) && (defined(VMM) || defined(VMKERNEL) || defined(FROBOS))
 
-static INLINE void 
+static INLINE void
 XSAVE_ES1(void *save, uint64 mask)
 {
-#if __GNUC__ < 4 || __GNUC__ == 4 && __GNUC_MINOR__ == 1
-   __asm__ __volatile__ (
-        ".byte 0x48, 0x0f, 0xae, 0x21 \n"
-        :
-        : "c" ((uint8 *)save), "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
-        : "memory");
-#else
+#ifdef __GNUC__
    __asm__ __volatile__ (
         "xsaveq %0 \n"
         : "=m" (*(uint8 *)save)
         : "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
         : "memory");
+#elif defined(_MSC_VER)
+   _xsave64(save, mask);
 #endif
 }
 
-static INLINE void 
+static INLINE void
 XSAVE_COMPAT_ES1(void *save, uint64 mask)
 {
-#if __GNUC__ < 4 || __GNUC__ == 4 && __GNUC_MINOR__ == 1
-   __asm__ __volatile__ (
-        ".byte 0x0f, 0xae, 0x21 \n"
-        :
-        : "c" ((uint8 *)save), "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
-        : "memory");
-#else
+#ifdef __GNUC__
    __asm__ __volatile__ (
         "xsave %0 \n"
         : "=m" (*(uint8 *)save)
         : "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
         : "memory");
+#elif defined(_MSC_VER)
+   _xsave(save, mask);
 #endif
 }
 
-static INLINE void 
+static INLINE void
 XSAVEOPT_ES1(void *save, uint64 mask)
 {
+#ifdef __GNUC__
    __asm__ __volatile__ (
-        ".byte 0x48, 0x0f, 0xae, 0x31 \n"
-        :
-        : "c" ((uint8 *)save), "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
+        "xsaveoptq %0 \n"
+        : "=m" (*(uint8 *)save)
+        : "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
         : "memory");
+#elif defined(_MSC_VER)
+   _xsaveopt64(save, mask);
+#endif
 }
 
-static INLINE void 
+static INLINE void
+XSAVEC_COMPAT_ES1(void *save, uint64 mask)
+{
+#ifdef __GNUC__
+   __asm__ __volatile__ (
+        "xsavec %0 \n"
+        : "=m" (*(uint8 *)save)
+        : "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
+        : "memory");
+#elif defined(_MSC_VER)
+   _xsavec(save, mask);
+#endif
+}
+
+static INLINE void
 XRSTOR_ES1(const void *load, uint64 mask)
 {
-#if __GNUC__ < 4 || __GNUC__ == 4 && __GNUC_MINOR__ == 1
-   __asm__ __volatile__ (
-        ".byte 0x48, 0x0f, 0xae, 0x29 \n"
-        :
-        : "c" ((const uint8 *)load),
-          "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
-        : "memory");
-#else
+#ifdef __GNUC__
    __asm__ __volatile__ (
         "xrstorq %0 \n"
         :
         : "m" (*(const uint8 *)load),
           "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
         : "memory");
+#elif defined(_MSC_VER)
+   _xrstor64(load, mask);
 #endif
 }
 
-static INLINE void 
+static INLINE void
 XRSTOR_COMPAT_ES1(const void *load, uint64 mask)
 {
-#if __GNUC__ < 4 || __GNUC__ == 4 && __GNUC_MINOR__ == 1
-   __asm__ __volatile__ (
-        ".byte 0x0f, 0xae, 0x29 \n"
-        :
-        : "c" ((const uint8 *)load),
-          "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
-        : "memory");
-#else
+#ifdef __GNUC__
    __asm__ __volatile__ (
         "xrstor %0 \n"
         :
         : "m" (*(const uint8 *)load),
           "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
         : "memory");
+#elif defined(_MSC_VER)
+   _xrstor(load, mask);
 #endif
 }
 
-static INLINE void 
+#if defined(__GNUC__)
+static INLINE void
 XRSTOR_AMD_ES0(const void *load, uint64 mask)
 {
    uint64 dummy = 0;
 
-   __asm__ __volatile__ 
+   __asm__ __volatile__
        ("fnstsw  %%ax    \n"     // Grab x87 ES bit
         "bt      $7,%%ax \n"     // Test ES bit
         "jnc     1f      \n"     // Jump if ES=0
@@ -287,36 +295,70 @@ XRSTOR_AMD_ES0(const void *load, uint64 mask)
         "fildl   %0      \n"     // Dummy Load from "safe address" changes all
                                  // x87 exception pointers.
         "mov %%ebx, %%eax \n"
-#if __GNUC__ < 4 || __GNUC__ == 4 && __GNUC_MINOR__ == 1
-        ".byte 0x48, 0x0f, 0xae, 0x29 \n"
-        :
-        : "m" (dummy), "c" ((const uint8 *)load),
-          "b" ((uint32)mask), "d" ((uint32)(mask >> 32))
-#else
         "xrstorq %1 \n"
         :
         : "m" (dummy), "m" (*(const uint8 *)load),
           "b" ((uint32)mask), "d" ((uint32)(mask >> 32))
-#endif
         : "eax", "memory");
 }
 
 #endif /* __GNUC__ */
 
 /*
+ * XSAVES/XRSTORS
+ *     saves/restores processor state components
+ *
+ * The pointer passed in must be 64-byte aligned.
+ */
+
+#if defined(__GNUC__)
+static INLINE void
+XSAVES(const void *save, uint64 mask)
+{
+   __asm__ __volatile__ (
+        "xsaves %0 \n"
+        : "=m" (*(uint8 *)save)
+        : "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
+        : "memory");
+}
+
+static INLINE void
+XRSTORS(const void *load, uint64 mask)
+{
+   __asm__ __volatile__ (
+        "xrstors %0 \n"
+        :
+        : "m" (*(const uint8 *)load),
+          "a" ((uint32)mask), "d" ((uint32)(mask >> 32))
+        : "memory");
+}
+
+#endif /* __GNUC__ */
+#endif /* VMM || VMKERNEL || FROBOS || ULM */
+
+/*
  * XTEST
  *     Return TRUE if processor is in transaction region.
+ *
+ *  Using condition codes as output values (=@ccnz) requires gcc6 or
+ *  above.  Clang does not support condition codes as output
+ *  constraints.
  *
  */
 #if defined(__GNUC__) && (defined(VMM) || defined(VMKERNEL) || defined(FROBOS))
 static INLINE Bool
 xtest(void)
 {
-   uint8 al;
-   __asm__ __volatile__(".byte 0x0f, 0x01, 0xd6    # xtest \n"
-                        "setnz %%al\n"
-                        : "=a"(al) : : "cc"); 
-   return al;
+   Bool result;
+#if defined(__clang__)
+   __asm__ __volatile__("xtest\n"
+                        "setnz %%al"
+                        : "=a" (result) : : "cc");
+#else
+   __asm__ __volatile__("xtest"
+                        : "=@ccnz" (result) : : "cc");
+#endif
+   return result;
 }
 
 #endif /* __GNUC__ */
@@ -328,7 +370,7 @@ xtest(void)
  *
  *    Unsigned integer by fixed point multiplication, with rounding:
  *       result = floor(multiplicand * multiplier * 2**(-shift) + 0.5)
- * 
+ *
  *       Unsigned 64-bit integer multiplicand.
  *       Unsigned 64-bit fixed point multiplier, represented as
  *         (multiplier, shift), where shift < 64.
@@ -388,13 +430,13 @@ Mul64x6464(uint64 multiplicand,
     *      discarded by the shift.
     *    Return the low-order 64 bits of the above.
     */
-   uint64 tmplo, tmphi;
-   tmplo = _umul128(multiplicand, multiplier, &tmphi);
    if (shift == 0) {
-      return tmplo;
+      return multiplicand * multiplier;
    } else {
-      return __shiftright128(tmplo, tmphi, (uint8) shift) +
-         ((tmplo >> (shift - 1)) & 1);
+      uint64 lo, hi;
+
+      lo = _umul128(multiplicand, multiplier, &hi);
+      return __shiftright128(lo, hi, (uint8)shift) + (lo >> (shift - 1) & 1);
    }
 }
 
@@ -410,7 +452,7 @@ Mul64x6464(uint64 multiplicand,
  *
  *    Signed integer by fixed point multiplication, with rounding:
  *       result = floor(multiplicand * multiplier * 2**(-shift) + 0.5)
- * 
+ *
  *       Signed 64-bit integer multiplicand.
  *       Unsigned 64-bit fixed point multiplier, represented as
  *         (multiplier, shift), where shift < 64.
@@ -475,13 +517,13 @@ Muls64x64s64(int64 multiplicand,
     * Note: using an unsigned shift is correct because shift < 64 and
     * we return only the low 64 bits of the shifted result.
     */
-   int64 tmplo, tmphi;
-   tmplo = _mul128(multiplicand, multiplier, &tmphi);
    if (shift == 0) {
-      return tmplo;
+      return multiplicand * multiplier;
    } else {
-      return __shiftright128(tmplo, tmphi, (uint8) shift) +
-         ((tmplo >> (shift - 1)) & 1);
+      int64 lo, hi;
+
+      lo = _mul128(multiplicand, multiplier, &hi);
+      return __shiftright128(lo, hi, (uint8)shift) + (lo >> (shift - 1) & 1);
    }
 }
 
@@ -495,7 +537,7 @@ Muls64x64s64(int64 multiplicand,
  *
  *    Unsigned integer by fixed point multiplication, with rounding:
  *       result = floor(multiplicand * multiplier * 2**(-shift) + 0.5)
- * 
+ *
  *       Unsigned 64-bit integer multiplicand.
  *       Unsigned 32-bit fixed point multiplier, represented as
  *         (multiplier, shift), where shift < 64.
@@ -519,7 +561,7 @@ Mul64x3264(uint64 multiplicand, uint32 multiplier, uint32 shift)
  *
  *    Signed integer by fixed point multiplication, with rounding:
  *       result = floor(multiplicand * multiplier * 2**(-shift) + 0.5)
- * 
+ *
  *       Signed 64-bit integer multiplicand.
  *       Unsigned 32-bit fixed point multiplier, represented as
  *         (multiplier, shift), where shift < 64.

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998,2005-2012,2014-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998,2005-2012,2014-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -43,6 +43,7 @@
 #define PCI_DEVICE_ID_LSISAS1068        0x0054
 
 /* Our own PCI IDs
+ *    VMware SBX (Sandbox device for graphics driver VM)
  *    VMware SVGA II (Unified VGA)
  *    VMware SVGA (PCI Accelerator)
  *    VMware vmxnet (Idealized NIC)
@@ -54,6 +55,9 @@
  *    VMware HD Audio controller
  */
 #define PCI_VENDOR_ID_VMWARE                    0x15AD
+#define PCI_DEVICE_ID_VMWARE_SBX                0x0420
+#define PCI_DEVICE_ID_VMWARE_SVGA_EFI           0x0407
+#define PCI_DEVICE_ID_VMWARE_SVGA3              0x0406
 #define PCI_DEVICE_ID_VMWARE_SVGA2              0x0405
 #define PCI_DEVICE_ID_VMWARE_SVGA               0x0710
 #define PCI_DEVICE_ID_VMWARE_VGA                0x0711
@@ -113,6 +117,12 @@
 #define PCI_DEVICE_ID_VMWARE_VTPM       0x0830
 
 /*
+ * VMware Device Virtualization Extension (DVX) devices
+ */
+#define PCI_DEVICE_ID_VMWARE_DVX_SAMPLE 0x0840
+#define PCI_DEVICE_ID_VMWARE_DVX_TEST   0x0841
+
+/*
  * VMware Virtual Device Test Infrastructure (VDTI) devices
  */
 #define PCI_DEVICE_ID_VMWARE_VDTI               0x7E57  /* stands for "TEST" */
@@ -138,23 +148,24 @@
  *    Intel 82545EM (e1000, server adapter, single port)
  *    Intel 82546EB (e1000, server adapter, dual port)
  *    Intel HECI (as embedded in ich9m)
- *    Intel XHCI (Panther Point / Intel 7 Series)
+ *    Intel XHCI (Panther Point / Intel 7 Series, 5Gbps)
+ *    Intel XHCI (Cannon Lake / Intel 300 Series, 10Gbps)
  */
-#define PCI_VENDOR_ID_INTEL             0x8086
-#define PCI_DEVICE_ID_INTEL_82439TX     0x7100
-#define PCI_DEVICE_ID_INTEL_82371AB_0   0x7110
-#define PCI_DEVICE_ID_INTEL_82371AB_2   0x7112
-#define PCI_DEVICE_ID_INTEL_82371AB_3   0x7113
-#define PCI_DEVICE_ID_INTEL_82371AB     0x7111
-#define PCI_DEVICE_ID_INTEL_82443BX     0x7190
-#define PCI_DEVICE_ID_INTEL_82443BX_1   0x7191
-#define PCI_DEVICE_ID_INTEL_82443BX_2   0x7192 /* Used when no AGP support */
-#define PCI_DEVICE_ID_INTEL_82545EM     0x100f
-#define PCI_DEVICE_ID_INTEL_82546EB     0x1010
-#define PCI_DEVICE_ID_INTEL_82574       0x10d3
-#define PCI_DEVICE_ID_INTEL_82574_APPLE 0x10f6
-#define PCI_DEVICE_ID_INTEL_HECI        0x2a74
+#define PCI_VENDOR_ID_INTEL                   0x8086
+#define PCI_DEVICE_ID_INTEL_82439TX           0x7100
+#define PCI_DEVICE_ID_INTEL_82371AB_0         0x7110
+#define PCI_DEVICE_ID_INTEL_82371AB_2         0x7112
+#define PCI_DEVICE_ID_INTEL_82371AB_3         0x7113
+#define PCI_DEVICE_ID_INTEL_82371AB           0x7111
+#define PCI_DEVICE_ID_INTEL_82443BX           0x7190
+#define PCI_DEVICE_ID_INTEL_82443BX_1         0x7191
+#define PCI_DEVICE_ID_INTEL_82443BX_2         0x7192 /* Used when no AGP support */
+#define PCI_DEVICE_ID_INTEL_82545EM           0x100f
+#define PCI_DEVICE_ID_INTEL_82546EB           0x1010
+#define PCI_DEVICE_ID_INTEL_82574             0x10d3
+#define PCI_DEVICE_ID_INTEL_82574_APPLE       0x10f6
 #define PCI_DEVICE_ID_INTEL_PANTHERPOINT_XHCI 0x1e31
+#define PCI_DEVICE_ID_INTEL_CANNONLAKE_XHCI   0xa36d
 
 /*
  *  From drivers/usb/host/xhci-pci.c:
@@ -165,7 +176,9 @@
 /*
  * Intel Volume Management Device (VMD)
  */
-#define PCI_DEVICE_ID_INTEL_VMD_V1           0x201d
+#define PCI_DEVICE_ID_INTEL_VMD_GEN1           0x201d
+#define PCI_DEVICE_ID_INTEL_VMD_GEN2           0x28c0
+#define PCI_DEVICE_ID_INTEL_VMD_GEN3           0x476F
 
 /*
  * Intel Quickassist (QAT) devices.
@@ -243,10 +256,13 @@
 /************* NVME implementation limits ********************************/
 #define NVME_MAX_CONTROLLERS   4
 #define NVME_MIN_NAMESPACES    1
-#define NVME_MAX_NAMESPACES    15 /* We support only 15 namespaces same
-                                   * as SCSI devices.
+#define NVME_MAX_NAMESPACES    64 /* We support 64 namespaces same
+                                   * as PVSCSI controller.
                                    */
-
+#define NVME_HW19_MAX_NAMESPACES 15 // HWv19 and before supports 15 namespaces
+#define NVME_FUTURE_MAX_NAMESPACES 256 /* To support NVME to the possible 256
+                                        * disks per controller in future.
+                                        */
 /************* SCSI implementation limits ********************************/
 #define SCSI_MAX_CONTROLLERS	 4	  // Need more than 1 for MSCS clustering
 #define	SCSI_MAX_DEVICES         16	  // BT-958 emulates only 16
@@ -263,26 +279,11 @@
 #define AHCI_MAX_PORTS SATA_MAX_DEVICES
 
 /*
- * Publicly supported maximum number of disks per VM.
+ * Official limit for supported number of disks is 440 per VM.
+ * VM can have more disks (up to 636 as of now), but such VM is not
+ * supported (main reason being too long downtime during (s)vmotion).
  */
-#define MAX_NUM_DISKS \
-   ((SATA_MAX_CONTROLLERS * SATA_MAX_DEVICES) + \
-    (SCSI_MAX_CONTROLLERS * SCSI_MAX_DEVICES) + \
-    (NVME_MAX_CONTROLLERS * NVME_MAX_NAMESPACES) + \
-    (IDE_NUM_INTERFACES * IDE_DRIVES_PER_IF))
-
-/*
- * Maximum number of supported disks in a VM from HWV14 or later, using PVSCSI updated max
- * devices.  The note above still holds true, but instead of publicly supporting
- * all devices, HWv14 simply extends the maximum support to 256 devices,
- * instead ~244 calculated above.
- *
- * PVSCSI_HW_MAX_DEVICES is 65 - allowing 64 disks + controller (at ID 7)
- * 4 * 64 = 256 devices.
- *
- */
-#define MAX_NUM_DISKS_HWV14 MAX(MAX_NUM_DISKS, \
-   (SCSI_MAX_CONTROLLERS * PVSCSI_MAX_NUM_DISKS))
+#define MAX_NUM_DISKS_SUPPORTED 440
 
 /*
  * VSCSI_BV_INTS is the number of uint32's needed for a bit vector
@@ -326,10 +327,10 @@
 #define MAX_FLOPPY_DRIVES      2
 
 /************* PCI Passthrough implementation limits ********************/
-#define MAX_PCI_PASSTHRU_DEVICES 16
+#define MAX_PCI_PASSTHRU_DEVICES 128
 
 /************* Test device implementation limits ********************/
-#define MAX_PCI_TEST_DEVICES 16
+#define MAX_PCI_TEST_DEVICES 128
 
 /************* VDTI PCI Device implementation limits ********************/
 #define MAX_VDTI_PCI_DEVICES 16
@@ -342,10 +343,16 @@
 #define MAX_NVDIMM 64
 
 /************* vRDMA implementation limits ******************************/
-#define MAX_VRDMA_DEVICES 1
+#define MAX_VRDMA_DEVICES 10
 
 /************* QAT implementation limits ********************/
 #define MAX_QAT_PCI_DEVICES 4
+
+/************* PrecisionClock implementation limits ********************/
+#define MAX_PRECISIONCLOCK_DEVICES 1
+
+/************* DeviceGroup implementation limits ********************/
+#define MAX_DEVICE_GROUP_DEVICES 4
 
 /************* Strings for Host USB Driver *******************************/
 

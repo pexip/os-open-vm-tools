@@ -1,5 +1,5 @@
 ################################################################################
-### Copyright (C) 2014-2017 VMware, Inc.  All rights reserved.
+### Copyright (C) 2014-2020, 2022 VMware, Inc.  All rights reserved.
 ###
 ### This program is free software; you can redistribute it and/or modify
 ### it under the terms of version 2 of the GNU General Public License as
@@ -46,6 +46,8 @@ VGAuthService_SOURCES += ../common/prefs.c
 VGAuthService_SOURCES += ../common/usercheck.c
 VGAuthService_SOURCES += ../common/VGAuthLog.c
 VGAuthService_SOURCES += ../common/VGAuthUtil.c
+VGAuthService_SOURCES += ../common/vmxlog.c
+VGAuthService_SOURCES += ../common/vmxrpc.c
 
 VGAuthServicedir = /etc/vmware-tools/vgauth/schemas
 VGAuthService_SCRIPTS =
@@ -101,7 +103,10 @@ else
    VGAuthService_LINK = $(LINK)
 endif
 
+VGAuthMsgDir = $(datadir)/open-vm-tools
+
 # Message catalogs.
 install-data-hook:
 	@INSTVMSG@ VGAuthService $(srcdir)/l10n $(DESTDIR)$(datadir)
-	cat vgauth.conf | sed -e"s!@@VGAUTHSCHEMADIR@@!$(VGAuthServicedir)!" > $(DESTDIR)/etc/vmware-tools/vgauth.conf
+	cat vgauth.conf | sed -e"s!@@VGAUTHSCHEMADIR@@!$(VGAuthServicedir)!" \
+                   |  sed -e"s!@@VGAUTHMSGDIR@@!$(VGAuthMsgDir)!" > $(DESTDIR)/etc/vmware-tools/vgauth.conf

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -80,12 +80,14 @@
 #include "strutil.h"
 #include "codeset.h"
 #include "unicode.h"
+#include "logToHost.h"
 
 #ifdef USERWORLD
 #include <vm_basic_types.h>
 #include <vmkuserstatus.h>
 #include <vmkusercompat.h>
 #endif
+
 
 /*
  * All signals that:
@@ -256,6 +258,7 @@ ProcMgr_ListProcesses(void)
    procList = Util_SafeCalloc(1, sizeof *procList);
    ProcMgrProcInfoArray_Init(procList, 0);
    procInfo.procCmdName = NULL;
+   procInfo.procCmdAbsPath = NULL;
    procInfo.procCmdLine = NULL;
    procInfo.procOwner = NULL;
 
@@ -267,9 +270,7 @@ ProcMgr_ListProcesses(void)
     * with the seconds since epoch that the system booted up.
     */
    if (0 == hostStartTime) {
-      FILE *uptimeFile = NULL;
-
-      uptimeFile = fopen("/proc/uptime", "r");
+      FILE *uptimeFile = fopen("/proc/uptime", "r");
       if (NULL != uptimeFile) {
          double secondsSinceBoot;
          char *realLocale;
@@ -320,7 +321,7 @@ ProcMgr_ListProcesses(void)
    dir = opendir("/proc");
    if (NULL == dir) {
       Warning("ProcMgr_ListProcesses unable to open /proc\n");
-      goto abort;
+      goto quit;
    }
 
    while ((ent = readdir(dir))) {
@@ -337,7 +338,6 @@ ProcMgr_ListProcesses(void)
       unsigned long long dummy;
       unsigned long long relativeStartTime;
       char *stringBegin;
-      char *cmdNameBegin;
       Bool cmdNameLookup = TRUE;
 
       /*
@@ -384,31 +384,72 @@ ProcMgr_ListProcesses(void)
          continue;
       }
 
-      if (numRead > 0) {
+      if (snprintf(cmdFilePath,
+                   sizeof cmdFilePath,
+                   "/proc/%s/exe",
+                   ent->d_name) != -1) {
+         int exeLen;
+         char exeRealPath[1024];
+
          /*
-          * Stop before we hit the final '\0'; want to leave it alone.
+          * This readlink() call on the "exe" file of the current /proc
+          * entry is not intended as a check on the subsequent open() of
+          * the "status" file of that entry, hence no time-of-check to
+          * time-of-use issue.
           */
-         for (replaceLoop = 0 ; replaceLoop < (numRead - 1) ; replaceLoop++) {
-            if ('\0' == cmdLineTemp[replaceLoop]) {
+         /* coverity[fs_check_call] */
+         exeLen = readlink(cmdFilePath, exeRealPath, sizeof exeRealPath -1);
+         if (exeLen != -1) {
+            exeRealPath[exeLen] = '\0';
+            procInfo.procCmdAbsPath =
+               Unicode_Alloc(exeRealPath, STRING_ENCODING_DEFAULT);
+         }
+      }
+
+      if (numRead > 0) {
+         for (replaceLoop = 0 ; replaceLoop < numRead ; replaceLoop++) {
+            if ('\0' == cmdLineTemp[replaceLoop] ||
+                replaceLoop == numRead - 1) {
                if (cmdNameLookup) {
                   /*
                    * Store the command name.
                    * Find the last path separator, to get the cmd name.
                    * If no separator is found, then use the whole name.
+                   * This needs to be done only if there is an absolute
+                   * path for the binary. Else, the parsing may result
+                   * in incorrect results. Following are few examples:
+                   *
+                   *   sshd: root@pts/1
+                   *   gdm-session-worker [pam/gdm-autologin]
+                   *
                    */
-                  cmdNameBegin = strrchr(cmdLineTemp, '/');
-                  if (NULL == cmdNameBegin) {
-                     cmdNameBegin = cmdLineTemp;
-                  } else {
+                  char *cmdNameBegin = strrchr(cmdLineTemp, '/');
+                  if (NULL != cmdNameBegin && cmdLineTemp[0] == '/') {
                      /*
                       * Skip over the last separator.
                       */
                      cmdNameBegin++;
+                  } else {
+                     cmdNameBegin = cmdLineTemp;
                   }
                   procInfo.procCmdName = Unicode_Alloc(cmdNameBegin, STRING_ENCODING_DEFAULT);
+                  if (procInfo.procCmdAbsPath == NULL &&
+                      cmdLineTemp[0] == '/') {
+                     procInfo.procCmdAbsPath =
+                        Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+                  }
                   cmdNameLookup = FALSE;
                }
-               cmdLineTemp[replaceLoop] = ' ';
+
+               /*
+                * In /proc/{PID}/cmdline file, the command and the
+                * arguments are separated by '\0'. We need to replace
+                * only the intermediate '\0' with ' ' and not the trailing
+                * NUL characer.
+                */
+               if (replaceLoop < (numRead - 1)) {
+                  cmdLineTemp[replaceLoop] = ' ';
+               }
             }
          }
       } else {
@@ -462,6 +503,10 @@ ProcMgr_ListProcesses(void)
              * Store the command name.
              */
             procInfo.procCmdName = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+            if (procInfo.procCmdAbsPath == NULL &&
+                cmdLineTemp[0] == '/') {
+               procInfo.procCmdAbsPath = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
+            }
          }
       }
 
@@ -481,7 +526,13 @@ ProcMgr_ListProcesses(void)
        * stat() /proc/<pid> to get the owner.  We use fileStat.st_uid
        * later in this code.  If we can't stat(), ignore and continue.
        * Maybe we don't have enough permission.
+       *
+       * This stat() call on the current /proc entry is not intended
+       * as a check on the open() near the top of the while loop which
+       * is on the cmdline file of the next entry in /proc, hence no
+       * time-of-check to time-of-use issue.
        */
+      /* coverity[fs_check_call] */
       statResult = stat(cmdFilePath, &fileStat);
       if (0 != statResult) {
          goto next_entry;
@@ -535,6 +586,17 @@ ProcMgr_ListProcesses(void)
        * Store the command line string pointer in dynbuf.
        */
       if (cmdLineTemp) {
+         int i;
+
+         /*
+          * Chop off the trailing whitespace characters.
+          */
+         for (i = strlen(cmdLineTemp) - 1 ;
+              i >= 0 && cmdLineTemp[i] == ' ' ;
+              i--) {
+            cmdLineTemp[i] = '\0';
+         }
+
          procInfo.procCmdLine = Unicode_Alloc(cmdLineTemp, STRING_ENCODING_DEFAULT);
       } else {
          procInfo.procCmdLine = Unicode_Alloc("", STRING_ENCODING_UTF8);
@@ -564,13 +626,21 @@ ProcMgr_ListProcesses(void)
       if (!ProcMgrProcInfoArray_Push(procList, procInfo)) {
          Warning("%s: failed to expand DynArray - out of memory\n",
                  __FUNCTION__);
-         goto abort;
+         free(cmdLineTemp);
+         free(cmdStatTemp);
+         goto quit;
       }
       procInfo.procCmdName = NULL;
+      procInfo.procCmdAbsPath = NULL;
       procInfo.procCmdLine = NULL;
       procInfo.procOwner = NULL;
 
 next_entry:
+      free(procInfo.procCmdName);
+      procInfo.procCmdName = NULL;
+      free(procInfo.procCmdAbsPath);
+      procInfo.procCmdAbsPath = NULL;
+
       free(cmdLineTemp);
       free(cmdStatTemp);
    } // while readdir
@@ -579,10 +649,11 @@ next_entry:
       failed = FALSE;
    }
 
-abort:
+quit:
    closedir(dir);
 
    free(procInfo.procCmdName);
+   free(procInfo.procCmdAbsPath);
    free(procInfo.procCmdLine);
    free(procInfo.procOwner);
 
@@ -639,7 +710,7 @@ ProcMgr_ListProcesses(void)
    kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
    if (kd == NULL) {
       Warning("%s: failed to open kvm with error: %s\n", __FUNCTION__, errbuf);
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -649,7 +720,7 @@ ProcMgr_ListProcesses(void)
    if (kp == NULL || nentries <= 0) {
       Warning("%s: failed to get proc infos with error: %s\n",
               __FUNCTION__, kvm_geterr(kd));
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -658,7 +729,7 @@ ProcMgr_ListProcesses(void)
    if (!ProcMgrProcInfoArray_Init(procList, nentries)) {
       Warning("%s: failed to create DynArray - out of memory\n",
               __FUNCTION__);
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -708,7 +779,7 @@ ProcMgr_ListProcesses(void)
             if (!DynBuf_Append(&dbuf, *cmdLineTemp, strlen(*cmdLineTemp))) {
                Warning("%s: failed to append cmd/args in DynBuf - no memory\n",
                        __FUNCTION__);
-               goto abort;
+               goto quit;
             }
             if (cmdNameLookup) {
                /*
@@ -736,7 +807,7 @@ ProcMgr_ListProcesses(void)
                if (!DynBuf_Append(&dbuf, " ", 1)) {
                   Warning("%s: failed to append ' ' in DynBuf - no memory\n",
                           __FUNCTION__);
-                  goto abort;
+                  goto quit;
                }
             }
          }
@@ -746,7 +817,7 @@ ProcMgr_ListProcesses(void)
          if (!DynBuf_Append(&dbuf, "", 1)) {
             Warning("%s: failed to append NUL in DynBuf - out of memory\n",
                     __FUNCTION__);
-            goto abort;
+            goto quit;
          }
          DynBuf_Trim(&dbuf);
          procInfo.procCmdLine = DynBuf_Detach(&dbuf);
@@ -776,7 +847,7 @@ ProcMgr_ListProcesses(void)
 
    failed = FALSE;
 
-abort:
+quit:
    if (kd != NULL) {
       kvm_close(kd);
    }
@@ -845,7 +916,7 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
               &maxargs, &maxargsSize, NULL, 0) < 0) {
       Warning("%s: failed to get the kernel max args with errno = %d\n",
                __FUNCTION__, errno);
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -854,7 +925,7 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
    cmdLineRaw = Util_SafeCalloc(maxargs, sizeof *cmdLineRaw);
    if (sysctl(argName, ARRAYSIZE(argName), cmdLineRaw, &maxargs, NULL, 0) < 0) {
       Debug("%s: No command line args for pid = %ld\n", __FUNCTION__, pid);
-      goto abort;
+      goto quit;
    }
    cmdLineEnd = &cmdLineRaw[maxargs];
 
@@ -877,7 +948,7 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
    if (0 >= argNum) {
       Debug("%s: Invalid number of command line args (=%d) for pid = %ld\n",
              __FUNCTION__, argNum, pid);
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -919,7 +990,7 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
                if (!DynBuf_Append(argsBuf, " ", 1)) {
                   Warning("%s: failed to append ' ' in DynBuf\
                            - no memory\n", __FUNCTION__);
-                  goto abort;
+                  goto quit;
                }
             }
             /*
@@ -928,7 +999,7 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
             if (!DynBuf_Append(argsBuf, argUnicode, strlen(argUnicode))) {
                Warning("%s: failed to append cmd/args in DynBuf\
                         - no memory\n", __FUNCTION__);
-               goto abort;
+               goto quit;
             }
             free(argUnicode);
             argUnicode = NULL;
@@ -972,12 +1043,12 @@ ProcMgrGetCommandLineArgs(long pid,               // IN:  process id
    if (!DynBuf_Append(argsBuf, "", 1)) {
       Warning("%s: failed to append NUL in DynBuf - out of memory\n",
               __FUNCTION__);
-      goto abort;
+      goto quit;
    }
    DynBuf_Trim(argsBuf);
 
    failed = FALSE;
-abort:
+quit:
    free(cmdLineRaw);
    free(argUnicode);
    if (failed) {
@@ -1033,7 +1104,7 @@ ProcMgr_ListProcesses(void)
    if (sysctl(procName, ARRAYSIZE(procName), NULL, &procsize, NULL, 0) < 0) {
       Warning("%s: failed to get the size of the process struct\
                list with errno = %d\n", __FUNCTION__, errno);
-      goto abort;
+      goto quit;
    }
    nentries = (int)(procsize / sizeof *kp);
 
@@ -1044,14 +1115,14 @@ ProcMgr_ListProcesses(void)
    if (sysctl(procName, ARRAYSIZE(procName), kp, &procsize, NULL, 0) < 0) {
       Warning("%s: failed to get the process struct list (errno = %d)\n",
                __FUNCTION__, errno);
-      goto abort;
+      goto quit;
    }
 
    /*
     * Recalculate the number of entries as they may have changed.
     */
    if (0 >= (nentries = (int)(procsize / sizeof *kp))) {
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -1060,7 +1131,7 @@ ProcMgr_ListProcesses(void)
    if (!ProcMgrProcInfoArray_Init(procList, nentries)) {
       Warning("%s: failed to create DynArray - out of memory\n",
               __FUNCTION__);
-      goto abort;
+      goto quit;
    }
 
    /*
@@ -1142,7 +1213,7 @@ ProcMgr_ListProcesses(void)
 
    failed = FALSE;
 
-abort:
+quit:
    free(kp);
    free(procInfo.procCmdLine);
    free(procInfo.procCmdName);
@@ -1187,6 +1258,9 @@ ProcMgr_FreeProcList(ProcMgrProcInfoArray *procList)
    for (i = 0; i < procCount; i++) {
       ProcMgrProcInfo *procInfo = ProcMgrProcInfoArray_AddressOf(procList, i);
       free(procInfo->procCmdName);
+#if defined(__linux__)
+      free(procInfo->procCmdAbsPath);
+#endif
       free(procInfo->procCmdLine);
       free(procInfo->procOwner);
    }
@@ -1311,7 +1385,7 @@ ProcMgr_ExecSyncWithExitCode(char const *cmd,                  // IN: UTF-8 comm
                              Bool *validExitCode,              // OUT: exit code is valid
                              int *exitCode)                    // OUT: exit code
 {
-   Bool result = FALSE;
+   Bool result;
 
    ASSERT(exitCode != NULL && validExitCode != NULL);
 
@@ -1582,8 +1656,6 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
    ProcMgr_AsyncProc *asyncProc = NULL;
    pid_t pid;
    int fds[2];
-   Bool validExitCode = FALSE;
-   int exitCode;
    pid_t resultPid;
    int readFd, writeFd;
 
@@ -1602,12 +1674,14 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
 
    if (pid == -1) {
       Warning("Unable to fork: %s.\n\n", strerror(errno));
-      goto abort;
+      goto quit;
    } else if (pid == 0) {
       struct sigaction olds[ARRAYSIZE(cSignals)];
       int i, maxfd;
       Bool status = TRUE;
       pid_t childPid = -1;
+      Bool validExitCode = FALSE;
+      int exitCode = -1;
 
       /*
        * Child
@@ -1735,10 +1809,10 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
        * We cannot wait on the child process here, since the error
        * may have just been on our end, so the child could be running
        * for some time and we probably cannot afford to block.
-       * Just kill the child and move on.
+       * Just force the child to quit and move on.
        */
       ProcMgrKill(pid, SIGKILL, -1);
-      goto abort;
+      goto quit;
    }
 
    if (resultPid == -1) {
@@ -1748,7 +1822,7 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
        * Clean up the child process; it should exit pretty quickly.
        */
       waitpid(pid, NULL, 0);
-      goto abort;
+      goto quit;
    }
 
    asyncProc = Util_SafeMalloc(sizeof *asyncProc);
@@ -1759,7 +1833,7 @@ ProcMgr_ExecAsync(char const *cmd,                 // IN: UTF-8 command line
    asyncProc->exitCode = -1;
    asyncProc->resultPid = resultPid;
 
- abort:
+ quit:
    if (readFd != -1) {
       close(readFd);
    }
@@ -1798,13 +1872,14 @@ ProcMgr_IsProcessRunning(pid_t pid)
  *
  * ProcMgrKill --
  *
- *      Try to kill a pid & check every so often to see if it has died.
+ *      Try to force a pid to quit and check every so often to see
+ *      if it has ended.
  *
  * Results:
  *      1 if the process died; 0 on failure, -1 on timeout
  *
  * Side effects:
- *	Depends on the program being killed.
+ *	Depends on the program being forced to quit.
  *	errno set.
  *
  *----------------------------------------------------------------------
@@ -1817,7 +1892,7 @@ ProcMgrKill(pid_t pid,      // IN
 {
    if (kill(pid, sig) == -1) {
       int savedErrno = errno;
-      Warning("Error trying to kill process %"FMTPID" with signal %d: %s\n",
+      Warning("Error trying to cancel process %"FMTPID" with signal %d: %s\n",
               pid, sig, Msg_ErrString());
       errno = savedErrno;
       return 0;
@@ -1836,7 +1911,7 @@ ProcMgrKill(pid_t pid,      // IN
              * by looking in the proc table.
              *
              * Note that this is susceptible to a race.  Its possible
-             * that just as we kill the process, a new one can come
+             * that just as we force the process to end, a new one can come
              * around and re-use the pid by the time we check on it.
              * This requires the pids have wrapped and a lot of luck.
              */
@@ -1862,9 +1937,10 @@ ProcMgrKill(pid_t pid,      // IN
    }
 
    /*
-    * timed out -- system/process is incredibly unresponsive or unkillable
+    * timed out -- system/process is incredibly unresponsive or cannot be
+    * forced to quit.
     */
-   Warning("%s: timed out trying to kill pid %"FMTPID" with signal %d\n",
+   Warning("%s: timed out trying to cancel pid %"FMTPID" with signal %d\n",
            __FUNCTION__, pid, sig);
    return -1;
 }
@@ -1876,7 +1952,7 @@ ProcMgrKill(pid_t pid,      // IN
  * ProcMgr_KillByPid --
  *
  *      Attempt to terminate the process of procId.
- *      First try TERM for 5 seconds, then KILL for 15
+ *      First try SIGTERM for 5 seconds, then SIGKILL for 15
  *      if that is unsuccessful.
  *
  * Results:
@@ -1897,7 +1973,7 @@ ProcMgr_KillByPid(ProcMgr_Pid procId)   // IN
    ret = ProcMgrKill(procId, SIGTERM, 5);
    if (ret != 1) {
       /*
-       * We can't try forever, since some processes are unkillable (eg systemd),
+       * We can't try forever, since some processes are immortal (eg systemd),
        * or a process could be stuck 'forever' in a disk wait.
        * 5+15 seconds should be long enough to handle very slow systems, while
        * not causing timeouts at the VMX layer or the guestInfo gathering.
@@ -1921,14 +1997,14 @@ ProcMgr_KillByPid(ProcMgr_Pid procId)   // IN
  *
  * ProcMgr_Kill --
  *
- *      Kill a process synchronously by first attempty to do so
- *      nicely & then whipping out the SIGKILL axe.
+ *      Synchronously try to force a process to quit with SIGTERM.
+ *      If that fails use SIGKILL.
  *
  * Results:
  *      None.
  *
  * Side effects:
- *      Depends on the program being killed.
+ *      Depends on the program being forced to quit.
  *
  *----------------------------------------------------------------------
  */
@@ -2238,13 +2314,15 @@ ProcMgr_ImpersonateUserStart(const char *user,  // IN: UTF-8 encoded user name
    ret = setresgid(ppw->pw_gid, ppw->pw_gid, root_gid);
 #endif
    if (ret < 0) {
-      Warning("Failed to set gid for user %s\n", user);
+      WarningToGuest("Failed to set gid for user %s\n", user);
+      WarningToHost("Failed to set gid\n");
       return FALSE;
    }
 #ifndef USERWORLD
    ret = initgroups(ppw->pw_name, ppw->pw_gid);
    if (ret < 0) {
-      Warning("Failed to initgroups() for user %s\n", user);
+      WarningToGuest("Failed to initgroups() for user %s\n", user);
+      WarningToHost("Failed to initgroups()\n");
       goto failure;
    }
 #endif
@@ -2257,7 +2335,8 @@ ProcMgr_ImpersonateUserStart(const char *user,  // IN: UTF-8 encoded user name
    ret = setresuid(ppw->pw_uid, ppw->pw_uid, 0);
 #endif
    if (ret < 0) {
-      Warning("Failed to set uid for user %s\n", user);
+      WarningToGuest("Failed to set uid for user %s\n", user);
+      WarningToHost("Failed to set uid\n");
       goto failure;
    }
 

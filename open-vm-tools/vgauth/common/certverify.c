@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2016, 2018-2019, 2021-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -93,11 +93,23 @@ VerifyDumpSSLErrors(void)
    const char *data;
    const char *file;
    unsigned long code;
+#if OPENSSL_VERSION_NUMBER >= 0X30000000L
+   const char *func;
+#endif
 
+#if OPENSSL_VERSION_NUMBER >= 0X30000000L
+   code = ERR_get_error_all(&file, &line, &func, &data, &flags);
+#else
    code = ERR_get_error_line_data(&file, &line, &data, &flags);
+#endif
    while (code) {
+#if OPENSSL_VERSION_NUMBER >= 0X30000000L
+      g_warning("SSL error: %lu (%s) in %s func %s line %d\n",
+                code, ERR_error_string(code, NULL), file, func, line);
+#else
       g_warning("SSL error: %lu (%s) in %s line %d\n",
                 code, ERR_error_string(code, NULL), file, line);
+#endif
       if (data && (flags & ERR_TXT_STRING)) {
          g_warning("SSL error data: %s\n", data);
       }
@@ -107,7 +119,11 @@ VerifyDumpSSLErrors(void)
        * until the SSL error buffer starts getting reused and a double
        * free happens.
        */
+#if OPENSSL_VERSION_NUMBER >= 0X30000000L
+      code = ERR_get_error_all(&file, &line, &func, &data, &flags);
+#else
       code = ERR_get_error_line_data(&file, &line, &data, &flags);
+#endif
    }
 }
 
@@ -140,14 +156,21 @@ VerifyCallback(int ok,
     * XXX
     *
     * This is a legacy function that has some issues, but setting up a bio
-    * just for a bit of debug seems overkill.
+    * just for a bit of debug seems excessive.
     */
-   X509_NAME_oneline(X509_get_subject_name(curCert), nameBuf, sizeof(nameBuf) - 1);
-   nameBuf[sizeof(nameBuf)-1] = '\0';
-   g_debug("%s: name: %s ok: %d error %d at %d depth lookup:%s\n",
+   if (NULL != curCert) {
+      X509_NAME_oneline(X509_get_subject_name(curCert), nameBuf, sizeof(nameBuf) - 1);
+      nameBuf[sizeof(nameBuf)-1] = '\0';
+   } else {
+      /* Ignore return, returns length of the source string */
+      /* coverity[check_return] */
+      g_strlcpy(nameBuf, "<NO CERT SUBJECT>", sizeof nameBuf);
+   }
+   g_debug("%s: name: %s ok: %d error '%s' (%d) at %d depth lookup:%s\n",
            __FUNCTION__,
            nameBuf,
            ok,
+           X509_verify_cert_error_string(certErr),
            certErr,
            X509_STORE_CTX_get_error_depth(ctx),
            X509_verify_cert_error_string(certErr));
@@ -161,7 +184,9 @@ VerifyCallback(int ok,
          ret = 1;
          break;
       default:
-         g_warning("%s: error %d treated as failure\n", __FUNCTION__, certErr);
+         g_warning("%s: error '%s' (%d) treated as failure\n",
+                   __FUNCTION__, X509_verify_cert_error_string(certErr),
+                   certErr);
          break;
       }
    }
@@ -179,7 +204,7 @@ VerifyCallback(int ok,
  *
  * Assumes the data is in the openssl form, but allows for some fudge
  * factor in the way the '---' are handled in case of hand-editing.
- * This may be overkill, but since we're currently thinking people can
+ * This may be excessive, but since we're currently thinking people can
  * hand-edit things, and its not that much harder, lets try it.
  * Of course, if we get a test case that tries to do this, I'm sure
  * they can beat it if they try hard enough.
@@ -435,7 +460,7 @@ CertVerifyX509ToString(X509 *x)
 gchar *
 CertVerify_CertToX509String(const gchar *pemCert)
 {
-   X509 *x = NULL;
+   X509 *x;
    gchar *retVal = NULL;
 
    x = CertStringToX509(pemCert);

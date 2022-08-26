@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -83,12 +83,47 @@
 #endif
 #define __IS_FREEBSD_VER__(ver) (__IS_FREEBSD__ && __FreeBSD_version >= (ver))
 
+/*
+ * <stddef.h> provides definitions for:
+ *   NULL, offsetof
+ * References:
+ *   C90 7.17, C99 7.19, C11 7.19
+ */
+/* Use linux/stddef.h when building Linux kernel modules. */
+#ifdef KBUILD_MODNAME
+#  include <linux/stddef.h>
+#elif !defined(VMKERNEL)
+#  include <stddef.h>
+#else
+   /*
+    * Vmkernel's bogus __FreeBSD__ value causes gcc <stddef.h> to break.
+    * Work around by doing similar things. Bug 2116887 and 2229647.
+    */
+#  ifndef offsetof
+      /*
+       * We use the builtin offset for gcc/clang, except when we're running
+       * under the vmkernel's GDB macro preprocessor, since gdb doesn't
+       * understand __builtin_offsetof.
+       */
+#     if defined VMKERNEL_GDB_MACRO_BUILDER
+#        define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#     else
+#        define offsetof __builtin_offsetof
+#     endif
+#  endif
+
+#  ifndef NULL
+#     ifdef  __cplusplus
+#        define NULL    0
+#     else
+#        define NULL    ((void *)0)
+#     endif
+#  endif
+
+#endif  // VMKERNEL
+
 #if defined _WIN32 && defined USERLEVEL
-   #include <stddef.h>  /*
-                         * We redefine offsetof macro from stddef; make
-                         * sure that it's already defined before we do that.
-                         */
-   #include <windows.h>	// for Sleep() and LOWORD() etc.
+   #include <windows.h> // for Sleep() and LOWORD() etc.
    #undef GetFreeSpace  // Unpollute preprocessor namespace.
 #endif
 
@@ -97,42 +132,8 @@
  * Simple macros
  */
 
-#ifndef vmw_offsetof
-#define vmw_offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-#if (defined __APPLE__ || defined __FreeBSD__) && \
-    (!defined KERNEL && !defined _KERNEL && !defined VMKERNEL && !defined __KERNEL__)
-#   include <stddef.h>
-#else
-#ifndef offsetof
-#define VMW_DEFINED_OFFSETOF
-
-/*
- * XXX While the _WIN32 implementation appears to be identical to vmw_offsetof
- * in terms of behavior, they need to be separate to match verbatim the
- * definition used by the respective compilers, to avoid a redefinition warning.
- *
- * This is necessary until we eliminate the inclusion of <windows.h> above.
- */
-#ifdef _WIN32
-#define offsetof(s,m)   (size_t)&(((s *)0)->m)
-/*
- * We use the builtin offset for gcc/clang, except when we're running under the
- * vmkernel's GDB macro preprocessor, since gdb doesn't understand
- * __builtin_offsetof.
- */
-#elif defined __GNUC__ && !defined VMKERNEL_GDB_MACRO_BUILDER
-#define offsetof __builtin_offsetof
-#else
-#define offsetof vmw_offsetof
-#endif
-
-#endif // offsetof
-#endif // __APPLE__
-
 #define VMW_CONTAINER_OF(ptr, type, member) \
-   ((type *)((char *)(ptr) - vmw_offsetof(type, member)))
+   ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(a) (sizeof (a) / sizeof *(a))
@@ -171,9 +172,22 @@ Max(int a, int b)
 #define ROUNDUPBITS(x, bits)	(((uintptr_t) (x) + MASK(bits)) & ~MASK(bits))
 #define ROUNDDOWNBITS(x, bits)	((uintptr_t) (x) & ~MASK(bits))
 #define CEILING(x, y)		(((x) + (y) - 1) / (y))
+
+#if defined VMKERNEL || defined VMKBOOT
+# define CEIL(_a, _b)        CEILING(_a, _b)
+# define FLOOR(_a, _b)       ((_a)/(_b))
+# define ALIGN_DOWN(_a, _b)  ROUNDDOWN(_a, _b)
+# define ALIGN_UP(_a, _b)    ROUNDUP(_a, _b)
+# define IS_ALIGNED(_a, _b)  (ALIGN_DOWN(_a, _b) == _a)
+#endif
+
 #if defined __APPLE__
 #include <machine/param.h>
 #undef MASK
+#include <mach/machine/vm_param.h>
+#undef PAGE_SHIFT
+#undef PAGE_SIZE
+#undef PAGE_MASK
 #endif
 
 /*
@@ -197,18 +211,6 @@ Max(int a, int b)
 #define QWORD_ALIGN(x)          ((((x) + 7) >> 3) << 3)
 
 #define IMPLIES(a,b) (!(a) || (b))
-
-/*
- * Not everybody (e.g., the monitor) has NULL
- */
-
-#ifndef NULL
-#ifdef  __cplusplus
-#define NULL    0
-#else
-#define NULL    ((void *)0)
-#endif
-#endif
 
 
 /*
@@ -241,33 +243,53 @@ Max(int a, int b)
  * Page operations
  *
  * It has been suggested that these definitions belong elsewhere
- * (like x86types.h).  However, I deem them common enough
+ * (like cpu_types.h).  However, I deem them common enough
  * (since even regular user-level programs may want to do
  * page-based memory manipulation) to be here.
  * -- edward
  */
 
+#define PAGE_SHIFT_4KB   12
+#define PAGE_SHIFT_16KB  14
+#define PAGE_SHIFT_64KB  16
+
 #ifndef PAGE_SHIFT // {
-#if defined VM_I386
-   #define PAGE_SHIFT    12
+#if defined __x86_64__ || defined __i386__
+   #define PAGE_SHIFT    PAGE_SHIFT_4KB
 #elif defined __APPLE__
-   #define PAGE_SHIFT    12
+   #if defined VM_ARM_ANY
+      #define PAGE_SHIFT    PAGE_SHIFT_16KB
+   #else
+      #define PAGE_SHIFT    PAGE_SHIFT_4KB
+   #endif
 #elif defined VM_ARM_64
-   #define PAGE_SHIFT    12
+   #define PAGE_SHIFT    PAGE_SHIFT_4KB
 #elif defined __arm__
-   #define PAGE_SHIFT    12
+   #define PAGE_SHIFT    PAGE_SHIFT_4KB
 #else
    #error
 #endif
 #endif // }
 
+#define PAGE_SIZE_4KB    (1 << PAGE_SHIFT_4KB)
+#define PAGE_SIZE_16KB   (1 << PAGE_SHIFT_16KB)
+#define PAGE_SIZE_64KB   (1 << PAGE_SHIFT_64KB)
+
 #ifndef PAGE_SIZE
 #define PAGE_SIZE     (1 << PAGE_SHIFT)
 #endif
 
+#define PAGE_MASK_4KB    (PAGE_SIZE_4KB - 1)
+#define PAGE_MASK_16KB   (PAGE_SIZE_16KB - 1)
+#define PAGE_MASK_64KB   (PAGE_SIZE_64KB - 1)
+
 #ifndef PAGE_MASK
 #define PAGE_MASK     (PAGE_SIZE - 1)
 #endif
+
+#define PAGE_OFFSET_4KB(_addr)   ((uintptr_t)(_addr) & (PAGE_SIZE_4KB - 1))
+#define PAGE_OFFSET_16KB(_addr)  ((uintptr_t)(_addr) & (PAGE_SIZE_16KB - 1))
+#define PAGE_OFFSET_64KB(_addr)  ((uintptr_t)(_addr) & (PAGE_SIZE_64KB - 1))
 
 #ifndef PAGE_OFFSET
 #define PAGE_OFFSET(_addr)  ((uintptr_t)(_addr) & (PAGE_SIZE - 1))
@@ -290,17 +312,43 @@ Max(int a, int b)
 #define BYTES_2_PAGES(_nbytes)  ((_nbytes) >> PAGE_SHIFT)
 #endif
 
+#ifndef BYTES_2_PAGES_4KB
+#define BYTES_2_PAGES_4KB(_nbytes)  ((_nbytes) >> PAGE_SHIFT_4KB)
+#endif
+
 #ifndef PAGES_2_BYTES
 #define PAGES_2_BYTES(_npages)  (((uint64)(_npages)) << PAGE_SHIFT)
+#endif
+
+#ifndef KBYTES_SHIFT
+#define KBYTES_SHIFT 10
 #endif
 
 #ifndef MBYTES_SHIFT
 #define MBYTES_SHIFT 20
 #endif
 
+#ifndef GBYTES_SHIFT
+#define GBYTES_SHIFT 30
+#endif
+
+#ifndef KBYTES_2_PAGES
+#define KBYTES_2_PAGES(_nkbytes) \
+   ((uint64)(_nkbytes) >> (PAGE_SHIFT - KBYTES_SHIFT))
+#endif
+
 #ifndef MBYTES_2_PAGES
-#define MBYTES_2_PAGES(_nbytes) \
-   ((uint64)(_nbytes) << (MBYTES_SHIFT - PAGE_SHIFT))
+#define MBYTES_2_PAGES(_nMbytes) \
+   ((uint64)(_nMbytes) << (MBYTES_SHIFT - PAGE_SHIFT))
+#endif
+
+#ifndef MBYTES_2_PAGES_4KB
+#define MBYTES_2_PAGES_4KB(_nMbytes) \
+   ((uint64)(_nMbytes) << (MBYTES_SHIFT - PAGE_SHIFT_4KB))
+#endif
+
+#ifndef PAGES_2_KBYTES
+#define PAGES_2_KBYTES(_npages) ((_npages) << (PAGE_SHIFT - KBYTES_SHIFT))
 #endif
 
 #ifndef PAGES_2_MBYTES
@@ -318,11 +366,20 @@ Max(int a, int b)
 #endif
 
 #ifndef GBYTES_2_PAGES
-#define GBYTES_2_PAGES(_nbytes) ((uint64)(_nbytes) << (30 - PAGE_SHIFT))
+#define GBYTES_2_PAGES(_nGbytes) \
+   ((uint64)(_nGbytes) << (GBYTES_SHIFT - PAGE_SHIFT))
 #endif
 
 #ifndef PAGES_2_GBYTES
-#define PAGES_2_GBYTES(_npages) ((_npages) >> (30 - PAGE_SHIFT))
+#define PAGES_2_GBYTES(_npages) ((_npages) >> (GBYTES_SHIFT - PAGE_SHIFT))
+#endif
+
+#ifndef BYTES_2_KBYTES
+#define BYTES_2_KBYTES(_nbytes) ((_nbytes) >> KBYTES_SHIFT)
+#endif
+
+#ifndef KBYTES_2_BYTES
+#define KBYTES_2_BYTES(_nkbytes) ((uint64)(_nkbytes) << KBYTES_SHIFT)
 #endif
 
 #ifndef BYTES_2_MBYTES
@@ -330,15 +387,15 @@ Max(int a, int b)
 #endif
 
 #ifndef MBYTES_2_BYTES
-#define MBYTES_2_BYTES(_nbytes) ((uint64)(_nbytes) << MBYTES_SHIFT)
+#define MBYTES_2_BYTES(_nMbytes) ((uint64)(_nMbytes) << MBYTES_SHIFT)
 #endif
 
 #ifndef BYTES_2_GBYTES
-#define BYTES_2_GBYTES(_nbytes) ((_nbytes) >> 30)
+#define BYTES_2_GBYTES(_nbytes) ((_nbytes) >> GBYTES_SHIFT)
 #endif
 
 #ifndef GBYTES_2_BYTES
-#define GBYTES_2_BYTES(_nbytes) ((uint64)(_nbytes) << 30)
+#define GBYTES_2_BYTES(_nGbytes) ((uint64)(_nGbytes) << GBYTES_SHIFT)
 #endif
 
 #ifndef VM_PAE_LARGE_PAGE_SHIFT
@@ -433,34 +490,14 @@ void *_ReturnAddress(void);
 
 
 #ifdef __GNUC__
-#ifndef sun
-
-/*
- * A bug in __builtin_frame_address was discovered in gcc 4.1.1, and
- * fixed in 4.2.0; assume it originated in 4.0. PR 147638 and 554369.
- */
-#if  !(__GNUC__ == 4 && (__GNUC_MINOR__ == 0 || __GNUC_MINOR__ == 1))
 #define GetFrameAddr() __builtin_frame_address(0)
-#endif
-
-#endif // sun
 #endif // __GNUC__
 
-/*
- * Data prefetch was added in gcc 3.1.1
- * http://www.gnu.org/software/gcc/gcc-3.1/changes.html
- */
 #ifdef __GNUC__
-#  if ((__GNUC__ > 3) || (__GNUC__ == 3 && __GNUC_MINOR__ > 1) || \
-       (__GNUC__ == 3 && __GNUC_MINOR__ == 1 && __GNUC_PATCHLEVEL__ >= 1))
-#     define PREFETCH_R(var) __builtin_prefetch((var), 0 /* read */, \
-                                                3 /* high temporal locality */)
-#     define PREFETCH_W(var) __builtin_prefetch((var), 1 /* write */, \
-                                                3 /* high temporal locality */)
-#  else
-#     define PREFETCH_R(var) ((void)(var))
-#     define PREFETCH_W(var) ((void)(var))
-#  endif
+#  define PREFETCH_R(var) __builtin_prefetch((var), 0 /* read */, \
+                                             3 /* high temporal locality */)
+#  define PREFETCH_W(var) __builtin_prefetch((var), 1 /* write */, \
+                                             3 /* high temporal locality */)
 #endif /* __GNUC__ */
 
 
@@ -478,10 +515,6 @@ void *_ReturnAddress(void);
 #endif
 
 #define strtok_r  strtok_s
-
-#if (_MSC_VER < 1500)
-#define	vsnprintf _vsnprintf
-#endif
 
 typedef int uid_t;
 typedef int gid_t;
@@ -506,20 +539,9 @@ typedef int pid_t;
 #define       W_OK          2
 #define       R_OK          4
 
-#endif // }
+#endif // } _WIN32
 
-/*
- * Macro for username comparison.
- */
-
-#ifdef _WIN32 // {
-#define USERCMP(x,y)  Str_Strcasecmp(x,y)
-#else
-#define USERCMP(x,y)  strcmp(x,y)
-#endif // }
-
-
-#endif // }
+#endif // } USERLEVEL
 
 #ifndef va_copy
 
@@ -537,14 +559,6 @@ typedef int pid_t;
 
 // The macOS kernel SDK defines va_copy in stdarg.h.
 #include <stdarg.h>
-
-#elif defined(__GNUC__) && (__GNUC__ < 3)
-
-/*
- * Old versions of gcc recognize __va_copy, but not va_copy.
- */
-
-#define va_copy(dest, src) __va_copy(dest, src)
 
 #endif // _WIN32
 
@@ -595,10 +609,17 @@ typedef int pid_t;
 #undef DEBUG_ONLY
 #ifdef VMX86_DEBUG
 #define vmx86_debug      1
-#define DEBUG_ONLY(x)    x
+#define DEBUG_ONLY(...)  __VA_ARGS__
 #else
 #define vmx86_debug      0
-#define DEBUG_ONLY(x)
+#define DEBUG_ONLY(...)
+#endif
+
+#if defined(VMX86_DEBUG) || defined(VMX86_ENABLE_SPLOCK_STATS)
+#define LOCK_STATS_ON
+#define LOCK_STATS_ONLY(...)  __VA_ARGS__
+#else
+#define LOCK_STATS_ONLY(...)
 #endif
 
 #ifdef VMX86_STATS
@@ -651,6 +672,12 @@ typedef int pid_t;
 #define HOSTED_ONLY(x) x
 #endif
 
+#ifdef VMX86_ESXIO
+#define vmx86_esxio      1
+#else
+#define vmx86_esxio      0
+#endif
+
 #ifdef VMKERNEL
 #define vmkernel 1
 #define VMKERNEL_ONLY(x) x
@@ -658,6 +685,13 @@ typedef int pid_t;
 #define vmkernel 0
 #define VMKERNEL_ONLY(x)
 #endif
+
+/*
+ * In MSVC, _WIN32 is defined as 1 when the compilation target is
+ * 32-bit ARM, 64-bit ARM, x86, or x64 (which implies _WIN64). This
+ * is documented in C/C++ preprocessor section of the Microsoft C++,
+ * C, and Assembler documentation (https://via.vmw.com/EchK).
+ */
 
 #ifdef _WIN32
 #define WIN32_ONLY(x) x
@@ -698,9 +732,43 @@ typedef int pid_t;
 #endif
 
 #ifdef VMM
+#define vmx86_vmm 1
 #define VMM_ONLY(x) x
 #else
+#define vmx86_vmm 0
 #define VMM_ONLY(x)
+#endif
+
+#ifdef ULM
+#define vmx86_ulm 1
+#define ULM_ONLY(x) x
+#ifdef ULM_MAC
+#define ulm_mac 1
+#else
+#define ulm_mac 0
+#endif
+#ifdef ULM_WIN
+#define ulm_win 1
+#else
+#define ulm_win 0
+#endif
+#ifdef ULM_ESX
+#define ulm_esx 1
+#else
+#define ulm_esx 0
+#endif
+#else
+#define vmx86_ulm 0
+#define ulm_mac 0
+#define ulm_win 0
+#define ulm_esx 0
+#define ULM_ONLY(x)
+#endif
+
+#if defined(VMM) || defined(ULM)
+#define MONITOR_ONLY(x) x
+#else
+#define MONITOR_ONLY(x)
 #endif
 
 #if defined(VMM) || defined(VMKERNEL)
@@ -726,7 +794,6 @@ typedef int pid_t;
  * display/printer drivers only.
  */
 #ifdef _WIN32
-#ifndef USES_OLD_WINDDK
 #if defined(VMX86_LOG)
 #ifdef _WIN64
 #define WinDrvPrint(arg, ...) DbgPrintEx(DPFLTR_IHVDRIVER_ID, (ULONG)~0, arg, __VA_ARGS__)
@@ -738,14 +805,7 @@ typedef int pid_t;
 #define WinDrvPrint(arg, ...)
 #define WinDrvEngPrint(arg, ...)
 #endif
-#endif
 #endif // _WIN32
-
-#ifdef HOSTED_LG_PG
-#define hosted_lg_pg 1
-#else
-#define hosted_lg_pg 0
-#endif
 
 /*
  * Use to initialize cbSize for this structure to preserve < Vista
@@ -757,7 +817,7 @@ typedef int pid_t;
 /* This is not intended to be thread-safe. */
 #define DO_ONCE(code)                                                   \
    do {                                                                 \
-      static Bool _doOnceDone = FALSE;                                  \
+      static MONITOR_ONLY(PERVCPU) Bool _doOnceDone = FALSE;            \
       if (UNLIKELY(!_doOnceDone)) {                                     \
          _doOnceDone = TRUE;                                            \
          code;                                                          \
@@ -768,7 +828,7 @@ typedef int pid_t;
  * Bug 827422 and 838523.
  */
 
-#if defined __GNUC__ && __GNUC__ >= 4
+#if defined __GNUC__
 #define VISIBILITY_HIDDEN __attribute__((visibility("hidden")))
 #else
 #define VISIBILITY_HIDDEN /* nothing */
@@ -824,6 +884,11 @@ typedef int pid_t;
  * wasted.  On x86, GCC 6.3.0 behaves sub-optimally when variables are declared
  * on the stack using the aligned attribute, so this pattern is preferred.
  * See PRs 1795155, 1819963.
+ *
+ * GCC9 has been shown to exhibit aliasing issues when using
+ * '-fstrict-aliasing=2' that did not happen under GCC6 with this
+ * construct.
+ * See @9503890, PR 2906490.
  */
 #define WITH_PTR_TO_ALIGNED_VAR(_type, _align, _var)                     \
    do {                                                                  \
@@ -833,5 +898,44 @@ typedef int pid_t;
 
 #define END_PTR_TO_ALIGNED_VAR \
    } while (0)
+
+
+/*
+ * -Wswitch means that when you pass switch an enum that it's looking for
+ * all values from that enum, and only that enum, to be accounted for.
+ * "default:;" is fine for catching values you don't care about. But today
+ * we have a bunch of code that uses internal and external enum values, or
+ * in other words combines two enums into a single variable. This cast is
+ * the workaround, but we really need to fix this mess.
+ */
+#define UNCHECKED_SWITCH__FIXME(x) switch ((uint64)(x))
+
+
+/*
+ * When clang static analyzer parses source files, it implicitly defines
+ * __clang_analyzer__ macro. We use this to define our custom macro to stop
+ * its execution for the current path of analysis by calling a function that
+ * doesn't return, making it think that it hit a failed assertion.
+ *
+ * DO NOT use to silence the analyzer! See PR2447238.
+ */
+#ifdef __clang_analyzer__
+#define VMW_CLANG_ANALYZER_NORETURN() Panic("Disable Clang static analyzer")
+#else
+#define VMW_CLANG_ANALYZER_NORETURN() ((void)0)
+#endif
+
+/* VMW_FALLTHROUGH
+ *
+ *   Instructs GCC 9 and above to not warn when a case label of a
+ *   'switch' statement falls through to the next label.
+ *
+ *   If not GCC 9 or above, expands to nothing.
+ */
+#if __GNUC__ >= 9
+#define VMW_FALLTHROUGH() __attribute__((fallthrough))
+#else
+#define VMW_FALLTHROUGH()
+#endif
 
 #endif // ifndef _VM_BASIC_DEFS_H_

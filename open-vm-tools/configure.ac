@@ -1,5 +1,5 @@
 ################################################################################
-### Copyright (C) 2007-2019 VMware, Inc.  All rights reserved.
+### Copyright (c) 2007-2022 VMware, Inc.  All rights reserved.
 ###
 ### Configure script for building the VMware OSS Tools.
 ###
@@ -35,10 +35,10 @@
 ### Initialization
 ###
 
-TOOLS_VERSION="10.3.10"
+TOOLS_VERSION="12.1.0"
 AC_INIT(
    [open-vm-tools],
-   [10.3.10],
+   [12.1.0],
    [open-vm-tools-devel@lists.sourceforge.net])
 
 # In order to make this configure script auto-detect situations where
@@ -73,10 +73,13 @@ AC_CANONICAL_BUILD
 # Quote the regular expressions
 case "$host_cpu" in
    [i[3456]86])
-      userSpaceBitness="32"
+      arch="x32"
       ;;
    [amd64|x86_64])
-      userSpaceBitness="64"
+      arch="x64"
+      ;;
+   [aarch64])
+      arch="arm64"
       ;;
    [*])
       AC_MSG_ERROR([Unknown architecture.])
@@ -197,6 +200,26 @@ fi
 # and sets no_x.
 AC_PATH_XTRA
 
+AC_CHECK_HEADER([valgrind/valgrind.h],
+                [],
+                [have_valgrind=no],
+                [])
+
+AC_ARG_ENABLE(
+   valgrind,
+   AS_HELP_STRING(
+      [--enable-valgrind],
+      [enables building with valgrind]),
+   [enable_valgrind="$enableval"],
+   [enable_valgrind="no"])
+
+if test "$enable_valgrind" = "yes" ; then
+   if test "$have_valgrind" = "no" ; then
+      AC_MSG_ERROR([valgrind/valgrind.h not found. Make sure you have the valgrind headers installed.]),
+   fi
+   CPPFLAGS="$CPPFLAGS -DUSE_VALGRIND=1"
+fi
+
 # Arguments for disabling individual open-vm-tools features or libraries.
 AC_ARG_ENABLE(
    multimon,
@@ -303,6 +326,15 @@ AC_ARG_ENABLE(
    [],
    [enable_resolutionkms="auto"])
 
+
+AC_ARG_ENABLE(
+   vmwgfxctrl,
+   AS_HELP_STRING(
+      [--enable-vmwgfxctrl],
+      [build the linux / unix vmwgfxctrl tool.]),
+   [],
+   [enable_vmwgfxctrl="auto"])
+
 AM_INIT_AUTOMAKE
 
 ###
@@ -351,11 +383,10 @@ if test "$ac_cv_prog_AR" = false; then
 fi
 
 # We use pkg-config to set up the cflags and libs for gtk.
-AC_CHECK_PROG(
-   [HAVE_PKG_CONFIG],
+AC_CHECK_TOOL(
+   [PKG_CONFIG],
    [pkg-config],
-   [yes],
-   [no])
+   [not_found])
 
 if test "$GCC" != "yes"; then
    AC_MSG_ERROR([Only GCC is currently supported. Please put gcc in the path.])
@@ -407,20 +438,58 @@ if test "$enable_deploypkg" = "yes"; then
                    [AC_MSG_ERROR([mspack >= 0.0.20040308alpha is required.])])
 fi
 
-AC_ARG_ENABLE([grabbitmqproxy],
-   [AS_HELP_STRING([--disable-grabbitmqproxy],
-     [do not build grabbitmqproxy plugin.])],
+AC_ARG_ENABLE([libappmonitor],
+   [AS_HELP_STRING([--enable-libappmonitor],
+     [Build the libappmonitor library.])],
    [],
    [
-    if test "$os" = "linux"; then
-       enable_grabbitmqproxy=yes
-    else
-       enable_grabbitmqproxy=no
-    fi
+    enable_libappmonitor=no
+   ])
+
+AC_ARG_ENABLE([servicediscovery],
+   [AS_HELP_STRING([--enable-servicediscovery],
+     [Build the Service Discovery Plugin.])],
+   [
+    enable_servicediscovery=$enableval
+   ],
+   [
+    enable_servicediscovery=no
    ])
 
 #
-# Check for glib 2.6.14 or greater.
+# Check that servicediscovery is enabled only on linux systems
+#
+
+if test "$enable_servicediscovery" = "yes"; then
+   if test "$os" != "linux"; then
+      AC_MSG_ERROR([The Service Discovery plugin is only supported for Linux
+      platforms. Try configure without --enable-servicediscovery option.])
+   fi
+fi
+
+AC_ARG_ENABLE([salt-minion],
+   [AS_HELP_STRING([--enable-salt-minion],
+     [Install salt_minion related script files.])],
+   [
+    enable_saltminion=$enableval
+   ],
+   [
+    enable_saltminion=no
+   ])
+
+#
+# Check that salt_minion is enabled only on linux systems
+#
+
+if test "$enable_saltminion" = "yes"; then
+   if test "$os" != "linux"; then
+      AC_MSG_ERROR([The salt_minion package is only supported for Linux
+      platforms. Try configure without --enable-salt-minion option.])
+   fi
+fi
+
+#
+# Check for glib 2.34.0 or greater.
 #
 AC_VMW_CHECK_LIB([glib-2.0],
                  [GLIB2],
@@ -471,24 +540,101 @@ fi
 #
 # Check for fuse.
 #
-AC_VMW_CHECK_LIB([fuse],
-                 [FUSE],
-                 [fuse],
-                 [],
-                 [],
-                 [fuse.h],
-                 [fuse_main],
-                 [have_fuse=yes],
-                 [have_fuse=no;
-                  AC_MSG_WARN([Fuse is missing, vmblock-fuse/vmhgfs-fuse will be disabled.])])
+
+AC_ARG_WITH([fuse],
+   [AS_HELP_STRING([--without-fuse],
+     [compiles without FUSE support (disables vmblock-fuse/vmhgfs-fuse).])],
+   [with_fuse="$withval"],
+   [with_fuse=auto])
+
+case "$with_fuse" in
+   fuse|2)
+      with_fuse="fuse"
+      ;;
+   fuse3|3)
+      with_fuse="fuse3"
+      ;;
+   auto)
+      ;;
+   yes)
+      ;;
+   no)
+      have_fuse3=no;
+      have_fuse=no;
+      ;;
+   *)
+      AC_MSG_FAILURE([--with-fuse was given with an unsupported paramter $with_fuse])
+      ;;
+esac
+
+
+if test "$with_fuse" = "auto" ||
+   test "$with_fuse" = "fuse3" ||
+   test "$with_fuse" = "yes"; then
+   #
+   # Check for fuse3.
+   #
+   # FUSE_USE_VERSION sets the version of the FUSE API that will be exported.
+   AC_VMW_CHECK_LIB([fuse3],
+                    [FUSE3],
+                    [fuse3],
+                    [],
+                    [3.10.0],
+                    [fuse3/fuse.h],
+                    [fuse_main],
+                    [have_fuse3=yes;
+                     AC_DEFINE([HAVE_FUSE3], 1, [Define to 1 if using FUSE3.])
+                     AC_DEFINE([FUSE_USE_VERSION], 35, [FUSE API version to use.])],
+                    [have_fuse3=no])
+
+   if test "$have_fuse3" = "no"; then
+      if test "$with_fuse" = "auto" || test "$with_fuse" = "yes"; then
+         AC_MSG_NOTICE([Fuse3 is missing, trying to use older Fuse library.])
+      else
+         AC_MSG_FAILURE([Fuse3 was requested but unavailable on the system.])
+      fi
+   fi
+fi
+
+if test "$with_fuse" = "fuse" ||
+   ( ( test "$with_fuse" = "auto" || test "$with_fuse" = "yes" ) &&
+     test "$have_fuse3" = "no" ); then
+   #
+   # Check for fuse.
+   #
+   # FUSE_USE_VERSION sets the version of the FUSE API that will be exported.
+   AC_VMW_CHECK_LIB([fuse],
+                    [FUSE],
+                    [fuse],
+                    [],
+                    [],
+                    [fuse.h],
+                    [fuse_main],
+                    [have_fuse=yes;
+                     AC_DEFINE([HAVE_FUSE], 1, [Define to 1 if using FUSE.])
+                     AC_DEFINE([FUSE_USE_VERSION], 29, [FUSE API version to use.])],
+                    [have_fuse=no])
+
+   if test "$have_fuse" = "no"; then
+      if test "$with_fuse" = "auto" || test "$with_fuse" = "yes"; then
+	 AC_MSG_NOTICE([Fuse is missing, vmblock-fuse/vmhgfs-fuse will be disabled.])
+      else
+         AC_MSG_FAILURE([Fuse2 was requested but unavailable on the system.])
+      fi
+   fi
+fi
+
+if test "$with_fuse" = "no"; then
+   AC_MSG_WARN([Fuse or Fuse3 is suppressed, vmblock-fuse/vmhgfs-fuse will be disabled.])
+fi
 
 #
 # Check for PAM.
 #
 AC_ARG_WITH([pam],
    [AS_HELP_STRING([--without-pam],
-     [compiles without PAM support.])],
-   [],
+     [compiles without PAM support (disables vgauth).])],
+   [with_pam="$withval"],
    [with_pam=yes])
 
 if test "$with_pam" = "yes"; then
@@ -504,15 +650,154 @@ if test "$with_pam" = "yes"; then
                     [AC_VMW_LIB_ERROR([PAM], [pam])])
 fi
 
+AC_ARG_ENABLE([containerinfo],
+   [AS_HELP_STRING([--disable-containerinfo],
+     [do not build containerinfo plugin.])],
+   [
+     enable_containerinfo=$enableval
+   ],
+   [
+       if test "$os" = "linux"; then
+          enable_containerinfo=auto
+       else
+          enable_containerinfo=no
+       fi
+   ])
+
+#
+# Check that containerinfo plugin is enabled only on linux systems.
+#
+if test "$os" != "linux"; then
+   if test "$enable_containerinfo" = "yes"; then
+      AC_MSG_ERROR([The containerinfo plugin is only supported for Linux
+      platforms. Try configure with --disable-containerinfo option.])
+   fi
+fi
+
+if test "$enable_containerinfo" = "yes" ||
+   test "$enable_containerinfo" = "auto"; then
+
+can_build_containerinfo=yes
+
+#
+# AC_VMW_CONTAINERINFO_MSG(library)
+#
+# Wrapper around AC_MSG_WARN to print a standard message about missing libraries.
+#
+#     library ($1): name of missing library / package.
+#
+AC_DEFUN([AC_VMW_CONTAINERINFO_MSG],[
+   can_build_containerinfo=no
+   AC_MSG_WARN(["$1 is missing which is required for building containerinfo plugin."])
+])
+
+   AC_VMW_DEFAULT_FLAGS([CURL])
+   AC_VMW_CHECK_LIB([curl],
+                    [CURL],
+                    [],
+                    [],
+                    [],
+                    [curl/curl.h],
+                    [curl_easy_init],
+                    [CURL_CPPFLAGS="$CURL_CPPFLAGS"],
+                    [AC_VMW_CONTAINERINFO_MSG([CURL])])
+
+   AC_VMW_CHECK_LIB([protobuf],
+                    [PROTOBUF],
+                    [protobuf],
+                    [],
+                    [3.0.0],
+                    [],
+                    [],
+                    [],
+                    [AC_VMW_CONTAINERINFO_MSG(["protobuf >= 3.0.0"])])
+
+   AC_VMW_DEFAULT_FLAGS([GRPC])
+   AC_VMW_CHECK_LIBXX([grpc++],
+                      [GRPC],
+                      [grpc++],
+                      [],
+                      [1.3.2],
+                      [grpc++/grpc++.h],
+                      [],
+                      [],
+                      [AC_VMW_CONTAINERINFO_MSG(["grpc++ >= 1.3.2"])])
+
+#
+# proto files needed by containerd grpc client.
+#
+   shared_prefix=/usr/share/gocode/src/github.com
+   AC_SUBST(TYPES_DIR, github.com/containerd/containerd/api/types)
+   AC_SUBST(TASKS_PROTOPATH, $shared_prefix/containerd/containerd/api/services/tasks/v1)
+   AC_SUBST(DEP_PROTOPATH, /usr/share/gocode/src)
+   AC_SUBST(CONTAINERD_PROTOPATH, $shared_prefix/containerd/containerd/api/services/containers/v1)
+   AC_SUBST(GOGO_PROTOPATH, $shared_prefix/gogo/protobuf)
+   AC_CHECK_FILE([${CONTAINERD_PROTOPATH}/containers.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${TASKS_PROTOPATH}/tasks.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${DEP_PROTOPATH}/${TYPES_DIR}/mount.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${DEP_PROTOPATH}/${TYPES_DIR}/metrics.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${DEP_PROTOPATH}/${TYPES_DIR}/descriptor.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${DEP_PROTOPATH}/${TYPES_DIR}/task/task.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["containerd package"])])
+   AC_CHECK_FILE([${GOGO_PROTOPATH}/gogoproto/gogo.proto],
+                 [],
+                 [AC_VMW_CONTAINERINFO_MSG(["gogoproto package"])])
+
+#
+# Binaries needed to build for containerd grpc client.
+#
+   AC_CHECK_PROG([GRPC_CPP], [grpc_cpp_plugin], [grpc_cpp_plugin], [not found])
+
+   if test "$GRPC_CPP" != "grpc_cpp_plugin"  ; then
+      AC_VMW_CONTAINERINFO_MSG(["grpc_cpp_plugin binary"])
+   fi
+
+   AC_CHECK_PROG([PROTOC], [protoc], [protoc], [not found])
+
+   if test "$PROTOC" != "protoc"  ; then
+      AC_VMW_CONTAINERINFO_MSG(["protoc binary"])
+   fi
+
+   if test "$can_build_containerinfo" = "no" ; then
+      if test "$enable_containerinfo" = "auto" ; then
+         enable_containerinfo=no
+         AC_MSG_WARN(["Cannot enable containerinfo plugin since one ore more required packages are missing."])
+      else
+         AC_MSG_ERROR(["Cannot enable containerinfo plugin since one or more required packages are missing. Please configure without containerinfo (using --disable-containerinfo), or install the necessary libraries and devel package(s)."])
+      fi
+   else
+      enable_containerinfo=yes
+   fi
+fi
+
 AC_ARG_ENABLE([vgauth],
    [AS_HELP_STRING([--disable-vgauth],
      [do not build vgauth.])],
    [
+    if test "$with_pam" = "no" -a "$enableval" = "yes"; then
+       AC_MSG_ERROR([Cannot enable vgauth without PAM. Please configure
+                     without --without-pam or without --enable-vgauth.])
+    fi
     enable_vgauth="$enableval"
     use_xmlsec1=yes
    ],
    [
-    if test "$os" = "linux"; then
+    if test "$with_pam" = "no"; then
+       enable_vgauth="no"
+       use_xmlsec1="no"
+       AC_MSG_WARN("Building without PAM; vgauth will be disabled.")
+    elif test "$os" = "linux"; then
        enable_vgauth=yes
        use_xmlsec1=yes
     else
@@ -539,26 +824,15 @@ AC_ARG_ENABLE([xmlsecurity],
    ],
    [])
 
-if test "$enable_vgauth" = "yes" ; then
-   AC_ARG_ENABLE([caf],
-      [AS_HELP_STRING([--disable-caf],
-        [do not build CAF (Common Agent Framework).])],
-      [],
-      [enable_caf=no])
-else
-   enable_caf=no
-fi
 
 #
 # Check for openssl, xerces-c and xml-security-c
 #
 AC_ARG_WITH([ssl],
    [AS_HELP_STRING([--without-ssl],
-     [compiles without openssl support (disables grabbitmqproxy, vgauth and CAF).])],
+     [compiles without openssl support (disables vgauth).])],
    [
-     enable_grabbitmqproxy=no
      enable_vgauth=no
-     enable_caf=no
    ],
    [with_ssl=yes])
 
@@ -595,7 +869,7 @@ AC_ARG_WITH([tirpc],
 # Make sure we are building with openssl 1.0.1 and above so that
 # we use only TLSv1_2.
 
-if test "$enable_vgauth" = "yes" -o "$enable_grabbitmqproxy" = "yes"; then
+if test "$enable_vgauth" = "yes" ; then
    AC_VMW_DEFAULT_FLAGS([SSL])
    AC_VMW_CHECK_LIB([ssl],
                     [SSL],
@@ -659,8 +933,6 @@ if test "$enable_vgauth" = "yes"; then
                        [],
                        [AC_VMW_LIB_ERROR([XMLSECURITY], [xmlsecurity])])
    fi
-else
-   enable_caf=no
 fi
 
 #
@@ -923,11 +1195,17 @@ AC_ARG_WITH([pam-prefix],
 	    [PAM_PREFIX="$withval"],
 	    [if test "$os" = "freebsd" ; then PAM_PREFIX='$(sysconfdir)'; else PAM_PREFIX='/etc'; fi])
 
+if test "$os" = "linux"; then
+   with_dnet_dflt="no"
+else
+   with_dnet_dflt="yes"
+fi
+
 AC_ARG_WITH([dnet],
-	    [AS_HELP_STRING([--without-dnet],
-	    [compiles without libdnet (disables support for nicinfo)])],
+	    [AS_HELP_STRING([--with-dnet],
+	    [specifies whether to build with libdnet - the default is without for Linux, and with it otherwise])],
 	    [],
-	    [with_dnet=yes])
+	    [with_dnet="$with_dnet_dflt"])
 
 have_dnet="no"
 if test "$with_dnet" = "yes"; then
@@ -959,7 +1237,7 @@ if test "$with_dnet" = "yes"; then
 
    if test $have_dnet = "no"; then
 		AC_MSG_ERROR(
-		   [dnet-config was not found on your PATH. Please configure without dnet (using --without-dnet) or install dnet - http://libdnet.sourceforge.net])
+		   [dnet-config was not found on your PATH. Please configure without dnet or install dnet - http://libdnet.sourceforge.net])
    fi
 fi
 
@@ -968,10 +1246,10 @@ AC_DEFINE([NO_DNET], 1, [Define to 1 if building without libdnet.])
 fi
 
 AC_ARG_WITH([icu],
-            [AS_HELP_STRING([--without-icu],
-              [disables support for ICU])],
+            [AS_HELP_STRING([--with-icu],
+              [enables support for ICU])],
             [],
-            [with_icu=yes])
+            [with_icu=no])
 
 if test "$have_x" = "yes" -o "$with_icu" = "yes"; then
    # AC_CHECK_PROG fails to locate CXX if it's set to an absolute
@@ -1025,51 +1303,6 @@ else
    CPPFLAGS="$CPPFLAGS -DNO_ICU"
 fi
 
-if test "$enable_caf" = "yes"; then
-    AC_VMW_CHECK_LIBXX([log4cpp],
-                       [LOG4CPP],
-                       [],
-                       [log4cpp-config],
-                       [],
-                       [Appender.hh],
-                       [],
-                       [have_log4cpp="yes"],
-                       [AC_VMW_LIB_ERROR([LOG4CPP], [log4cpp])])
-
-    AC_VMW_CHECK_LIB([rabbitmq],
-                       [LIBRABBITMQ],
-                       [librabbitmq],
-                       [],
-                       [0.8.0],
-                       [amqp_tcp_socket.h],
-                       [],
-                       [have_librabbitmq="yes"],
-                       [AC_VMW_LIB_ERROR([LIBRABBITMQ], [librabbitmq])])
-
-    #
-    # CAF requires glib 2.34 or greater.
-    #
-    AC_VMW_CHECK_LIB([glib-2.0],
-                     [GLIB2],
-                     [glib-2.0],
-                     [],
-                     [2.34.0],
-                     [glib.h],
-                     [g_key_file_new],
-                     [],
-                     [AC_MSG_ERROR([glib2 >= 2.34.0 is required.])])
-
-    AC_VMW_CHECK_LIB([gthread-2.0],
-                     [GTHREAD],
-                     [gthread-2.0],
-                     [],
-                     [2.34.0],
-                     [],
-                     [],
-                     [],
-                     [AC_MSG_ERROR([glib >= 2.34.0 is required.])])
-
-fi
 
 if test "$with_tirpc" != "no"; then
    AC_VMW_CHECK_LIB([libtirpc],
@@ -1220,12 +1453,6 @@ AC_C_VOLATILE
 CFLAGS="$CFLAGS -Wall"
 CFLAGS="$CFLAGS -Werror"
 
-# Suppress warnings from clang when taking the address of packed struct
-# member fields when compiling hgfsServer.c
-if $CC --version | $GREP -i "clang" > /dev/null; then
-   CFLAGS="$CFLAGS -Wno-address-of-packed-member"
-fi
-
 # -Wno-unknown-pragmas is due to gcc not understanding '#pragma ident'
 # in Xlib.h on OpenSolaris.
 # Glib2 keep changing mutex APIs so we also need to disable 'deprecated'
@@ -1321,7 +1548,6 @@ MODULES=""
 MODULES_OS="$os"
 TARGET_OS="$os"
 MODULES_DIR=""
-buildHgfsmounter=no
 
 if test "$os" = "linux"; then
    MODULES_DIR="$LINUXDIR/kernel/"
@@ -1351,14 +1577,16 @@ if test "$os" = "linux"; then
    if test "$osVersion" -lt 300000; then
       MODULES="$MODULES vmblock vmsync"
    fi
-   buildHgfsmounter=yes
-   if test "x$enable_resolutionkms" != "xno"; then
+   if test "x$enable_resolutionkms" != "xno" && test "x$enable_vmwgfxctrl" != "xno"; then
       PKG_CHECK_MODULES(
          [LIBUDEV],
          libdrm libudev,
-         [LIBUDEV_CFLAGS="$LIBUDEV_CFLAGS -DHAVE_LIBUDEV"],
+         [LIBUDEV_CFLAGS="$LIBUDEV_CFLAGS -DHAVE_LIBUDEV";
+         enable_vmwgfxctrl="yes"],
          [AC_MSG_WARN(
-	    [Missing libdrm or libudev. The resolutionKMS plugin will search for them at run-time.])])
+            [Missing libdrm or libudev. vmwgfxctrl will be disabled and the resolutionKMS plugin will search for them at run-time.]);
+            enable_vmwgfxctrl="no"
+            ])
       enable_resolutionkms="yes"
    fi
 fi
@@ -1434,8 +1662,8 @@ if test "$os" = "linux"; then
                 [UDEVRULESDIR="$withval"],
                 [
                     UDEVRULESDIR="/lib/udev/rules.d"
-                    if test $HAVE_PKG_CONFIG = "yes"; then
-                        udevdir=$(pkg-config udev --variable=udevdir)
+                    if test "$PKG_CONFIG" != "not_found"; then
+                        udevdir=$($PKG_CONFIG udev --variable=udevdir)
                         if test "x$udevdir" != "x"; then
                             UDEVRULESDIR="$udevdir/rules.d"
                         fi
@@ -1454,13 +1682,18 @@ if test "x$enable_resolutionkms" = "xyes"; then
    CPPFLAGS="$CPPFLAGS -DENABLE_RESOLUTIONKMS"
 fi
 
-AM_CONDITIONAL(BUILD_HGFSMOUNTER, test "$buildHgfsmounter" = "yes")
+if test "x$enable_vmwgfxctrl" = "xauto"; then
+   enable_vmwgfxctrl="no"
+fi
+
 AM_CONDITIONAL(LINUX, test "$os" = "linux")
 AM_CONDITIONAL(SOLARIS, test "$os" = "solaris")
 AM_CONDITIONAL(FREEBSD, test "$os" = "freebsd" -o "$os" = "kfreebsd-gnu")
 AM_CONDITIONAL(FREEBSD_CUSTOM_SYSDIR,
                test \( "$os" = "freebsd" -o "$os" = "kfreebsd-gnu" \) -a -n "$SYSDIR")
-AM_CONDITIONAL(THIRTY_TWO_BIT_USERSPACE, test "$userSpaceBitness" = "32")
+AM_CONDITIONAL(ARCH_X32, test "$arch" = "x32")
+AM_CONDITIONAL(ARCH_X64, test "$arch" = "x64")
+AM_CONDITIONAL(ARCH_ARM64, test "$arch" = "arm64")
 AM_CONDITIONAL(HAVE_X11, test "$have_x" = "yes")
 AM_CONDITIONAL(HAVE_ICU, test "$with_icu" = "yes")
 AM_CONDITIONAL(WITH_KERNEL_MODULES, test "$with_kernel_modules" = "yes")
@@ -1469,21 +1702,25 @@ AM_CONDITIONAL(HAVE_XCOMPOSITE, test "$have_xcomposite" = "yes")
 AM_CONDITIONAL(ENABLE_TESTS, test "$have_cunit" = "yes")
 AM_CONDITIONAL(WITH_ROOT_PRIVILEGES, test "$with_root_privileges" = "yes")
 AM_CONDITIONAL(HAVE_DOXYGEN, test "$have_doxygen" = "yes")
-AM_CONDITIONAL(HAVE_FUSE, test "$have_fuse" = "yes")
+AM_CONDITIONAL(HAVE_FUSE, test "$have_fuse" = "yes" || test "$have_fuse3" = "yes")
+AM_CONDITIONAL(HAVE_FUSE3, test "$have_fuse3" = "yes")
 AM_CONDITIONAL(HAVE_GNU_LD, test "$with_gnu_ld" = "yes")
 AM_CONDITIONAL(HAVE_GTKMM, test "$have_x" = "yes" -a \( "$with_gtkmm" = "yes" -o "$with_gtkmm3" = "yes" \) )
 AM_CONDITIONAL(HAVE_PAM, test "$with_pam" = "yes")
 AM_CONDITIONAL(USE_SLASH_PROC, test "$os" = "linux")
+AM_CONDITIONAL(ENABLE_CONTAINERINFO, test "$enable_containerinfo" = "yes")
 AM_CONDITIONAL(ENABLE_DEPLOYPKG, test "$enable_deploypkg" = "yes")
-AM_CONDITIONAL(ENABLE_GRABBITMQPROXY, test "$enable_grabbitmqproxy" = "yes")
 AM_CONDITIONAL(ENABLE_VGAUTH, test "$enable_vgauth" = "yes")
 AM_CONDITIONAL(USE_XMLSEC1, test "$use_xmlsec1" = "yes")
-AM_CONDITIONAL(ENABLE_CAF, test "$enable_caf" = "yes")
 AM_CONDITIONAL(HAVE_VSOCK, test "$os" = "linux")
 AM_CONDITIONAL(HAVE_MKDTEMP, test "$have_mkdtemp" = "yes")
 AM_CONDITIONAL(HAVE_UDEV, test "$have_udev" = "yes")
 AM_CONDITIONAL(ENABLE_RESOLUTIONKMS, test "x$enable_resolutionkms" = "xyes")
+AM_CONDITIONAL(ENABLE_VMWGFXCTRL, test "x$enable_vmwgfxctrl" = "xyes")
 AM_CONDITIONAL(VGAUTH_USE_CXX, test "$with_icu" = "yes" -o "$use_xmlsec1" != "yes")
+AM_CONDITIONAL(ENABLE_LIBAPPMONITOR, test "$enable_libappmonitor" = "yes")
+AM_CONDITIONAL(ENABLE_SDMP, test "$enable_servicediscovery" = "yes")
+AM_CONDITIONAL(ENABLE_SALTMINION, test "$enable_saltminion" = "yes" -a \( "$arch" = "x64" \) )
 
 if test "$have_xsm" != "yes"; then
 AC_DEFINE([NO_XSM], 1, [])
@@ -1531,14 +1768,6 @@ COMMON_PLUGIN_INSTALLDIR=$libdir/open-vm-tools/plugins/common
 VMSVC_PLUGIN_INSTALLDIR=$libdir/open-vm-tools/plugins/vmsvc
 VMUSR_PLUGIN_INSTALLDIR=$libdir/open-vm-tools/plugins/vmusr
 
-# Installation directories for caf binary/so files
-#CAF_PME_BIN_DIR=${sbindir}/vmware-caf/pme/bin
-CAF_PME_BIN_DIR=${libdir}/open-vm-tools/vmware-caf/pme/bin
-CAF_PME_LIB_DIR=${libdir}/open-vm-tools/vmware-caf/pme/lib
-
-# Installation directories for caf subsys so files
-CAF_SUBSYS_DIR=${libdir}/open-vm-tools/vmware-caf/pme/lib
-CAF_SUBSYS_LDFLAGS="-Wl,-z,defs -Wl,-lc -shared -module -avoid-version"
 
 # General definitions
 INSTVMSG='$(SHELL) $(top_srcdir)/scripts/build/instvmsg.sh'
@@ -1570,10 +1799,6 @@ AC_SUBST([TEST_PLUGIN_INSTALLDIR])
 AC_SUBST([COMMON_PLUGIN_INSTALLDIR])
 AC_SUBST([VMSVC_PLUGIN_INSTALLDIR])
 AC_SUBST([VMUSR_PLUGIN_INSTALLDIR])
-AC_SUBST([CAF_SUBSYS_DIR])
-AC_SUBST([CAF_SUBSYS_LDFLAGS])
-AC_SUBST([CAF_PME_BIN_DIR])
-AC_SUBST([CAF_PME_LIB_DIR])
 if test "$os" = "freebsd" -a -n "$SYSDIR"; then
    # If SYSDIR is not defined, AC_SUBST expands to nothing, so we need something
    # inside this block.
@@ -1619,8 +1844,10 @@ AC_CONFIG_FILES([                      \
    lib/file/Makefile                   \
    lib/foundryMsg/Makefile             \
    lib/glibUtils/Makefile              \
+   lib/globalConfig/Makefile           \
    lib/guestApp/Makefile               \
    lib/guestRpc/Makefile               \
+   lib/guestStoreClientHelper/Makefile \
    lib/hgfs/Makefile                   \
    lib/hgfsBd/Makefile                 \
    lib/hgfsHelper/Makefile             \
@@ -1643,6 +1870,7 @@ AC_CONFIG_FILES([                      \
    lib/rpcVmx/Makefile                 \
    lib/slashProc/Makefile              \
    lib/string/Makefile                 \
+   lib/jsmn/Makefile                   \
    lib/stubs/Makefile                  \
    lib/syncDriver/Makefile             \
    lib/system/Makefile                 \
@@ -1655,10 +1883,15 @@ AC_CONFIG_FILES([                      \
    services/Makefile                   \
    services/vmtoolsd/Makefile          \
    services/plugins/Makefile           \
+   services/plugins/gdp/Makefile       \
+   services/plugins/appInfo/Makefile   \
+   services/plugins/componentMgr/Makefile  \
+   services/plugins/containerInfo/Makefile   \
+   services/plugins/serviceDiscovery/Makefile   \
    services/plugins/desktopEvents/Makefile \
    services/plugins/dndcp/Makefile     \
-   services/plugins/grabbitmqProxy/Makefile \
    services/plugins/guestInfo/Makefile \
+   services/plugins/guestStore/Makefile \
    services/plugins/hgfsServer/Makefile \
    services/plugins/powerOps/Makefile  \
    services/plugins/resolutionSet/Makefile \
@@ -1670,12 +1903,12 @@ AC_CONFIG_FILES([                      \
    vmware-user-suid-wrapper/Makefile   \
    toolbox/Makefile                    \
    hgfsclient/Makefile                 \
-   hgfsmounter/Makefile                \
    checkvm/Makefile                    \
+   vmwgfxctrl/Makefile                 \
    rpctool/Makefile                    \
-   guestproxycerttool/Makefile         \
    vgauth/Makefile                     \
    vgauth/lib/Makefile                 \
+   vgauthImport/Makefile               \
    namespacetool/Makefile              \
    vgauth/cli/Makefile                 \
    vgauth/test/Makefile                 \
@@ -1685,19 +1918,8 @@ AC_CONFIG_FILES([                      \
    libDeployPkg/Makefile               \
    libDeployPkg/libDeployPkg.pc        \
    libhgfs/Makefile                    \
+   libguestStoreClient/Makefile        \
    libvmtools/Makefile                 \
-   common-agent/Cpp/Framework/Makefile \
-   common-agent/Cpp/Communication/Makefile \
-   common-agent/Cpp/InternalProviders/Makefile \
-   common-agent/Cpp/ManagementAgent/Makefile \
-   common-agent/Cpp/ProviderFx/Makefile \
-   common-agent/input/Makefile         \
-   common-agent/input/invokers/Makefile \
-   common-agent/input/providerReg/Makefile \
-   common-agent/etc/Makefile           \
-   common-agent/etc/config/Makefile    \
-   common-agent/etc/scripts/Makefile   \
-   common-agent/etc/install/Makefile   \
    xferlogs/Makefile                   \
    modules/Makefile                    \
    vmblock-fuse/Makefile               \
@@ -1713,6 +1935,8 @@ AC_CONFIG_FILES([                      \
    scripts/Makefile                    \
    scripts/build/rpcgen_wrapper.sh     \
    udev/Makefile                       \
+   libappmonitor/Makefile              \
+   libappmonitor/appmonitor.pc         \
 ])
 
 ###

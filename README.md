@@ -38,7 +38,7 @@ The following components have been released as open source software:
 Yes. open-vm-tools packages for user space components are available with new versions of major Linux distributions, and are installed as part of the OS installation in several cases. Please refer to VMware KB article http://kb.vmware.com/kb/2073803 for details. All leading Linux vendors support open-vm-tools and bundle it with their products. For information about OS compatibility for open-vm-tools, see the 
 VMware Compatibility Guide at http://www.vmware.com/resources/compatibility
 Automatic installation of open-vm-tools along with the OS installation eliminates the need to separately install open-vm-tools in guests. If open-vm-tools is not installed automatically, you may be able to manually install it from the guest OS vendor's public repository. Installing open-vm-tools from the Linux vendor's repository reduces virtual machine downtime because future updates to open-vm-tools are included with the OS maintenance patches and updates.
-**NOTE**: Most of the Linux distributions ship two open-vm-tools packages, "open-vm-tools" and "open-vm-tools-desktop". "open-vm-tools" is the core package without any dependencies on X libraries and "open-vm-tools-desktop" is an additional package with dependencies on "open-vm-tools" core package and X libraries. The open-vm-tools packages available with Linux distributions do not include Linux drivers because Linux drivers are available as part of Linux kernel itself. Linux kernel versions 3.10 and later include all of the Linux drivers present in open-vm-tools except the vmhgfs driver. The vmhgfs driver is required for enabling shared folders feature.
+**NOTE**: Most of the Linux distributions ship two or more open-vm-tools packages. "open-vm-tools" is the core package without any dependencies on X libraries and "open-vm-tools-desktop" is an additional package with dependencies on "open-vm-tools" core package and X libraries. The "open-vm-tools-sdmp" package contains a plugin for Service Discovery. There may be additional packages, please refer to the documentation of the OS vendor. Note that the open-vm-tools packages available with Linux distributions do not include Linux drivers because Linux drivers are available as part of Linux kernel itself. Linux kernel versions 3.10 and later include all of the Linux drivers present in open-vm-tools except the vmhgfs driver. The vmhgfs driver was required for enabling shared folders feature, but is superseded by vmhgfs-fuse which does not require a kernel driver.
 
 ## Will there be continued support for VMware Tools and OSP? 
 VMware Tools will continue to be available under a commercial license. It is recommended that open-vm-tools be used for the Linux distributions where open-vm-tools is available. VMware will not provide OSPs for operating systems where open-vm-tools is available.
@@ -84,10 +84,72 @@ open-vm-tools uses the GNU Automake tool for generating Makefiles to build all s
 The following steps will work on most recent Linux distributions:
 ```
 autoreconf -i
-./configure --without-kernel-modules
+./configure
 make
 sudo make install
 sudo ldconfig
+```
+
+### Service Discovery (sdmp) plugin
+To build the optional sdmp (Service Discovery) plugin use the `--enable-servicediscovery` option to invoke the configure script:
+```
+./configure --enable-servicediscovery
+```
+
+### The open-vm-tools 12.0.0 release introduces an optional setup script and two plugins (one optional)
+
+ * Salt Minion Setup
+ * Component Manager plugin
+ * ContainerInfo plugin (optional)
+
+### Salt Minion Setup
+The Salt support on Linux consists of a single bash script to setup Salt Minion on VMware virtual machines.  The script requires the "curl" and "awk" commands to be available on the system.
+
+Linux providers supplying open-vm-tools packages are recommended to provide Salt Minion support in a separate optional package - "open-vm-tools-salt-minion".
+
+To include the Salt Minion Setup in the open-vm-tools build use the `--enable-salt-minion` option when invoking the configure script.
+```
+./configure --enable-salt-minion
+```
+
+### Component Manager (componentMgr) plugin
+The component Manager manages a preconfigured set of components available from VMware that can be made available on the Linux guest.  Currently the only component that can be managed is the Salt Minion Setup.
+
+### ContainerInfo (containerInfo) plugin
+The optional containerInfo plugin retrieves a list of the containers running on a Linux guest and publishes the list to the guest variable "**guestinfo.vmtools.containerinfo**" in JSON format.  The containerInfo plugin communicates with the containerd daemon using gRPC to retrieve the desired information.  For containers that are managed by Docker, the plugin uses libcurl to communicate with the Docker daemon and get the names of the containers.
+
+Since this plugin requires additional build and runtime dependencies, Linux vendors are recommended to release it in a separate, optional package - "open-vm-tools-containerinfo".  This avoids unnecessary dependencies for customers not using the feature.
+
+#### Canonical, Debian, Ubuntu Linux
+| Build Dependencies | Runtime |
+|:------------------------:|:----------------:|
+| `libcurl4-openssl-dev` | `curl` |
+| `protobuf-compiler` | `protobuf` |
+| `libprotobuf-dev` | `grpc++` |
+| `protobuf-compiler-grpc` |
+| `libgrpc++-dev` |
+| `golang-github-containerd-containerd-dev` |
+| `golang-github-gogo-protobuf-dev` |
+
+#### Fedora, Red Hat Enterprise Linux, ...
+| Build Dependencies | Runtime |
+|:------------------------:|:----------------:|
+| `libcurl-devel` | `curl` |
+| `protobuf-compiler` | `protobuf` |
+| `protobuf-devel` | `grpc-cpp` |
+| `grpc-plugins` |
+| `grpc-devel` |
+| `containerd-devel` |
+
+
+#### Configuring the build for the ContainerInfo plugin
+The configure script defaults to building the ContainerInfo when all the needed dependencies are available.  ContainerInfo will not be built if there are missing dependencies.  Invoke the configure script with `--enable-containerinfo=no` to explicitly inhibit building the plugin.
+```
+./configure --enable-containerinfo=no
+```
+If the configure script is given the option `--enable-containerinfo=yes` and any necessary dependency is not available, the configure script will terminate with an error.
+```
+./configure --enable-containerinfo=yes
 ```
 
 ## Getting configure options and help
@@ -113,6 +175,9 @@ You can get involved today in several different ways:
   * Oracle Linux 7 and later 
   * Fedora 19 and later releases
   * openSUSE 11.x and later releases
+  * Flatcar Container Linux, all releases
+  * Rocky 8 and later releases
+  * AlmaLinux OS 8 and later releases
  
 ## Will external developers be allowed to become committers to the project?
 Yes. Initially, VMware engineers will be the only committers. As we roll out our development infrastructure, we will be looking to add external committers to the project as well.
@@ -131,6 +196,44 @@ Yes. We have a standard contribution agreement that covers all contributions mad
 Fax to +1.650.427.5003, Attn: Product & Technology Law Group
 Scan and email it to oss-queries_at_vmware.com
 Agreement: http://open-vm-tools.sourceforge.net/files/vca.pdf
+
+## My version of Linux is not recognized.  How do I add my Linux name to the known list?
+
+The open-vm-tools source contains a table mapping the guest distro name to the officially recognized short name.  __Please do not submit pull requests altering this table and associated code.__  Any changes here must be accompanied by additional changes in the VMware host.  Values that are not recognized by the VMware host will be ignored. 
+
+
+Use the appropriate generic Linux designation when configuring a VM for your Linux version.  The selection available will vary by virtual hardware version being used.
+- Other 5.x or later Linux (64-bit)
+- Other 5.x or later Linux (32-bit)
+- Other 4.x Linux (64-bit)
+- Other 4.x Linux (32-bit)
+- Other 3.x Linux (64-bit)
+- Other 3.x Linux (32-bit)
+- Other Linux (64-bit)
+- Other Linux (32-bit)
+
+# Compatibilty
+
+## What Operating Systems are supported for customization?
+The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
+
+## Which versions of open-vm-tools are compatible with other VMware products?
+
+The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_guide2/sim/interop_matrix.php) provides details about the compatibility of different versions of VMware Tools (includes open-vm-tools) and other VMware Products.
+
+# Internationalization
+## Which languages are supported?
+
+open-vm-tools supports the following languages:
+- English
+- French
+- German
+- Spanish
+- Italian
+- Japanese
+- Korean
+- Simplified Chinese
+- Traditional Chinese
 
 # Other
 ## Mailing Lists

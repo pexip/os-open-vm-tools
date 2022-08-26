@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011-2017, 2019-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -59,14 +59,6 @@
 #  else
 #     define RLIMIT_AS RLIMIT_RSS
 #  endif
-#endif
-#else
-#if !defined(sun) && (!defined(USING_AUTOCONF) || (defined(HAVE_SYS_IO_H) && defined(HAVE_SYS_SYSINFO_H)))
-#include <sys/io.h>
-#include <sys/sysinfo.h>
-#ifndef HAVE_SYSINFO
-#define HAVE_SYSINFO 1
-#endif
 #endif
 #endif
 
@@ -148,28 +140,27 @@ ServiceResetProcessState(int *keepFds,
  ******************************************************************************
  * ServiceSuicide --                                                     */ /**
  *
- * @brief Service kill
+ * @brief Service self cancel
  *
- * Reads the pid from pidPath and kills the process ID'ed there.
+ * Reads the pid from pidPath and forces the process ID'ed there to quit.
  * Useful for shutdown scripts.
  *
  * @param[in]   pidPath     NUL-terminated UTF-8 path to read PID.
  *
- * @return FALSE if the process could not be killed.
+ * @return FALSE if the process could not be canceled.
  ******************************************************************************
  */
 
 gboolean
 ServiceSuicide(const char *pidPath)
 {
-   FILE *pidPathFp = NULL;
    char pidBuf[32];
    int pid;
    int ret;
    int errCode;
    gboolean bRet = FALSE;
+   FILE *pidPathFp = g_fopen(pidPath, "r");
 
-   pidPathFp = g_fopen(pidPath, "r");
    if (NULL == pidPathFp) {
       Warning("%s: failed to open pid file '%s', error %u\n",
               __FUNCTION__, pidPath, errno);
@@ -183,7 +174,7 @@ ServiceSuicide(const char *pidPath)
                  pid);
          goto done;
       }
-      Debug("%s: killing service at pid %d\n", __FUNCTION__, pid);
+      Debug("%s: sending SIGTERM to service at pid %d\n", __FUNCTION__, pid);
       ret = kill(pid, SIGTERM);
       errCode = errno;
       if (0 != ret) {

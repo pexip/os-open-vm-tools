@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2017,2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -76,7 +76,7 @@
 #define THREAD_LOG(fmt, args...)   lprintf(" (%lx) " fmt, (unsigned long)pthread_self(), ## args)
 #define THREAD_ERROR(fmt, args...) lfprintf(stderr, " (%"FMTPID") " fmt, getpid(), ## args)
 
-#if defined (linux) || defined(__FreeBSD__)
+#if defined (__linux__) || defined(__FreeBSD__)
 # define os_thread_yield()      sched_yield()
 #elif defined(sun)
 # define os_thread_yield()      yield()
@@ -233,7 +233,8 @@ main(int argc,
       }
 
 create_file:
-      strncpy(buf, files[i].blockerName, sizeof buf);
+      strncpy(buf, files[i].blockerName, sizeof buf - 1);
+      buf[sizeof buf - 1] = '\0';
       strncat(buf, FILENAME, sizeof buf - strlen(files[i].blockerName));
       err = stat(buf, &statbuf);
       if (!err) {

@@ -1,0 +1,5 @@
+# removed in 11.0.0 via https://github.com/vmware/open-vm-tools/commit/49eb5639
+rm_conffile /etc/vmware-tools/guestproxy-ssl.conf 2:11.3.0-1~ open-vm-tools
+# moved to /bin in 11-1-0 via https://github.com/vmware/open-vm-tools/commit/00d44381
+rm_conffile /etc/vmware-tools/vm-support 2:11.3.0-1~ open-vm-tools
+

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2019,2021 VMware, Inc. All rights reserved.
  *
  * The contents of this file are subject to the terms of the Common
  * Development and Distribution License (the "License") version 1.0
@@ -25,10 +25,11 @@
 #ifndef __KERNELSTUBS_H__
 #define __KERNELSTUBS_H__
 
-#define KRNL_STUBS_DRIVER_TYPE_POSIX  1
-#define KRNL_STUBS_DRIVER_TYPE_GDI    2
-#define KRNL_STUBS_DRIVER_TYPE_WDM    3
-#define KRNL_STUBS_DRIVER_TYPE_NDIS   4
+#define KRNL_STUBS_DRIVER_TYPE_POSIX      1
+#define KRNL_STUBS_DRIVER_TYPE_GDI        2
+#define KRNL_STUBS_DRIVER_TYPE_WDM        3
+#define KRNL_STUBS_DRIVER_TYPE_NDIS       4
+#define KRNL_STUBS_DRIVER_TYPE_STORPORT   5
 
 // For now (vsphere-2015), choose a good default. Later we'll modify all the
 // build files using KernelStubs to set this.
@@ -40,7 +41,7 @@
 #  endif
 #endif
 
-#ifdef linux
+#ifdef __linux__
 #   ifndef __KERNEL__
 #      error "__KERNEL__ is not defined"
 #   endif
@@ -66,6 +67,16 @@
 #      include "kernelStubsFloorFixes.h"
 #pragma warning(disable:4201) // unnamed struct/union
 #      include <ndis.h>
+#   elif KRNL_STUBS_DRIVER_TYPE == KRNL_STUBS_DRIVER_TYPE_STORPORT
+#      include "vm_basic_types.h"
+#      include <wdm.h>   /* kernel memory APIs, DbgPrintEx */
+#      include <stdio.h>    /* for _vsnprintf, vsprintf */
+#      include <stdarg.h>   /* for va_start stuff */
+#      include <stdlib.h>   /* for min macro. */
+#      include <Storport.h> /* for Storport functions */
+#      include "vm_basic_defs.h"
+#      include "vm_assert.h"  /* Our assert macros */
+#      include "kernelStubsFloorFixes.h"
 #   elif KRNL_STUBS_DRIVER_TYPE == KRNL_STUBS_DRIVER_TYPE_WDM
 #      include "vm_basic_types.h"
 #      if defined(NTDDI_WINXP) && (NTDDI_VERSION >= NTDDI_WINXP)
@@ -113,8 +124,20 @@
 
 #if defined(__linux__) || defined(__APPLE__) || defined (sun)
 
-#  ifdef linux                               /* if (linux) { */
+#  ifdef __linux__                           /* if (__linux__) { */
+#  define atoi(s) simple_strtol(((s != NULL) ? s : ""), NULL, 10)
+int strcasecmp(const char *s1, const char *s2);
 char *strdup(const char *source);
+#  endif
+
+#  ifdef __APPLE__                           /* if (__APPLE__) { */
+int atoi(const char *);
+char *STRDUP(const char *, int);
+#  define strdup(s) STRDUP(s, 80)
+#  endif
+
+#  if defined(__linux__) || defined(__APPLE__) /* if (__linux__ || __APPLE__) { */
+#  define Str_Strcasecmp(s1, s2) strcasecmp(s1, s2)
 #  endif
 
 /* Shared between Linux and Apple kernel stubs. */
