@@ -1,3 +1,10 @@
+open-vm-tools (2:10.3.10-1+deb10u3) buster-security; urgency=high
+
+  * [a69beac] Properly check authorization on incoming guestOps requests
+    (Closes: #1018012, CVE-2022-31676)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 24 Aug 2022 10:14:57 +0200
+
 open-vm-tools (2:10.3.10-1+deb10u2pexip6) pexip; urgency=medium
 
   * Stop the kernel making noise about "unknown ioctl 1976"
