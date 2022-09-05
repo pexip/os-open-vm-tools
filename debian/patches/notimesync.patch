@@ -1,6 +1,6 @@
 --- a/open-vm-tools/configure.ac
 +++ b/open-vm-tools/configure.ac
-@@ -1663,7 +1663,6 @@
+@@ -1896,7 +1896,6 @@
     services/plugins/powerOps/Makefile  \
     services/plugins/resolutionSet/Makefile \
     services/plugins/resolutionKMS/Makefile \
@@ -10,7 +10,7 @@
     services/plugins/deployPkg/Makefile  \
 --- a/open-vm-tools/services/plugins/Makefile.am
 +++ b/open-vm-tools/services/plugins/Makefile.am
-@@ -42,7 +42,6 @@
+@@ -51,7 +51,6 @@
  endif
  SUBDIRS += resolutionKMS
  endif

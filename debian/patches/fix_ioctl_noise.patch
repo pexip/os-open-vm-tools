@@ -5,7 +5,7 @@ AF_VSOCK_LOCAL being the right answer here.
 
 --- a/open-vm-tools/lib/include/vmci_sockets.h
 +++ b/open-vm-tools/lib/include/vmci_sockets.h
-@@ -687,6 +687,7 @@
+@@ -745,6 +745,7 @@
        int fd;
        int family = -1;
  
@@ -13,7 +13,7 @@ AF_VSOCK_LOCAL being the right answer here.
  #if defined(__linux__)
        /*
         * vSockets is now in mainline kernel with address family 40.  As part
-@@ -699,7 +700,6 @@
+@@ -757,7 +758,6 @@
         *    older kernel with vSockets from Tools.
         * 3. If that fails, then vSockets really isn't available.
         */
@@ -21,7 +21,7 @@ AF_VSOCK_LOCAL being the right answer here.
        {
           int s = socket(AF_VSOCK_LOCAL, SOCK_DGRAM, 0);
           if (s != -1) {
-@@ -710,7 +710,6 @@
+@@ -768,7 +768,6 @@
              return AF_VSOCK_LOCAL;
           }
        }
@@ -29,7 +29,7 @@ AF_VSOCK_LOCAL being the right answer here.
  #endif // linux
  
        fd = open(VMCI_SOCKETS_DEFAULT_DEVICE, O_RDONLY);
-@@ -721,9 +720,15 @@
+@@ -779,9 +778,15 @@
           }
        }
  
