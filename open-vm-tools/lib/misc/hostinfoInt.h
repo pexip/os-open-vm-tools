@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2009-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2009-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -34,12 +34,13 @@
  */
 
 typedef struct {
-   char  *name;
-   char   value[MAX_DETAILED_FIELD_LEN];
+   const char *name;
+   char        value[MAX_DETAILED_FIELD_LEN];
 } DetailedDataField;
 
 /* Must be sorted. Keep in same ordering as detailedDataFields */
 typedef enum {
+   ARCH,
    BITNESS,
    BUILD_NUMBER,
    DISTRO_NAME,

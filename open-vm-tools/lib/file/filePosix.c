@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2020 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2021 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -1234,9 +1234,9 @@ bail:
  *      Get the filesystem type number of the file system on which the
  *      given file/directory resides.
  *
- *      Caller can specify either a pathname or an already opened fd of
- *      the file/dir whose filesystem he wants to determine.
- *      'fd' takes precedence over 'pathName' so 'pathName' is used only
+ *      Callers can specify either a pathname, or an already opened fd,
+ *      of the file/dir whose filesystem they want to determine.
+ *      'fd' takes precedence over 'pathName', so 'pathName' is used only
  *      if 'fd' is -1.
  *
  * Results:
@@ -2881,11 +2881,12 @@ int
 File_ListDirectory(const char *dirName,  // IN:
                    char ***ids)          // OUT: relative paths
 {
-   int err = 0;
    int count = -1;
    WalkDirContext context = File_WalkDirectoryStart(dirName);
 
    if (context != NULL) {
+      int err;
+
       while (File_WalkDirectoryNext(context, NULL))
          ;
 
@@ -2995,7 +2996,7 @@ File_WalkDirectoryStart(const char *dirName)  // IN:
    context = Util_SafeMalloc(sizeof *context);
 
    context->dirName = Util_SafeStrdup(dirName);
-   context->hash = HashTable_Alloc(256, HASH_STRING_KEY, NULL);
+   context->hash = HashTable_Alloc(2048, HASH_STRING_KEY, NULL);
    context->dir = Posix_OpenDir(dirName);
 
    if (context->dir == NULL) {
