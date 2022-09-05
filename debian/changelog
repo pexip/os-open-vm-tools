@@ -1,3 +1,140 @@
+open-vm-tools (2:12.1.0-1~bpo11+2) bullseye-backports; urgency=medium
+
+  * [aaf9088] Add salt-minion/containerinfo packages again.
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 26 Aug 2022 11:57:17 +0200
+
+open-vm-tools (2:12.1.0-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+  * debian/{gbp.conf,.gitlab-ci.yaml}: configure for bullseye-backports.
+  * [1bfae15] Remove salt-minion/containerinfo packages for now.
+    Security fix should not be blocked by NEW
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 24 Aug 2022 12:01:51 +0200
+
+open-vm-tools (2:12.1.0-1) unstable; urgency=high
+
+  * [e704b2c] New upstream version 12.1.0
+    Closes: #1018012 / CVE-2022-31676
+  * [f9048c4] Remove patches applied upstream
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 24 Aug 2022 09:49:58 +0200
+
+open-vm-tools (2:12.0.5-2) unstable; urgency=medium
+
+  * Release 12.0.5 to unstable
+    - also (Closes: #1012814)
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Wed, 13 Jul 2022 11:30:52 +0200
+
+open-vm-tools (2:12.0.5-1) experimental; urgency=medium
+
+  [ Christian Ehrhardt ]
+  * [827c3e4] New upstream version 12.0.5 (LP: #1971253) (Closes: #1011633)
+  * [0d65b0785] d/copyright: fix whitespace damage
+  * [e831bdcce] d/control,d/rules: salt-minion is not supported or even built on
+    i386/arm64
+
+  [ Bryce Harrington ]
+  * [6a499a388] d/control: bump Standards-Version to 4.6.1 (no changes needed)
+  * [e0b695cf9] d/copyright: Update debian copyright to 2022
+  * [11f2f331d] d/control: Improve plugin description
+  * [aa14fc72b] d/control, d/rules, d/*containerinfo*: add containerinfo plugin
+  * [441d7a31c] d/control, d/rules, d/*salt-minion*: Add salt-minion plugin
+  * [291c71b07] d/copyright: Add myself and Christian
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Mon, 11 Jul 2022 07:48:32 +0200
+
+open-vm-tools (2:12.0.0-2) unstable; urgency=medium
+
+  * [2eaee7c] Add dependencies for the containerinfo plugin.
+  * [c21ef1d] Fix building containerinfo on i386
+    %ld is not a 64bit integer on i386.
+  * [5b23cd3] Use G_GINT64_FORMAT instead of lld
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 02 May 2022 19:06:08 +0200
+
+open-vm-tools (2:12.0.0-1) unstable; urgency=medium
+
+  [ Debian Janitor Bot ]
+  * [b8a7e72] Bump debhelper from old 12 to 13. + Rename debian/open-vm-tools-desktop.tmpfile to debian/open-vm-tools-desktop.tmpfiles.
+    Changes-By: lintian-brush
+    Fixes: lintian: package-uses-old-debhelper-compat-version
+    See-also: https://lintian.debian.org/tags/package-uses-old-debhelper-compat-version.html
+  * [db353fc] Update renamed lintian tag names in lintian overrides.
+    Changes-By: lintian-brush
+    Fixes: lintian: renamed-tag
+    See-also: https://lintian.debian.org/tags/renamed-tag.html
+  * [e836429] Set upstream metadata fields: Archive.
+    Changes-By: lintian-brush
+
+  [ Bernd Zeimetz ]
+  * [c68b4a7] New upstream version 12.0.0 (Closes: #1006845)
+  * [5e498c2] Refresh patches
+  * [d1a0fb3] udevadm: trigger only for scsi devices on install.
+    Thanks to Benjamin Drung (Closes: #1009194)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 27 Apr 2022 11:54:11 +0200
+
+open-vm-tools (2:11.3.5-1) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Remove constraints unnecessary since buster
+
+  [ Christian Ehrhardt ]
+  * New upstream version 11.3.5 (LP: #1946836) (Closes: #995221)
+    - Closes gcc-11 FTBFS, actually since 11.3.0 (Closes: #984272)
+  * d/rules, d/open-vm-tools.lintian-overrides: The hgfsmounter (mount.vmhgfs)
+    command has been removed from open-vm-tools
+  * d/p/Update-open-vm-tools-to-build-with-either-Fuse-3-or-2.patch: allow to
+    build against fuse 3
+  * d/rules, d/control: switch to use fuse3 (LP: #1935665)
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Tue, 04 Jan 2022 08:53:54 +0100
+
+open-vm-tools (2:11.3.0-2) experimental; urgency=medium
+
+  * d/copyright: further fix licenses after consulting SPDX
+  * d/copyright: state multi-license under one glob pattern
+  * d/control: enable arm64 which is ready in 11.3.0
+  * d/control: drop no more needed net-tools dependency
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Wed, 18 Aug 2021 08:27:46 +0200
+
+open-vm-tools (2:11.3.0-1) experimental; urgency=medium
+
+  * New upstream version 11.3.0 (Closes: #990163)(LP: #1933143)
+    - d/rules: install new binary vmwgfxctrl into open-vm-tools-desktop
+    - d/rules: add new binary vmware-alias-import to open-vm-tools
+    - d/rules: add new vmsvc plugins libguestStore.so and libgdp.so
+      to open-vm-tools
+  * d/open-vm-tools.maintscript: remove stale conffiles (Closes: #868273)
+  * d/control: add myself to uploaders
+  * Cleanups flagged by tracker.debian.org
+    - d/watch: fix to work with upstreams github tags
+    - d/control: bump Standards-Version to 4.5.1 (no changes needed)
+  * Cleanups for various Lintian findings
+    - d/source/lintian-overrides: allow helper scripts by setting
+      patch-file-present-but-not-mentioned-in-series
+    - d/{open-vm-tools,open-vm-tools-dev}.lintian-overrides tolerate
+      package-name-doesnt-match-sonames
+    - d/{open-vm-tools,open-vm-tools-desktop}.lintian-overrides: tolerate
+      no-manual-page until upstream issue 526 is resolved
+    - d/control: fix skip-systemd-native-flag-missing-pre-depends warning by
+      adding misc:Pre-Depends
+    - d/copyright: rename non allowed license names to fix
+      space-in-std-shortname-in-dep5-copyright warning
+    - d/open-vm-tools-desktop.lintian-overrides: fix setuid override
+    - d/rules: drop no more needed handling of pam vmtoolsd-x64
+    - d/rules: put libs and .pc files in correct multiarch directories
+    - d/rules: do not ship vmware-vgauth-smoketest (only meant for build&test,
+      per upstream it can wipe system config and therefore should not be
+      shipped after build - upstream issue 527)
+  * d/control: Remove constraints unnecessary since stretch (from Janitor)
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Tue, 06 Jul 2021 12:32:16 +0200
+
 open-vm-tools (2:11.2.5-2pexip4) pexip-bullseye; urgency=medium
 
   * Bullseye rebuild for ARM64 inclusion

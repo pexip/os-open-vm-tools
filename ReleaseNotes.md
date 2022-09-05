@@ -1,108 +1,88 @@
-     Open-vm-tools 11.2.5 Release Notes
+#                      Open-vm-tools 12.1.0 Release Notes
 
-**Updated on: 12 JAN 2021**
+Updated on: 23rd AUG 2022
 
-Open-vm-tools | 12 JAN 2021 | Build 17337674
+Open-vm-tools | 23rd AUG 2022 | Build 20219665
 
-Check for additions and updates to these release notes.
+Check back for additions and updates to these release notes.
 
-What's in the Release Notes
----------------------------
+## What's in the Release Notes
 
 The release notes cover the following topics:
 
-*   [What's New](#whatsnew)
-*   [Internationalization](#i18n)
-*   [End of Feature Support Notice](#endoffeaturesupport)
-*   [Guest Operating System Customization Support](#guestop)
-*   [Interoperability Matrix](#interop)
-*   [Resolved Issues](#resolvedissues)
-*   [Known Issues](#knownissues)
+* [What's New](#whatsnew) 
+* [Internationalization](#i18n) 
+* [End of Feature Support Notice](#endoffeaturesupport) 
+* [Guest Operating System Customization Support](#guestop) 
+* [Interoperability Matrix](#interop) 
+* [Resolved Issues](#resolvedissues) 
+* [Known Issues](#knownissues)
 
-What's New
-----------
+## <a id="whatsnew" name="whatsnew"></a>What's New
 
-*   Fixed issues mentioned in [Resolved Issues](#resolvedissues) section.
+* This release resolves CVE-2022-31676. For more information on this vulnerability and its impact on VMware products, see [https://www.vmware.com/security/advisories/VMSA-2022-0024.html](https://www.vmware.com/security/advisories/VMSA-2022-0024.html).
 
-Internationalization
---------------------
+*   Please see the [Resolved Issues](#resolvedissues) and [Known Issues](#knownissues) sections below.
 
-Open-vm-tools 11.2.5 is available in the following languages:
 
-*   English
-*   French
-*   German
-*   Spanish
-*   Italian
-*   Japanese
-*   Korean
-*   Simplified Chinese
-*   Traditional Chinese
+## <a id="i18n" name="i18n"></a>Internationalization
 
-End of Feature Support Notice
------------------------------
+Open-vm-tools 12.1.0 is available in the following languages:
 
-*   The tar tools (linux.iso) and OSPs shipped with VMware Tools 10.3.x release will continue to be supported. However, releases after VMware Tools 10.3.5 will only include critical and security fixes and no new feature support in these types of VMware Tools (tar tools and OSP's). It is recommended that customers use open-vm-tools for those operating systems that support open-vm-tools. For more information on different types of VMware Tools, see [https://blogs.vmware.com/vsphere/2016/02/understanding-the-three-types-of-vm-tools.html](https://blogs.vmware.com/vsphere/2016/02/understanding-the-three-types-of-vm-tools.html)
+* English
+* French
+* German
+* Spanish
+* Italian
+* Japanese
+* Korean
+* Simplified Chinese
+* Traditional Chinese
 
-Guest Operating System Customization Support
---------------------------------------------
+## <a id="endoffeaturesupport" name="endoffeaturesupport"></a>End of Feature Support Notice
 
-The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
+ * The tar tools (linux.iso) and OSPs shipped with VMware Tools 10.3.x release will continue to be supported. However, releases after VMware Tools 10.3.5 will only include critical and security fixes. No new feature support will be provided in these types of VMware Tools (tar tools and OSP's). It is recommended that customers use open-vm-tools for those operating systems that support open-vm-tools. For more information about open-vm-tools, see [KB 2073803](https://kb.vmware.com/s/article/2073803).
 
-Interoperability Matrix
------------------------
+## <a id="guestop" name="guestop"></a>Guest Operating System Customization Support
+The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
 
-The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_guide2/sim/interop_matrix.php) provides details about the compatibility of current and earlier versions of VMware Products.
+## <a id="interop" name="interop"></a>Interoperability Matrix
 
-Resolved Issues
----------------
+The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_guide2/sim/interop_matrix.php) provides details about the compatibility of current and earlier versions of VMware Products. 
 
-*   **The SUSE specific vmtoolsd PAM configuration file incorrectly referenced pam_securetty.so.**
+## <a id="resolvedissues" name ="resolvedissues"></a> Resolved Issues
+
+*   A number of Coverity reported issues have been addressed.
+
+*   **[FTBFS] Fix the build of the ContainerInfo plugin for a 32-bit Linux release**
+
+    Reported in [open-vm-tools pull request #588](https://github.com/vmware/open-vm-tools/pull/588), the fix did not make the code freeze date for open-vm-tools 12.0.5.
 
     This issue is fixed in this release.
 
-*   **The following issues and pull requests reported on https://github.com/vmware/open-vm-tools have been addressed:**
+*   **Make HgfsConvertFromNtTimeNsec aware of 64-bit time_t on i386 (32-bit)**
 
-        https://github.com/vmware/open-vm-tools/issues/467
-        https://github.com/vmware/open-vm-tools/issues/468
-        https://github.com/vmware/open-vm-tools/pull/469
+    Reported in [open-vm-tools pull request #387](https://github.com/vmware/open-vm-tools/pull/387), this change incorporates the support of 64 bit time epoch conversion from Windows NT time to Unix Epoch time on i386.
 
-*   **A number of Coverity reported errors and false positives have been addressed.**
+*   **A complete list of the granular changes in the open-vm-tools 12.1.0 release is available at:**
 
-*   **A complete list of the granular changes that are in the open-vm-tools 11.2.5 release is available at:**
+    [Open-vm-tools ChangeLog](https://github.com/vmware/open-vm-tools/blob/stable-12.1.0/open-vm-tools/ChangeLog)
 
-        https://github.com/vmware/open-vm-tools/blob/stable-11.2.5/open-vm-tools/ChangeLog
+## <a id="knownissues" name="knownissues"></a>Known Issues
 
-
-Known Issues
-------------
-
-The known issues are grouped as follows.
-
-
-**Open-vm-tools Issues in VMware Workstation or Fusion**
 
 *   **Shared Folders mount is unavailable on Linux VM.**
-    
-    If the **Shared Folders** feature is enabled on a Linux VM while it is powered off, shared folders mount is not available on restart.
-    
-    Note: This issue is applicable for open-vm-tools running on Workstation and Fusion.
-    
+
+    If the **Shared Folders** feature is enabled on a Linux VM while it is powered off, the shared folders mount is not available on restart.
+
+    Note: This issue is applicable to open-vm-tools running on VMware Workstation and VMware Fusion.
+
     Workaround:
-    
-    If the VM is powered on, disable and enable the **Shared Folders** feature from the interface.  
-    For resolving the issue permanently, edit **/etc/fstab** and add an entry to mount the Shared Folders automatically on boot.  
-    For example, add the line:  
-    vmhgfs-fuse   /mnt/hgfs    fuse    defaults,allow\_other    0    0
-    
-*   **Drag functionality fails to work in Ubuntu.**
-    
-    Drag functionality fails to work in Ubuntu 16.04.4 32-bit virtual machine installed using easy install. Also, failure of copy and paste functionality is observed in the same systems.
-    
-    Note: This issue is applicable for open-vm-tools running on Workstation and Fusion.
-    
-    Workaround:
-    
-    *   Add the modprobe.blacklist=vmwgfx linux kernel boot option.
-    *   To gain access to larger resolutions, remove svga.guestBackedPrimaryAware = "TRUE" option from the VMX file.
+
+    If the VM is powered on, disable and enable the **Shared Folders** feature from the interface. For resolving the issue permanently, edit **/etc/fstab** and add an entry to mount the Shared Folders automatically on boot.  For example, add the line:
+
+    <tt>vmhgfs-fuse   /mnt/hgfs    fuse    defaults,allow_other    0    0</tt>
+
+
+
 

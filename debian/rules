@@ -15,24 +15,20 @@ endif
 override_dh_auto_configure:
 	dh_auto_configure --sourcedirectory=open-vm-tools -- \
 			--prefix=/usr \
-			--libdir=\$${prefix}/lib \
+			--libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) \
 			--without-kernel-modules \
 			--with-pic \
 			--enable-xmlsec1 \
 			--with-gtk3  \
 			--enable-servicediscovery \
 			--disable-resolutionkms \
+			--enable-salt-minion \
+			--with-fuse=fuse3 \
 			CFLAGS="-fPIC -Wno-error=deprecated-declarations -Wno-error=address-of-packed-member -Wno-nonnull $(CFLAGS)" \
 			CUSTOM_PROCPS_NAME=procps
 
 override_dh_auto_install:
 	dh_auto_install --sourcedirectory=open-vm-tools -- DESTDIR=$(CURDIR)/debian/open-vm-tools
-
-	if [ -e debian/open-vm-tools/etc/pam.d/vmtoolsd-x64 ]; \
-	then \
-		sed -i -e "s|lib64|lib|g" debian/open-vm-tools/etc/pam.d/vmtoolsd-x64; \
-		mv debian/open-vm-tools/etc/pam.d/vmtoolsd-x64 debian/open-vm-tools/etc/pam.d/vmtoolsd; \
-	fi
 
 	# permissions
 	chmod 0644 debian/*/etc/pam.d/*
@@ -48,30 +44,30 @@ override_dh_auto_install:
 	# open-vm-tools-dev
 	mkdir -p debian/open-vm-tools-dev/usr/share/doc/open-vm-tools
 	mv debian/open-vm-tools/usr/share/doc/open-vm-tools/api debian/open-vm-tools-dev/usr/share/doc/open-vm-tools
-	mkdir -p debian/open-vm-tools-dev/usr/lib
+	mkdir -p debian/open-vm-tools-dev/usr/lib/$(DEB_HOST_MULTIARCH)
 	mv \
-	    debian/open-vm-tools/usr/lib/*.a \
-	    debian/open-vm-tools/usr/lib/*.so \
-	    debian/open-vm-tools/usr/lib/pkgconfig \
-	    debian/open-vm-tools-dev/usr/lib
+	    debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/*.a \
+	    debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/*.so \
+	    debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig \
+	    debian/open-vm-tools-dev/usr/lib/$(DEB_HOST_MULTIARCH)
 	mv debian/open-vm-tools/usr/include debian/open-vm-tools-dev/usr
 
 
 	# removing useless files
-	rm -f debian/open-vm-tools/usr/lib/*.la
-	rm -f debian/open-vm-tools/usr/lib/open-vm-tools/plugins/*/*.la
+	rm -f debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/*.la
+	rm -f debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/*/*.la
 	rm -rf debian/open-vm-tools/usr/share/open-vm-tools/tests
-
-	# mount(8) calls the program as /sbin/mount.vmhgfs
-	mv debian/open-vm-tools/usr/sbin/mount.vmhgfs debian/open-vm-tools/sbin/
+	# only meant for build/test time - https://github.com/vmware/open-vm-tools/issues/527
+	rm -f debian/open-vm-tools/usr/bin/vmware-vgauth-smoketest
 
 	# moving open-vm-tools-desktop files
-	mkdir -p debian/open-vm-tools-desktop/usr/lib/open-vm-tools/plugins
-	mv debian/open-vm-tools/usr/lib/open-vm-tools/plugins/vmusr debian/open-vm-tools-desktop/usr/lib/open-vm-tools/plugins
+	mkdir -p debian/open-vm-tools-desktop/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmusr debian/open-vm-tools-desktop/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins
 
 	mkdir -p debian/open-vm-tools-desktop/usr/bin
 	mv debian/open-vm-tools/usr/bin/vmware-user-suid-wrapper debian/open-vm-tools-desktop/usr/bin
 	mv debian/open-vm-tools/usr/bin/vmware-user debian/open-vm-tools-desktop/usr/bin
+	mv debian/open-vm-tools/usr/bin/vmwgfxctrl debian/open-vm-tools-desktop/usr/bin
 
 	mkdir -p debian/open-vm-tools-desktop/etc/xdg/autostart
 	mv debian/open-vm-tools/etc/xdg/autostart/vmware-user.desktop debian/open-vm-tools-desktop/etc/xdg/autostart
@@ -80,12 +76,24 @@ override_dh_auto_install:
 	mkdir -p debian/open-vm-tools-desktop/lib/systemd/system/open-vm-tools.service.d
 	cp debian/desktop.conf debian/open-vm-tools-desktop/lib/systemd/system/open-vm-tools.service.d/
 
-	mkdir -p debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/plugins/vmsvc/
-	mv debian/open-vm-tools/usr/lib/open-vm-tools/plugins/vmsvc/libserviceDiscovery.so debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/plugins/vmsvc/
+	mkdir -p debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libserviceDiscovery.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libguestStore.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libgdp.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
 
-	mkdir -p debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/serviceDiscovery/scripts/
-	mv debian/open-vm-tools/usr/lib/open-vm-tools/serviceDiscovery/scripts/* debian/open-vm-tools-sdmp/usr/lib/open-vm-tools/serviceDiscovery/scripts/
-	rm -rf debian/open-vm-tools/usr/lib/open-vm-tools/serviceDiscovery/
+	mkdir -p debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/* debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/
+	rm -rf debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/
+
+	# moving open-vm-tools-containerinfo files
+	mkdir -p debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libcontainerInfo.so debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
+
+ifneq (,$(findstring $(DEB_HOST_ARCH), amd64))
+	# moving open-vm-tools-salt-minion files
+	mkdir -p debian/open-vm-tools-salt-minion/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/componentMgr/saltMinion/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/componentMgr/saltMinion/svtminion.sh debian/open-vm-tools-salt-minion/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/componentMgr/saltMinion/
+endif
 
 override_dh_gencontrol:
 	if [ "${VENDOR}" = "UBUNTU" ]; \

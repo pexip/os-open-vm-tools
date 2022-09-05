@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2019 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2022 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -275,7 +275,15 @@ TimeSyncReadHost(int64 *host, int64 *apparentError, Bool *apparentErrorValid,
                  "attempting BDOOR_CMD_GETTIME\n");
          bp.in.cx.halfs.low = BDOOR_CMD_GETTIME;
          Backdoor(&bp);
-         hostSecs = bp.out.ax.word;
+         /*
+          * This backdoor returns uint32 time value in bp.out.ax.word or
+          * MAX_UINT32 in case of error.
+          */
+         if (bp.out.ax.word == MAX_UINT32) {
+            hostSecs = -1;
+         } else {
+            hostSecs = bp.out.ax.word;
+         }
       }
    }
    hostUsecs = bp.out.bx.word;
@@ -402,9 +410,7 @@ TimeSyncStepTime(TimeSyncData *data, int64 adjustment)
    int64 before;
    int64 after;
 
-   if (vmx86_debug) {
-      TimeSync_GetCurrentTime(&before);
-   }
+   TimeSync_GetCurrentTime(&before);
 
    /* Stepping invalidates the current slew, reset to nominal. */
    TimeSyncSetSlewState(data, FALSE);
@@ -413,21 +419,19 @@ TimeSyncStepTime(TimeSyncData *data, int64 adjustment)
       return FALSE;
    }
 
-   /* 
+   /*
     * Tell timetracker to stop trying to catch up, since we have corrected
-    * both the guest OS error and the apparent time error. 
+    * both the guest OS error and the apparent time error.
     */
    bp.in.cx.halfs.low = BDOOR_CMD_STOPCATCHUP;
    Backdoor(&bp);
 
-   if (vmx86_debug) {
-      TimeSync_GetCurrentTime(&after);
-      
-      g_debug("Time changed by %"FMT64"dus from %"FMT64"d.%06"FMT64"d -> "
-              "%"FMT64"d.%06"FMT64"d\n", adjustment,
-              before / US_PER_SEC, before % US_PER_SEC, 
-              after / US_PER_SEC, after % US_PER_SEC);
-   }
+   TimeSync_GetCurrentTime(&after);
+
+   g_debug("Time changed by %"FMT64"dus from %"FMT64"d.%06"FMT64"d -> "
+           "%"FMT64"d.%06"FMT64"d\n", adjustment,
+           before / US_PER_SEC, before % US_PER_SEC,
+           after / US_PER_SEC, after % US_PER_SEC);
 
    return TRUE;
 }
