@@ -1,3 +1,9 @@
+open-vm-tools (2:11.2.5-2pexip4) pexip-bullseye; urgency=medium
+
+  * Bullseye rebuild for ARM64 inclusion
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Mon, 05 Sep 2022 10:34:50 +0100
+
 open-vm-tools (2:11.2.5-2pexip3) pexip-bullseye; urgency=medium
 
   * Turn off --enable-resolutionkms so that we do not need to ship
