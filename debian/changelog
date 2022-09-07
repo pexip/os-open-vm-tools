@@ -1,3 +1,9 @@
+open-vm-tools (2:12.1.0-1~bpo11+2pexip1) pexip-bullseye; urgency=medium
+
+  * New upstream release.
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Wed, 07 Sep 2022 10:22:33 +0100
+
 open-vm-tools (2:12.1.0-1~bpo11+2) bullseye-backports; urgency=medium
 
   * [aaf9088] Add salt-minion/containerinfo packages again.
