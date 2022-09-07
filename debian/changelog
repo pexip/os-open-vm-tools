@@ -1,6 +1,7 @@
 open-vm-tools (2:12.1.0-1~bpo11+2pexip1) pexip-bullseye; urgency=medium
 
   * New upstream release.
+  * Disable containerinfo plugin to avoid need for libgrpc etc.
 
  -- Mark Hymers <mark.hymers@pexip.com>  Wed, 07 Sep 2022 10:22:33 +0100
 

@@ -24,6 +24,7 @@ override_dh_auto_configure:
 			--disable-resolutionkms \
 			--enable-salt-minion \
 			--with-fuse=fuse3 \
+			--disable-containerinfo \
 			CFLAGS="-fPIC -Wno-error=deprecated-declarations -Wno-error=address-of-packed-member -Wno-nonnull $(CFLAGS)" \
 			CUSTOM_PROCPS_NAME=procps
 
@@ -86,8 +87,8 @@ override_dh_auto_install:
 	rm -rf debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/
 
 	# moving open-vm-tools-containerinfo files
-	mkdir -p debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
-	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libcontainerInfo.so debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
+	#mkdir -p debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
+	#mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libcontainerInfo.so debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
 
 ifneq (,$(findstring $(DEB_HOST_ARCH), amd64))
 	# moving open-vm-tools-salt-minion files
