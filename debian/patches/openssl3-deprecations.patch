@@ -1,0 +1,32 @@
+diff --git a/open-vm-tools/vgauth/common/certverify.c b/open-vm-tools/vgauth/common/certverify.c
+index f742597..4661623 100644
+--- a/open-vm-tools/vgauth/common/certverify.c
++++ b/open-vm-tools/vgauth/common/certverify.c
+@@ -59,6 +59,7 @@ VGAuthError CertVerify_CheckSignature(VGAuthHashAlg hash,
+ void
+ CertVerify_Init(void)
+ {
++#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    /*
+     * XXX SSL init test -- loads err strings from both libs.
+     * We may need just ERR_load_crypto_strings(); using this
+@@ -73,6 +74,7 @@ CertVerify_Init(void)
+     * can add a lot of bloat.
+     */
+    OpenSSL_add_all_digests();
++#endif
+ }
+ 
+ 
+@@ -719,7 +721,11 @@ CertVerify_CertChain(const char *pemLeafCert,
+    /*
+     * Set the trusted list.  Anything self-signed needs to be here.
+     */
++#if OPENSSL_VERSION_NUMBER < 0x30000000L
+    X509_STORE_CTX_trusted_stack(verifyCtx, trustedChain);
++#else
++   X509_STORE_CTX_set0_trusted_stack(verifyCtx, trustedChain);
++#endif
+ 
+    /*
+     * XXX
