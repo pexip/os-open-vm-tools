@@ -3,3 +3,4 @@ debian/scsi-udev-rule
 notimesync.patch
 freezeflag.patch
 fix_ioctl_noise.patch
+log_reboot_halt.patch

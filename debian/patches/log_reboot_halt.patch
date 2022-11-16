@@ -1,0 +1,21 @@
+diff --git a/open-vm-tools/lib/system/systemLinux.c b/open-vm-tools/lib/system/systemLinux.c
+index a688ab2..bb0a741 100644
+--- a/open-vm-tools/lib/system/systemLinux.c
++++ b/open-vm-tools/lib/system/systemLinux.c
+@@ -30,7 +30,7 @@
+ #   error This file should not be compiled
+ #endif
+ 
+-
++#include <syslog.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -325,6 +325,7 @@ System_Shutdown(Bool reboot)  // IN: "reboot or shutdown" flag
+       cmd = "/sbin/shutdown -h now";
+ #endif
+    }
++   syslog(LOG_USER | LOG_INFO, "open-vm-tools: acting on %s message from VM host", reboot ? "REBOOT" : "SHUTDOWN");
+    if (system(cmd) == -1) {
+       fprintf(stderr, "Unable to execute %s command: \"%s\"\n",
+               reboot ? "reboot" : "shutdown", cmd);
