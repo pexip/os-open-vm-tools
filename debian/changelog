@@ -1,4 +1,4 @@
-open-vm-tools (2:12.1.0-1~bpo11+2pexip3) pexip; urgency=medium
+open-vm-tools (2:12.1.0-1~bpo11+2pexip3) pexip-bullseye-openssl3; urgency=medium
 
   * Build-Depend on libssl-dev >= 3
 
