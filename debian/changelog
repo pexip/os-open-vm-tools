@@ -1,3 +1,9 @@
+open-vm-tools (2:12.1.0-1~bpo11+2pexip4) pexip; urgency=medium
+
+  * Merge openssl3 changes to bullseye
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Thu, 26 Jan 2023 16:58:09 +0000
+
 open-vm-tools (2:12.1.0-1~bpo11+2pexip3) pexip-bullseye-openssl3; urgency=medium
 
   * Build-Depend on libssl-dev >= 3
