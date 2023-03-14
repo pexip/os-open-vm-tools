@@ -1,5 +1,5 @@
 # intentional setuid
-open-vm-tools-desktop: elevated-privileges usr/bin/vmware-user-suid-wrapper 4755 root/root
+open-vm-tools-desktop: elevated-privileges 4755 root/root [usr/bin/vmware-user-suid-wrapper]
 # not existing - https://github.com/vmware/open-vm-tools/issues/526
 open-vm-tools-desktop: no-manual-page usr/bin/vmware-user
 open-vm-tools-desktop: no-manual-page usr/bin/vmwgfxctrl

@@ -77,8 +77,6 @@ override_dh_auto_install:
 
 	mkdir -p debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
 	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libserviceDiscovery.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
-	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libguestStore.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
-	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libgdp.so debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
 
 	mkdir -p debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/
 	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/* debian/open-vm-tools-sdmp/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/scripts/

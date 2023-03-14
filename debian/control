@@ -6,7 +6,7 @@ Uploaders: Christian Ehrhardt <christian.ehrhardt@canonical.com>
 Build-Depends:
  debhelper-compat (= 13), doxygen, libcunit1-dev,
  libfuse3-dev, libgtkmm-3.0-dev, libgtk-3-dev,
- libicu-dev, libnotify-dev, libpam0g-dev, libprocps-dev, libx11-dev,
+ libicu-dev, libnotify-dev, libpam0g-dev, libx11-dev,
  libxinerama-dev, libxss-dev, libxtst-dev,
  libmspack-dev,
  libssl-dev,
@@ -19,7 +19,7 @@ Build-Depends:
  protobuf-compiler,
  libprotobuf-dev,
  protobuf-compiler-grpc,
- libgrpc++-dev,
+ libgrpc++-dev, libabsl-dev,
  golang-github-containerd-containerd-dev,
  golang-github-gogo-protobuf-dev,
 Standards-Version: 4.6.1
@@ -32,6 +32,8 @@ Architecture: amd64 i386 arm64
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${misc:Depends}, ${shlibs:Depends}, pciutils, iproute2, lsb-release
 Recommends: ethtool, zerofree, fuse3
+Breaks: open-vm-tools-sdmp (<< 2:12.1.0-2~)
+Replaces: open-vm-tools-sdmp (<< 2:12.1.0-2~)
 Suggests: open-vm-tools-desktop, cloud-init,
  open-vm-tools-containerinfo, open-vm-tools-salt-minion [amd64]
 Description: Open VMware Tools for virtual machines hosted on VMware (CLI)
