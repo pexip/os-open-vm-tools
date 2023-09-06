@@ -1,3 +1,19 @@
+open-vm-tools (2:12.2.0-1+deb12u1) bookworm-security; urgency=medium
+
+  * [3812674] Fixing CVE-2023-20867, CVE-2023-20900
+    - Authentication Bypass vulnerability in VMware Tools (CVE-2023-20867)
+      A fully compromised ESXi host can force VMware Tools to fail to
+      authenticate host-to-guest operations, impacting the confidentiality
+      and integrity of the guest virtual machine.
+    - SAML token signature bypass vulnerability (CVE-2023-20900)
+      A malicious actor with man-in-the-middle (MITM) network positioning
+      between vCenter server and the virtual machine may be able to bypass
+      SAML token signature verification, to perform VMware Tools Guest
+      Operations. (Closes: #1050970)
+  * [fb0ab84] Updating gitlab CI and GBP to build in bookworm
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 06 Sep 2023 20:01:06 +0200
+
 open-vm-tools (2:12.2.0-1) unstable; urgency=medium
 
   * [bebda7c] New upstream version 12.2.0
