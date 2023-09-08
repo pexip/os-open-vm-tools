@@ -1,8 +1,8 @@
-#                      Open-vm-tools 12.1.0 Release Notes
+#                      open-vm-tools 12.2.0 Release Notes
 
-Updated on: 23rd AUG 2022
+Updated on: 7 MAR 2023
 
-Open-vm-tools | 23rd AUG 2022 | Build 20219665
+open-vm-tools | 7 MAR 2023 | Build 21223074
 
 Check back for additions and updates to these release notes.
 
@@ -20,14 +20,17 @@ The release notes cover the following topics:
 
 ## <a id="whatsnew" name="whatsnew"></a>What's New
 
-* This release resolves CVE-2022-31676. For more information on this vulnerability and its impact on VMware products, see [https://www.vmware.com/security/advisories/VMSA-2022-0024.html](https://www.vmware.com/security/advisories/VMSA-2022-0024.html).
+There are no new features in the open-vm-tools 12.2.0 release.  This is primarily a maintenance release that addresses a few critical problems.
 
 *   Please see the [Resolved Issues](#resolvedissues) and [Known Issues](#knownissues) sections below.
 
+*   A complete list of the granular changes in the open-vm-tools 12.2.0 release is available at:
+
+    [open-vm-tools ChangeLog](https://github.com/vmware/open-vm-tools/blob/stable-12.2.0/open-vm-tools/ChangeLog)
 
 ## <a id="i18n" name="i18n"></a>Internationalization
 
-Open-vm-tools 12.1.0 is available in the following languages:
+open-vm-tools 12.2.0 is available in the following languages:
 
 * English
 * French
@@ -39,12 +42,9 @@ Open-vm-tools 12.1.0 is available in the following languages:
 * Simplified Chinese
 * Traditional Chinese
 
-## <a id="endoffeaturesupport" name="endoffeaturesupport"></a>End of Feature Support Notice
-
- * The tar tools (linux.iso) and OSPs shipped with VMware Tools 10.3.x release will continue to be supported. However, releases after VMware Tools 10.3.5 will only include critical and security fixes. No new feature support will be provided in these types of VMware Tools (tar tools and OSP's). It is recommended that customers use open-vm-tools for those operating systems that support open-vm-tools. For more information about open-vm-tools, see [KB 2073803](https://kb.vmware.com/s/article/2073803).
-
 ## <a id="guestop" name="guestop"></a>Guest Operating System Customization Support
-The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
+
+The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
 
 ## <a id="interop" name="interop"></a>Interoperability Matrix
 
@@ -52,21 +52,36 @@ The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_
 
 ## <a id="resolvedissues" name ="resolvedissues"></a> Resolved Issues
 
-*   A number of Coverity reported issues have been addressed.
+*   **A number of Coverity reported issues have been addressed.**
 
-*   **[FTBFS] Fix the build of the ContainerInfo plugin for a 32-bit Linux release**
+*   **The vmtoolsd task is blocked in the uninterruptible state while doing a quiesced snapshot.**
 
-    Reported in [open-vm-tools pull request #588](https://github.com/vmware/open-vm-tools/pull/588), the fix did not make the code freeze date for open-vm-tools 12.0.5.
+    As the ioctl FIFREEZE is done during a quiesced snapshot operation, an EBUSY could be seen because of an attempt to freeze the same superblock more than once depending on the OS configuration (e.g. usage of bind mounts).  An EBUSY could also mean another process has locked or frozen that filesystem.  That later could lead to the vmtoolsd process being blocked and ultimately other processes on the system could be blocked.
 
-    This issue is fixed in this release.
+    The Linux quiesced snapshot procedure has been updated that when an EBUSY is received, the filesystem FSID is checked against the list of filesystems that have already been quiesced.  If not previously seen, a warning that the filesystem is controlled by another process is logged and the quiesced snapshot request will be rejected.
 
-*   **Make HgfsConvertFromNtTimeNsec aware of 64-bit time_t on i386 (32-bit)**
+    This fix to lib/syncDriver/syncDriverLinux.c is directly applicable to previous releases of open-vm-tools and is available at:
 
-    Reported in [open-vm-tools pull request #387](https://github.com/vmware/open-vm-tools/pull/387), this change incorporates the support of 64 bit time epoch conversion from Windows NT time to Unix Epoch time on i386.
+        https://github.com/vmware/open-vm-tools/commit/9d458c53a7a656d4d1ba3a28d090cce82ac4af0e
 
-*   **A complete list of the granular changes in the open-vm-tools 12.1.0 release is available at:**
+*   **Updated the guestOps to handle some edge cases.**
 
-    [Open-vm-tools ChangeLog](https://github.com/vmware/open-vm-tools/blob/stable-12.1.0/open-vm-tools/ChangeLog)
+    When File_GetSize() fails or returns a -1 indicating the user does not have access permissions:
+
+    1. Skip the file in the output of the ListFiles() request.
+    2. Fail an InitiateFileTransferFromGuest operation.
+
+*   **The following pull requests and issues have been addressed.**
+
+    * Detect the proto files for the containerd grpc client in alternate locations.
+
+      [Pull request #626](https://github.com/vmware/open-vm-tools/pull/626)
+
+    * FreeBSD: Support newer releases and code clean-up for earlier versions.
+
+      [Pull request #584](https://github.com/vmware/open-vm-tools/pull/584)
+
+
 
 ## <a id="knownissues" name="knownissues"></a>Known Issues
 
@@ -82,7 +97,4 @@ The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_
     If the VM is powered on, disable and enable the **Shared Folders** feature from the interface. For resolving the issue permanently, edit **/etc/fstab** and add an entry to mount the Shared Folders automatically on boot.  For example, add the line:
 
     <tt>vmhgfs-fuse   /mnt/hgfs    fuse    defaults,allow_other    0    0</tt>
-
-
-
 
