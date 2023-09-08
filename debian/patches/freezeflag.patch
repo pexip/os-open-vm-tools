@@ -1,14 +1,16 @@
+diff --git a/open-vm-tools/lib/syncDriver/syncDriverLinux.c b/open-vm-tools/lib/syncDriver/syncDriverLinux.c
+index 6d9a356..9fecda3 100644
 --- a/open-vm-tools/lib/syncDriver/syncDriverLinux.c
 +++ b/open-vm-tools/lib/syncDriver/syncDriverLinux.c
-@@ -34,6 +34,7 @@
- #include <sys/stat.h>
+@@ -35,6 +35,7 @@
+ #include <sys/statfs.h>
  #include "debug.h"
  #include "dynbuf.h"
 +#include "fileIO.h"
  #include "syncDriverInt.h"
  
  /* Out toolchain headers are somewhat outdated and don't define these. */
-@@ -170,6 +171,9 @@
+@@ -216,6 +217,9 @@ LinuxDriver_Freeze(const GSList *paths,
     DynBuf fds;
     LinuxDriver *sync = NULL;
     SyncDriverErr err = SD_SUCCESS;
@@ -18,7 +20,7 @@
  
     DynBuf_Init(&fds);
  
-@@ -189,6 +193,12 @@
+@@ -235,6 +239,12 @@ LinuxDriver_Freeze(const GSList *paths,
      */
     VERIFY(paths != NULL);
  

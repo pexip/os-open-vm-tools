@@ -1,3 +1,54 @@
+open-vm-tools (2:12.2.0-1pexip1) pexip; urgency=medium
+
+  * Switch to following bookworm
+  * New upstream release
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Fri, 09 Sep 2023 15:50:55 +0100
+
+open-vm-tools (2:12.2.0-1) unstable; urgency=medium
+
+  * [bebda7c] New upstream version 12.2.0
+    (Closes: #1032607)
+  * [d266aa7] Add libabsl-dev as explicit build-dependency.
+    Not needed in Debian, but let's support the Deepin package maintainer.
+    (Closes: #1032305)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 14 Mar 2023 19:12:00 +0100
+
+open-vm-tools (2:12.1.5-3) unstable; urgency=medium
+
+  * [1e4d8a9] Remove libprocps-dev build-dep. (Closes: #1027271)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 03 Jan 2023 12:19:05 +0100
+
+open-vm-tools (2:12.1.5-2) unstable; urgency=medium
+
+  * [f450cf8] Fix building with gRPC 1.51+
+    Thanks to Laszlo Boszormenyi (GCS) (Closes: #1025491)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 24 Dec 2022 16:52:48 +0100
+
+open-vm-tools (2:12.1.5-1) unstable; urgency=medium
+
+  * [d4a64a2] New upstream version 12.1.5
+  * [adcd7a9] Remove accidentally added patch backup files
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 07 Dec 2022 17:30:35 +0100
+
+open-vm-tools (2:12.1.0-2) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * [2d8b9bb] Update lintian override info to new format on line 2.
+    Changes-By: lintian-brush
+    Fixes: lintian: mismatched-override
+    See-also: https://lintian.debian.org/tags/mismatched-override.html
+
+  [ Bernd Zeimetz ]
+  * [fa63406] Move libguestStore.so, libgdp.so to open-vm-tools
+    (Closes: #1021611) (LP: #1992501)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 14 Nov 2022 16:19:10 +0100
+
 open-vm-tools (2:12.1.0-1~bpo11+2pexip4) pexip; urgency=medium
 
   * Merge openssl3 changes to bullseye
@@ -23,21 +74,6 @@ open-vm-tools (2:12.1.0-1~bpo11+2pexip1) pexip-bullseye; urgency=medium
   * Disable containerinfo plugin to avoid need for libgrpc etc.
 
  -- Mark Hymers <mark.hymers@pexip.com>  Wed, 07 Sep 2022 10:22:33 +0100
-
-open-vm-tools (2:12.1.0-1~bpo11+2) bullseye-backports; urgency=medium
-
-  * [aaf9088] Add salt-minion/containerinfo packages again.
-
- -- Bernd Zeimetz <bzed@debian.org>  Fri, 26 Aug 2022 11:57:17 +0200
-
-open-vm-tools (2:12.1.0-1~bpo11+1) bullseye-backports; urgency=medium
-
-  * Rebuild for bullseye-backports.
-  * debian/{gbp.conf,.gitlab-ci.yaml}: configure for bullseye-backports.
-  * [1bfae15] Remove salt-minion/containerinfo packages for now.
-    Security fix should not be blocked by NEW
-
- -- Bernd Zeimetz <bzed@debian.org>  Wed, 24 Aug 2022 12:01:51 +0200
 
 open-vm-tools (2:12.1.0-1) unstable; urgency=high
 
