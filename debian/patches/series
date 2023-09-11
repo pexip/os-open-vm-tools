@@ -1,6 +1,8 @@
 use-debian-pam
 debian/scsi-udev-rule
 debian/grpc_1.51
+2023-20867-Remove-some-dead-code.patch
+CVE-2023-20900.patch
 
 # Pexip patches
 notimesync.patch
