@@ -1,3 +1,9 @@
+open-vm-tools (2:12.2.0-1+deb12u2+pexip24u4) pexip-bookworm; urgency=medium
+
+  * New versioning scheme
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 01 Feb 2024 16:14:56 +0000
+
 open-vm-tools (2:12.2.0-1+deb12u2pexip3) pexip-bookworm; urgency=medium
 
   * Bookworm build for product distribution
