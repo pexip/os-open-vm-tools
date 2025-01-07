@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2008-2021 VMware, Inc. All rights reserved.
+ * Copyright (c) 2008-2021,2023-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -43,6 +44,7 @@
 #include "vmware/tools/i18n.h"
 #include "vmware/tools/guestrpc.h"
 #include "vm_version.h"
+
 
 /**
  * Runs the given Tools RPC command, printing the result to the terminal and

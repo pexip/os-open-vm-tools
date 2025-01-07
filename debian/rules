@@ -32,7 +32,6 @@ override_dh_auto_install:
 	# permissions
 	chmod 0644 debian/*/etc/pam.d/*
 	chmod 4755 debian/*/usr/bin/vmware-user-suid-wrapper
-	chmod 0644 debian/*/lib/udev/rules.d/99-vmware-scsi-udev.rules
 
 	install -D -m 0644 debian/local/xautostart.conf debian/open-vm-tools-desktop/etc/vmware-tools/xautostart.conf
 	install -D -m 0644 debian/local/tools.conf debian/open-vm-tools/etc/vmware-tools/tools.conf
@@ -83,8 +82,8 @@ override_dh_auto_install:
 	rm -rf debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/serviceDiscovery/
 
 	# moving open-vm-tools-containerinfo files
-	mkdir -p debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
-	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libcontainerInfo.so debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/containerinfo/
+	mkdir -p debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
+	mv debian/open-vm-tools/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/libcontainerInfo.so debian/open-vm-tools-containerinfo/usr/lib/$(DEB_HOST_MULTIARCH)/open-vm-tools/plugins/vmsvc/
 
 ifneq (,$(findstring $(DEB_HOST_ARCH), amd64))
 	# moving open-vm-tools-salt-minion files

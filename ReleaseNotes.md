@@ -1,8 +1,8 @@
-#                      open-vm-tools 12.2.0 Release Notes
+#                      open-vm-tools 12.5.0 Release Notes
 
-Updated on: 7 MAR 2023
+Updated on: 8 October 2024
 
-open-vm-tools | 7 MAR 2023 | Build 21223074
+open-vm-tools | 8 OCTOBER 2024 | Build 24276846
 
 Check back for additions and updates to these release notes.
 
@@ -12,7 +12,7 @@ The release notes cover the following topics:
 
 * [What's New](#whatsnew) 
 * [Internationalization](#i18n) 
-* [End of Feature Support Notice](#endoffeaturesupport) 
+* [Product Support Notice](#suppnote)
 * [Guest Operating System Customization Support](#guestop) 
 * [Interoperability Matrix](#interop) 
 * [Resolved Issues](#resolvedissues) 
@@ -20,17 +20,16 @@ The release notes cover the following topics:
 
 ## <a id="whatsnew" name="whatsnew"></a>What's New
 
-There are no new features in the open-vm-tools 12.2.0 release.  This is primarily a maintenance release that addresses a few critical problems.
 
 *   Please see the [Resolved Issues](#resolvedissues) and [Known Issues](#knownissues) sections below.
 
-*   A complete list of the granular changes in the open-vm-tools 12.2.0 release is available at:
+*   A complete list of the granular changes in the open-vm-tools 12.5.0 release is available at:
 
-    [open-vm-tools ChangeLog](https://github.com/vmware/open-vm-tools/blob/stable-12.2.0/open-vm-tools/ChangeLog)
+    [open-vm-tools ChangeLog](https://github.com/vmware/open-vm-tools/blob/stable-12.5.0/open-vm-tools/ChangeLog)
 
 ## <a id="i18n" name="i18n"></a>Internationalization
 
-open-vm-tools 12.2.0 is available in the following languages:
+open-vm-tools 12.5.0 is available in the following languages:
 
 * English
 * French
@@ -42,9 +41,29 @@ open-vm-tools 12.2.0 is available in the following languages:
 * Simplified Chinese
 * Traditional Chinese
 
+## <a id="suppnote" name="suppnote"></a>Product Support Notice
+
+Beginning with the next major release, we will be reducing the number of supported localization languages.  The three supported languages will be:
+  * Japanese
+  * Spanish
+  * French
+
+The following languages will no longer be supported:
+  * Italian
+  * German
+  * Brazilian Portuguese
+  * Traditional Chinese
+  * Korean
+  * Simplified Chinese
+
+Impact:
+  * Users who have been using the deprecated languages will no longer receive updates or support in these languages.
+  * All user interfaces, message catalogs, help documentation, and customer support will be available only in English or in the three supported languages mentioned above.
+
 ## <a id="guestop" name="guestop"></a>Guest Operating System Customization Support
 
 The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
+
 
 ## <a id="interop" name="interop"></a>Interoperability Matrix
 
@@ -52,39 +71,17 @@ The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_
 
 ## <a id="resolvedissues" name ="resolvedissues"></a> Resolved Issues
 
-*   **A number of Coverity reported issues have been addressed.**
+*   **The following github.com/vmware/open-vm-tools pull request has been addressed.**
 
-*   **The vmtoolsd task is blocked in the uninterruptible state while doing a quiesced snapshot.**
+    * Revise settings for vmware-user.desktop
 
-    As the ioctl FIFREEZE is done during a quiesced snapshot operation, an EBUSY could be seen because of an attempt to freeze the same superblock more than once depending on the OS configuration (e.g. usage of bind mounts).  An EBUSY could also mean another process has locked or frozen that filesystem.  That later could lead to the vmtoolsd process being blocked and ultimately other processes on the system could be blocked.
+      [Pull request #668](https://github.com/vmware/open-vm-tools/pull/668)
 
-    The Linux quiesced snapshot procedure has been updated that when an EBUSY is received, the filesystem FSID is checked against the list of filesystems that have already been quiesced.  If not previously seen, a warning that the filesystem is controlled by another process is logged and the quiesced snapshot request will be rejected.
+*   **Accomodate newer releases of libxml2 and xmlsec1.**
 
-    This fix to lib/syncDriver/syncDriverLinux.c is directly applicable to previous releases of open-vm-tools and is available at:
-
-        https://github.com/vmware/open-vm-tools/commit/9d458c53a7a656d4d1ba3a28d090cce82ac4af0e
-
-*   **Updated the guestOps to handle some edge cases.**
-
-    When File_GetSize() fails or returns a -1 indicating the user does not have access permissions:
-
-    1. Skip the file in the output of the ListFiles() request.
-    2. Fail an InitiateFileTransferFromGuest operation.
-
-*   **The following pull requests and issues have been addressed.**
-
-    * Detect the proto files for the containerd grpc client in alternate locations.
-
-      [Pull request #626](https://github.com/vmware/open-vm-tools/pull/626)
-
-    * FreeBSD: Support newer releases and code clean-up for earlier versions.
-
-      [Pull request #584](https://github.com/vmware/open-vm-tools/pull/584)
-
-
+    The configure.ac and VGAuth code updated to avoid deprecated functions and build options based on OSS product version.
 
 ## <a id="knownissues" name="knownissues"></a>Known Issues
-
 
 *   **Shared Folders mount is unavailable on Linux VM.**
 
@@ -98,3 +95,4 @@ The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_
 
     <tt>vmhgfs-fuse   /mnt/hgfs    fuse    defaults,allow_other    0    0</tt>
 
+    For more information on how to configure VMware Tools Shared Folders, see [KB 60262](https://kb.vmware.com/s/article/60262)

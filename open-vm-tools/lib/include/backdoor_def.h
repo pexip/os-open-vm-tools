@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (c) 1998-2023 VMware, Inc. All rights reserved.
+ * Copyright (c) 1998-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -117,7 +118,7 @@ extern "C" {
 #define   BDOOR_CMD_GETTIME                  23 /* Deprecated -> GETTIMEFULL. */
 #define   BDOOR_CMD_STOPCATCHUP              24
 #define   BDOOR_CMD_PUTCHR                   25 /* Disabled by default. */
-#define   BDOOR_CMD_ENABLE_MSG               26 /* Devel only. */
+//#define BDOOR_CMD_ENABLE_MSG               26 /* Not in use. Was devel only.*/
 //#define BDOOR_CMD_GOTO_TCL                 27 /* Not in use. Was devel only */
 #define   BDOOR_CMD_INITPCIOPROM             28 /* CPL 0 only. */
 //#define BDOOR_CMD_INT13                    29 /* Not in use. */
@@ -157,21 +158,22 @@ extern "C" {
 #define   BDOOR_CMD_NESTING_CONTROL          63
 #define   BDOOR_CMD_FIRMWARE_INIT            64 /* CPL 0 only. */
 #define   BDOOR_CMD_FIRMWARE_ACPI_SERVICES   65 /* CPL 0 only. */
-#  define BDOOR_CMD_FAS_GET_TABLE_SIZE        0
-#  define BDOOR_CMD_FAS_GET_TABLE_DATA        1
-#  define BDOOR_CMD_FAS_GET_PLATFORM_NAME     2
-#  define BDOOR_CMD_FAS_GET_PCIE_OSC_MASK     3
-#  define BDOOR_CMD_FAS_GET_APIC_ROUTING      4
-#  define BDOOR_CMD_FAS_GET_TABLE_SKIP        5
-#  define BDOOR_CMD_FAS_GET_SLEEP_ENABLES     6
-#  define BDOOR_CMD_FAS_GET_HARD_RESET_ENABLE 7
-#  define BDOOR_CMD_FAS_GET_MOUSE_HID         8
-#  define BDOOR_CMD_FAS_GET_SMBIOS_VERSION    9
+#  define BDOOR_CMD_FAS_GET_TABLE_SIZE           0
+#  define BDOOR_CMD_FAS_GET_TABLE_DATA           1
+#  define BDOOR_CMD_FAS_GET_PLATFORM_NAME        2
+#  define BDOOR_CMD_FAS_GET_PCIE_OSC_MASK        3
+#  define BDOOR_CMD_FAS_GET_APIC_ROUTING         4
+#  define BDOOR_CMD_FAS_GET_TABLE_SKIP           5
+#  define BDOOR_CMD_FAS_GET_SLEEP_ENABLES        6
+#  define BDOOR_CMD_FAS_GET_HARD_RESET_ENABLE    7
+#  define BDOOR_CMD_FAS_GET_MOUSE_HID            8
+#  define BDOOR_CMD_FAS_GET_SMBIOS_VERSION       9
 #  define BDOOR_CMD_FAS_GET_64BIT_PCI_HOLE_SIZE 10
-//#define BDOOR_CMD_FAS_GET_NVDIMM_FMT_CODE  11 /* Not in use. Never shipped. */
-#  define BDOOR_CMD_FAS_SRP_ENABLED          12
-#  define BDOOR_CMD_FAS_EXIT_BOOT_SERVICES   13
-#  define BDOOR_CMD_FAS_GET_API_ENABLES      14
+//#define BDOOR_CMD_FAS_GET_NVDIMM_FMT_CODE     11 /* Not in use. Never shipped. */
+#  define BDOOR_CMD_FAS_SRP_ENABLED             12
+#  define BDOOR_CMD_FAS_EXIT_BOOT_SERVICES      13
+#  define BDOOR_CMD_FAS_GET_API_ENABLES         14
+#  define BDOOR_CMD_FAS_UNACCEPTED_MEM_ENABLED  15
 #define   BDOOR_CMD_SENDPSHAREHINTS          66 /* Not in use. Deprecated. */
 #define   BDOOR_CMD_ENABLE_USB_MOUSE         67
 #define   BDOOR_CMD_GET_VCPU_INFO            68
@@ -182,13 +184,13 @@ extern "C" {
 #  define BDOOR_CMD_VCPU_MMIO_HONORS_PAT      4
 #  define BDOOR_CMD_VCPU_RESERVED            31
 #define   BDOOR_CMD_EFI_SERIALCON_CONFIG     69 /* CPL 0 only. */
-#define   BDOOR_CMD_BUG328986                70 /* CPL 0 only. */
+//#define   BDOOR_CMD_BUG328986              70 /* CPL 0 only. Deprecated. */
 #define   BDOOR_CMD_FIRMWARE_ERROR           71 /* CPL 0 only. */
 #  define BDOOR_CMD_FE_INSUFFICIENT_MEM       0
 #  define BDOOR_CMD_FE_EXCEPTION              1
 #  define BDOOR_CMD_FE_SGX                    2
 #  define BDOOR_CMD_FE_PCI_MMIO               3
-#  define BDOOR_CMD_FE_GMM                    4
+//#define BDOOR_CMD_FE_GMM                    4 /* GMM is deprecated. */
 #define   BDOOR_CMD_VMK_INFO                 72
 #define   BDOOR_CMD_EFI_BOOT_CONFIG          73 /* CPL 0 only. */
 #  define BDOOR_CMD_EBC_LEGACYBOOT_ENABLED        0
@@ -215,29 +217,7 @@ extern "C" {
 #  define BDOOR_CMD_MKSGS_ADD_PPN             1
 #  define BDOOR_CMD_MKSGS_REMOVE_PPN          2
 #define   BDOOR_CMD_ABSPOINTER_RESTRICT      86
-#define   BDOOR_CMD_GUEST_INTEGRITY          87
-#  define BDOOR_CMD_GI_GET_CAPABILITIES       0
-#  define BDOOR_CMD_GI_SETUP_ENTRY_POINT      1
-#  define BDOOR_CMD_GI_SETUP_ALERTS           2
-#  define BDOOR_CMD_GI_SETUP_STORE            3
-#  define BDOOR_CMD_GI_SETUP_EVENT_RING       4
-#  define BDOOR_CMD_GI_SETUP_NON_FAULT_READ   5
-#  define BDOOR_CMD_GI_ENTER_INTEGRITY_MODE   6
-#  define BDOOR_CMD_GI_EXIT_INTEGRITY_MODE    7
-#  define BDOOR_CMD_GI_RESET_INTEGRITY_MODE   8
-#  define BDOOR_CMD_GI_GET_EVENT_RING_STATE   9
-#  define BDOOR_CMD_GI_CONSUME_RING_EVENTS   10
-#  define BDOOR_CMD_GI_WATCH_MAPPINGS_START  11
-#  define BDOOR_CMD_GI_WATCH_MAPPINGS_STOP   12
-#  define BDOOR_CMD_GI_CHECK_MAPPINGS_NOW    13
-#  define BDOOR_CMD_GI_WATCH_PPNS_START      14
-#  define BDOOR_CMD_GI_WATCH_PPNS_STOP       15
-#  define BDOOR_CMD_GI_SEND_MSG              16
-#  define BDOOR_CMD_GI_TEST_READ_MOB        128
-#  define BDOOR_CMD_GI_TEST_ADD_EVENT       129
-#  define BDOOR_CMD_GI_TEST_MAPPING         130
-#  define BDOOR_CMD_GI_TEST_PPN             131
-#  define BDOOR_CMD_GI_MAX                  131
+//#define BDOOR_CMD_GUEST_INTEGRITY          87 /* GI is deprecated. */
 #define   BDOOR_CMD_MKSTEST                  88 /* Devel only. */
 #  define BDOOR_CMD_MKSTEST_STATS_START       0
 #  define BDOOR_CMD_MKSTEST_STATS_STOP        1
@@ -257,27 +237,19 @@ extern "C" {
 #  define BDOOR_CMD_FUZZER_INIT               0
 #  define BDOOR_CMD_FUZZER_NEXT               1
 #define   BDOOR_CMD_PUTCHR12                 95
-#define   BDOOR_CMD_GMM                      96
-#  define BDOOR_CMD_GMM_GET_SIZE              0 /* Depends on firmware. */
-#  define BDOOR_CMD_GMM_MAP_MEMORY            1 /* Depends on firmware. */
-#  define BDOOR_CMD_GMM_ENTER                 2
-#  define BDOOR_CMD_GMM_ONESHOT_TIMER         3
-#  define BDOOR_CMD_GMM_WATCH_PPNS_START      4
-#  define BDOOR_CMD_GMM_WATCH_PPNS_STOP       5
-#  define BDOOR_CMD_GMM_RESYNC_RUNTIME_INFO   6
-#  define BDOOR_CMD_GMM_INVS_BRK_POINT        7
-#  define BDOOR_CMD_GMM_GET_CAPABILITY        8
+//#define BDOOR_CMD_GMM                      96 /* GMM is deprecated. */
 #define   BDOOR_CMD_PRECISIONCLOCK           97
 #  define BDOOR_CMD_PRECISIONCLOCK_GETTIME    0
 #  define BDOOR_CMD_PRECISIONCLOCK_SETTIME    1
 #  define BDOOR_CMD_PRECISIONCLOCK_ADJTIME    2
 #  define BDOOR_CMD_PRECISIONCLOCK_ADJFREQ    3
 #  define BDOOR_CMD_PRECISIONCLOCK_NUMCMDS    4
-#define   BDOOR_CMD_COREDUMP_UNSYNC          98 /* Devel only. For VMM cores */
+//#define   BDOOR_CMD_COREDUMP_UNSYNC        98 /* Not in use.  PR 3328536. */
 #define   BDOOR_CMD_APPLE_GPU_RES_SET        99
 #define   BDOOR_CMD_GETBUILDNUM             100
 #define   BDOOR_CMD_GETENTROPY              101 /* Configurable, off by default. */
-#define   BDOOR_CMD_MAX                     102
+#define   BDOOR_CMD_REPORTGUESTCRASH        102
+#define   BDOOR_CMD_MAX                     103
 
 
 /*

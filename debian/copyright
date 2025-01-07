@@ -4,33 +4,30 @@ Upstream-Contact: open-vm-tools-devel@lists.sourceforge.net
 Source: http://sourceforge.net/projects/open-vm-tools/files/
 
 Files: *
-Copyright: VMware, Inc. <http://www.vmware.com/>
+Copyright: 2007-2024 VMware, Inc. All rights reserved.
+           1998-2024 Broadcom. All Rights Reserved. The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
 License: LGPL-2.1
 
-Files: */Makefile* modules/*
-Copyright: VMware, Inc. <http://www.vmware.com/>
+Files: */Makefile* open-vm-tools/modules/*
+Copyright: 2007-2024 Broadcom. All Rights Reserved. The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
 License: GPL-2
 
-Files: lib/include/bsd* lib/string/bsd*
-Copyright: 1990, 1993 The Regents of the University of California.
-License: BSD-3
-
-Files: lib/misc/base64.c
+Files: open-vm-tools/lib/misc/base64.c
 Copyright: 1996, 1998 Internet Software Consortium
 License: ISC-ibm-and-ibm-dhcp
 
 Files:
-  services/plugins/resolutionSet/libvmwarectrl.h
-  services/plugins/resolutionSet/vmwarectrlproto.h
-  services/plugins/resolutionSet/vmwarectrl.h
-  services/plugins/resolutionSet/libvmwarectrl.c
+  open-vm-tools/services/plugins/resolutionSet/libvmwarectrl.h
+  open-vm-tools/services/plugins/resolutionSet/vmwarectrlproto.h
+  open-vm-tools/services/plugins/resolutionSet/vmwarectrl.h
+  open-vm-tools/services/plugins/resolutionSet/libvmwarectrl.c
 Copyright: 2006 VMware, Inc. <http://www.vmware.com/>
 License: xfree86-1.0
 
 Files: debian/*
 Copyright: 2007-2013 Daniel Baumann <mail@daniel-baumann.ch>
-           2014-2022 Bernd Zeimetz <bzed@debian.org>
-           2017-2022 Christian Ehrhardt <christian.ehrhardt@canonical.com
+           2014-2024 Bernd Zeimetz <bzed@debian.org>
+           2017-2025 Christian Ehrhardt <christian.ehrhardt@canonical.com
            2022 Bryce Harrington <bryce@canonical.com>
 License: GPL-2+
 

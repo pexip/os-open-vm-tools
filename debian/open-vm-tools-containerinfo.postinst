@@ -20,7 +20,7 @@ set -e
 
 case "$1" in
     configure)
-        if deb-systemd-invoke -q is-active open-vm-tools.service; then
+        if deb-systemd-invoke is-active open-vm-tools.service >/dev/null; then
             deb-systemd-invoke try-restart open-vm-tools
         fi
     ;;

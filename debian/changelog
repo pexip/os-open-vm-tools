@@ -1,33 +1,96 @@
-open-vm-tools (2:12.2.0-1+deb12u2) bookworm-security; urgency=medium
+open-vm-tools (2:12.5.0-1) unstable; urgency=medium
 
-  * Closes:  #1054666
-  * [81326c8] Fixing CVE-2023-34059.
-    This fixes a file descriptor hijack vulnerability in the vmware-user-suid-wrapper
-    command.  A malicious actor with non-root privileges might have been able to hijack the
-    /dev/uinput file descriptor allowing them to simulate user inputs.
-  * [95acc49] Fixing CVE-2023-34058.
-    This fixes a SAML Token Signature Bypass vulnerability. A malicious actor
-    that has been granted Guest Operation Privileges in a target virtual
-    machine might have been able to elevate their privileges if that target
-    virtual machine has been assigned a more privileged Guest Alias.
+  * Update to 12.5.0, full release notes can be found at
+    https://github.com/vmware/open-vm-tools/blob/stable-12.5.0/ReleaseNotes.md
+    - d/copyright: update to 12.5.0
+    - d/copyright: add missing path element to fix superfluous-file-pattern
+    - d/copyright: bsd files gone since 10.2.5
+    - d/*.lintian-overrides: fix paths
 
- -- Bernd Zeimetz <bzed@debian.org>  Mon, 30 Oct 2023 17:59:25 +0100
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Tue, 07 Jan 2025 11:42:40 +0100
 
-open-vm-tools (2:12.2.0-1+deb12u1) bookworm-security; urgency=medium
+open-vm-tools (2:12.4.5-1) unstable; urgency=medium
 
-  * [3812674] Fixing CVE-2023-20867, CVE-2023-20900
-    - Authentication Bypass vulnerability in VMware Tools (CVE-2023-20867)
-      A fully compromised ESXi host can force VMware Tools to fail to
-      authenticate host-to-guest operations, impacting the confidentiality
-      and integrity of the guest virtual machine.
-    - SAML token signature bypass vulnerability (CVE-2023-20900)
-      A malicious actor with man-in-the-middle (MITM) network positioning
-      between vCenter server and the virtual machine may be able to bypass
-      SAML token signature verification, to perform VMware Tools Guest
-      Operations. (Closes: #1050970)
-  * [fb0ab84] Updating gitlab CI and GBP to build in bookworm
+  * [f971632] Remove vmxnet.hook.
+    Not used/installed anymore since 2018. (Closes: #1074238)
+  * [113ef20] Add dh-sequence-movetousr as Build-Dep (Closes: #1073673)
+  * [86d484c] New upstream version 12.4.5 (Closes: #1074436)
 
- -- Bernd Zeimetz <bzed@debian.org>  Wed, 06 Sep 2023 20:01:06 +0200
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 12 Jul 2024 22:31:45 +0200
+
+open-vm-tools (2:12.4.0-1) unstable; urgency=medium
+
+  * [0ed4989] New upstream version 12.4.0
+    (Closes: #1067693)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Wed, 03 Apr 2024 22:49:48 +0200
+
+open-vm-tools (2:12.3.5-5) unstable; urgency=medium
+
+  * [13558f9] postinst: deb-systemd-invoke doesn't have a -q switch.
+    Remove it :)
+    Thanks to Daniel Leidert (Closes: #1041771)
+  * [e7e3fe6] Add build-dep: libtirpc-dev, rpcsvc-proto.
+    Thanks to Aurelien Jarno (Closes: #1065187)
+  * [788fa5c] CI: enable build on arm64
+
+ -- Bernd Zeimetz <bzed@debian.org>  Fri, 01 Mar 2024 18:11:06 +0100
+
+open-vm-tools (2:12.3.5-4) unstable; urgency=medium
+
+  * [ba9d610] Remove chmod line for udev rule.
+    Makefile.am uses mode 0644 now.
+    Thanks to Chris Hofstaedtler (Closes: #1057246)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Thu, 07 Dec 2023 15:55:33 +0100
+
+open-vm-tools (2:12.3.5-3) unstable; urgency=medium
+
+  * [7699f7a] Fix typo in last upload
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 27 Nov 2023 16:29:44 +0100
+
+open-vm-tools (2:12.3.5-2) unstable; urgency=medium
+
+  * [80ed173] Disable arm cross-build
+  * [61a0f4d] (Temporarily) build with diffoscope
+  * [d929c44] Fix containerinfo plugin directory.
+    Thanks to John Wolfe (Closes: #1056205)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 27 Nov 2023 15:50:13 +0100
+
+open-vm-tools (2:12.3.5-1) unstable; urgency=high
+
+  * [1b07bee] Remove api doc build dir with dh_clean.
+    Thanks to Lucas Nussbaum (Closes: #1046018)
+  * [de2e0ba] New upstream version 12.3.5 (Closes: #1054662)
+    - New upstream release fixes two CVEs:
+      CVE-2023-34059 CVE-2023-34058
+      Closes: #1054666
+
+ -- Bernd Zeimetz <bzed@debian.org>  Sat, 28 Oct 2023 01:41:22 +0200
+
+open-vm-tools (2:12.3.0-1) unstable; urgency=high
+
+  * [4ed4be4] New upstream version 12.3.0
+    (Closes: #1050972)
+    CVE-2023-20900
+    Adressing this CVE also Closes: #1050970
+    There are no new features in the open-vm-tools 12.3.0 release. This is
+    primarily a maintenance release, details can be found at
+    https://github.com/vmware/open-vm-tools/blob/stable-12.3.0/ReleaseNotes.md
+  * [779d338] drop d/p/debian/grpc_1.51: no more needed
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Wed, 06 Sep 2023 09:00:51 +0200
+
+open-vm-tools (2:12.2.5-1) unstable; urgency=medium
+
+  * [8c0c33f] New upstream version 12.2.5
+    (Closes: #1037546)
+    CVE-2023-20867
+  * [232810e] d/p/*: add DEP-3 patch headers
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Tue, 11 Jul 2023 13:22:07 +0200
 
 open-vm-tools (2:12.2.0-1) unstable; urgency=medium
 

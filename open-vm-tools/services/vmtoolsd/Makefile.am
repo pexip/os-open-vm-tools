@@ -1,5 +1,7 @@
 ################################################################################
-### Copyright (c) 2009-2021 VMware, Inc.  All rights reserved.
+### Copyright (c) 2009-2024 Broadcom. All Rights Reserved.
+### Broadcom Confidential. The term "Broadcom" refers to Broadcom Inc.
+### and/or its subsidiaries.
 ###
 ### This program is free software; you can redistribute it and/or modify
 ### it under the terms of version 2 of the GNU General Public License as
@@ -31,7 +33,7 @@ vmtoolsd_LDADD += @GMODULE_LIBS@
 vmtoolsd_LDADD += @GOBJECT_LIBS@
 vmtoolsd_LDADD += @GTHREAD_LIBS@
 if LINUX
-   vmtoolsd_LDADD += ../../lib/globalConfig/libGlobalConfig.la
+vmtoolsd_LDADD += ../../lib/globalConfig/libGlobalConfig.la
 endif
 
 vmtoolsd_SOURCES =

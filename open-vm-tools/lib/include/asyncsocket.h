@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2022 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2023 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -103,6 +103,7 @@ extern "C" {
 #define ASOCK_EHOSTUNREACH      WSAEHOSTUNREACH
 #define ASOCK_ETIMEDOUT         WSAETIMEDOUT
 #define ASOCK_ECONNREFUSED      WSAECONNREFUSED
+#define ASOCK_EACCES            WSAEACCES
 #else
 #define ASOCK_ENOTCONN          ENOTCONN
 #define ASOCK_ENOTSOCK          ENOTSOCK
@@ -111,11 +112,12 @@ extern "C" {
 #define ASOCK_EWOULDBLOCK       EWOULDBLOCK
 #define ASOCK_ENETUNREACH       ENETUNREACH
 #define ASOCK_ECONNRESET        ECONNRESET
-#define ASOCK_ETIMEDOUT         ETIMEDOUT
-#define ASOCK_ECONNREFUSED      ECONNREFUSED
 #define ASOCK_ECONNABORTED      ECONNABORTED
 #define ASOCK_EPIPE             EPIPE
 #define ASOCK_EHOSTUNREACH      EHOSTUNREACH
+#define ASOCK_ETIMEDOUT         ETIMEDOUT
+#define ASOCK_ECONNREFUSED      ECONNREFUSED
+#define ASOCK_EACCES            EACCES
 #endif
 
 /*
@@ -727,6 +729,8 @@ int AsyncSocket_SendWithFd(AsyncSocket *asock, void *buf, int len, int passFd,
 int AsyncSocket_IsSendBufferFull(AsyncSocket *asock);
 int AsyncSocket_GetNetworkStats(AsyncSocket *asock,
                                 AsyncSocketNetworkStats *stats);
+int AsyncSocket_GetSNIHostname(AsyncSocket *asock,
+                               const char **sniHostname);
 int AsyncSocket_CancelRecv(AsyncSocket *asock, int *partialRecvd, void **recvBuf,
                            void **recvFn);
 int AsyncSocket_CancelRecvEx(AsyncSocket *asock, int *partialRecvd, void **recvBuf,
@@ -838,24 +842,7 @@ void AsyncSocket_WebSocketServerSendError(AsyncSocket *asock, const char *text);
  */
 #define ASOCKPREFIX "SOCKET "
 
-/* gcc needs special syntax to handle zero-length variadic arguments */
-#if defined(_MSC_VER)
-#define ASOCKWARN(_asock, fmt, ...)                               \
-   Warning(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-           AsyncSocket_GetFd(_asock), __VA_ARGS__)
-
-#define ASOCKLG0(_asock, fmt, ...)                            \
-   Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-       AsyncSocket_GetFd(_asock), __VA_ARGS__)
-
-#define ASOCKLOG(_level, _asock, fmt, ...)                          \
-   do {                                                             \
-      if (((_level) == 0) || DOLOG_BYNAME(asyncsocket, (_level))) { \
-         Log(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
-             AsyncSocket_GetFd(_asock), __VA_ARGS__);               \
-      }                                                             \
-   } while (0)
-#else
+/* Both gcc and msvc support ##__VA_ARGS__ to handle zero-length variadic arguments */
 #define ASOCKWARN(_asock, fmt, ...)                               \
    Warning(ASOCKPREFIX "%d (%d) " fmt, AsyncSocket_GetID(_asock), \
            AsyncSocket_GetFd(_asock), ##__VA_ARGS__)
@@ -871,7 +858,6 @@ void AsyncSocket_WebSocketServerSendError(AsyncSocket *asock, const char *text);
              AsyncSocket_GetFd(_asock), ##__VA_ARGS__);             \
       }                                                             \
    } while (0)
-#endif
 
 #if defined(__cplusplus)
 }  // extern "C"

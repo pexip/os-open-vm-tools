@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2002-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 2002-2024 Broadcom. All Rights Reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -567,7 +568,7 @@
 
 /**
  * Lets users configure the process timeout value in deployPkg
- * Valid value range: 0x01 ~ 0xFF
+ * Valid value range: 1 ~ 3600
  */
 #define CONFNAME_DEPLOYPKG_PROCESSTIMEOUT "process-timeout"
 
@@ -590,7 +591,24 @@
 
 
 /** Where to find Tools data in the Win32 registry. */
-#define CONF_VMWARE_TOOLS_REGKEY    "Software\\VMware, Inc.\\VMware Tools"
+#if defined(_WIN32)
+#   ifndef WSTR
+#      define WSTR_(X) L##X
+#      define WSTR(X) WSTR_(X)
+#   endif
+#   define CONF_VMWARE_TOOLS_REGKEY  "Software\\VMware, Inc.\\VMware Tools"
+#   define CONF_VMWARE_TOOLS_INSTPATH_KEY "InstallPath"
+
+#   define CONF_VMWARE_TOOLS_REGKEY_W WSTR(CONF_VMWARE_TOOLS_REGKEY)
+#   define CONF_VMWARE_TOOLS_INSTPATH_KEY_W WSTR(CONF_VMWARE_TOOLS_INSTPATH_KEY)
+#   ifdef UNITY_FOR_VIEW
+#      define CONF_VMWARE_RDE_REGKEY  "SOFTWARE\\VMware, Inc.\\VMware VDM\\RemoteExperienceAgent"
+#      define CONF_VMWARE_RDE_INSTPATH_KEY "InstallPath"
+
+#      define CONF_VMWARE_RDE_REGKEY_W WSTR(CONF_VMWARE_RDE_REGKEY)
+#      define CONF_VMWARE_RDE_INSTPATH_KEY_W WSTR(CONF_VMWARE_RDE_INSTPATH_KEY)
+#   endif
+#endif
 
 /* Wait 5 seconds between polls to see if the conf file has changed */
 #define CONF_POLL_TIME     5
@@ -666,6 +684,34 @@
 
 /*
  * END gitray goodies.
+ ******************************************************************************
+ */
+
+/*
+ ******************************************************************************
+ * BEGIN AMSI Fileless goodies.
+ */
+
+/**
+ * Defines the string used for vsep plugin AMSI Fileless config file group
+ */
+#define CONFGROUPNAME_AMSI "giamsi"
+
+/* Default state of AMSI config*/
+#define VSEP_DEFAULT_AMSI_STATE TRUE
+
+/**
+ * Defines user-defined maximum AMSI client connections.
+ */
+#define CONFNAME_AMSI_MAX_CLIENT_CONNECTIONS "amsi-max-client-connections"
+
+/**
+ * Defines user-defined maximum script size supported in fileless.
+ */
+#define CONFNAME_AMSI_MAX_SCRIPT_SIZE_IN_BYTES "amsi-max-script-size-in-bytes"
+
+/*
+ * END Fileless goodies.
  ******************************************************************************
  */
 
