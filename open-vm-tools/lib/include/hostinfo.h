@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2024 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -34,6 +34,7 @@
 #include "vm_basic_defs.h"
 #include "x86vendor.h"
 #include "unicodeTypes.h"
+#include "x86cpuid.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -57,6 +58,7 @@ HostinfoProcessQuery Hostinfo_QueryProcessSnapshot(HostinfoProcessSnapshot *s,
                                                    int pid);
 
 HostinfoProcessQuery Hostinfo_QueryProcessExistence(int pid);
+HostinfoProcessQuery Hostinfo_QueryProcessReaped(int pid);
 
 /* This macro defines the current version of the structured header. */
 #define HOSTINFO_STRUCT_HEADER_VERSION 1
@@ -200,6 +202,10 @@ typedef struct {
    uint32 extfeatures;
 } HostinfoCpuIdInfo;
 
+#define AMDVBSSupport(eax) (CPUID_MODEL_IS_ZEN2(eax) || \
+                            CPUID_MODEL_IS_ZEN3(eax) || \
+                            CPUID_MODEL_IS_ZEN4(eax) || \
+                            CPUID_MODEL_IS_ZEN5(eax))
 
 uint32 Hostinfo_NumCPUs(void);
 char *Hostinfo_GetCpuidStr(void);

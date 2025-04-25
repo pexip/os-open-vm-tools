@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 1998-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -352,8 +353,11 @@ Log_SetLogLevel(uint32 group,
 int32
 Log_GetLogLevel(uint32 group);
 
-uint32
+int32
 Log_LookupGroupNumber(const char *groupName);
+
+const char *
+Log_LookupGroupName(uint32 group);
 
 LogOutput *
 Log_NewStdioOutput(const char *appPrefix,
@@ -400,11 +404,13 @@ Log_NewCustomOutput(const char *instanceName,
                     int minLogLevel);
 
 typedef struct {
-   uint8 level;
-   Bool  additionalLine;
-   char  timeStamp[64];
-   char  threadName[32];
-   char  opID[LOG_MAX_OPID_LENGTH + 1];  // Will be empty string on hosted products
+   uint8  level;
+   uint32 group;
+   Bool   additionalLine;
+   size_t msgLen;
+   char   timeStamp[64];
+   char   threadName[32];
+   char   opID[LOG_MAX_OPID_LENGTH + 1];  // Will be empty string on hosted products
 } LogLineMetadata;
 
 typedef void (LogCustomMsgFuncEx)(const LogLineMetadata * const metadata,
@@ -444,18 +450,18 @@ Log_SetOutputLevel(LogOutput *output,
 
 /*
  * Structure contains all the pointers to where value can be updated.
- * Making VmxStats as a struct has its own advantage, such as updating
+ * Making VmxStatsInfo as a struct has its own advantage, such as updating
  * 'droppedChars' from the struct instead within LogFile.
  */
 
-struct VmxStatMinMax64;
+struct StatFileMinMax64;
 
 typedef struct {
    uint64          *logMsgsDropped;    // Number of dropped messages
    uint64          *logBytesDropped;   // Number of drop bytes
    uint64          *logBytesLogged;    // Bytes logged
 
-   struct VmxStatMinMax64 *logWriteMinMaxTime; // Min/max write time in US
+   struct StatsFileMinMax64 *logWriteMinMaxTime; // Min/max write time in US
    uint64          *logWriteAvgTime;   // Average time to write in US
 } VmxStatsInfo;
 
@@ -491,7 +497,6 @@ Log_SetProductInfoSimple(void)
                       ProductState_GetCompilationOption());
 }
 
-
 LogOutput *
 Log_InitWithCustomInt(struct CfgInterface *cfgIf,
                       LogCustomMsgFunc *msgFunc,
@@ -506,6 +511,22 @@ Log_InitWithCustom(struct CfgInterface *cfgIf,
    Log_SetProductInfoSimple();
 
    return Log_InitWithCustomInt(cfgIf, msgFunc, minLogLevel);
+}
+
+LogOutput *
+Log_InitWithCustomIntEx(struct CfgInterface *cfgIf,
+                        LogCustomMsgFuncEx *msgFunc,
+                        int minLogLevel);
+
+
+static INLINE LogOutput *
+Log_InitWithCustomEx(struct CfgInterface *cfgIf,
+                     LogCustomMsgFuncEx *msgFunc,
+                     int minLogLevel)
+{
+   Log_SetProductInfoSimple();
+
+   return Log_InitWithCustomIntEx(cfgIf, msgFunc, minLogLevel);
 }
 
 LogOutput *
@@ -531,8 +552,8 @@ Log_InitWithFileSimpleInt(const char *appPrefix,
                           const char *fileName);
 
 static INLINE LogOutput *
-Log_InitWithFileSimple(const char *fileName,
-                       const char *appPrefix)
+Log_InitWithFileSimple(const char *appPrefix,
+                       const char *fileName)
 {
    Log_SetProductInfoSimple();
 
@@ -560,8 +581,8 @@ Log_InitWithSyslogSimpleInt(const char *appPrefix,
                             const char *syslogID);
 
 static INLINE LogOutput *
-Log_InitWithSyslogSimple(const char *syslogID,
-                         const char *appPrefix)
+Log_InitWithSyslogSimple(const char *appPrefix,
+                         const char *syslogID)
 {
    Log_SetProductInfoSimple();
 

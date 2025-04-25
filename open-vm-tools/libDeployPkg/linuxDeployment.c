@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2006-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 2006-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -1236,7 +1237,6 @@ UseCloudInitWorkflow(const char* dirPath, bool ignoreCloudInit)
 {
    static const char cfgName[] = "cust.cfg";
    static const char metadataName[] = "metadata";
-   static const char cloudInitConfigFilePath[] = "/etc/cloud/cloud.cfg";
    static const char cloudInitCommand[] = "/usr/bin/cloud-init -v";
    char cloudInitCommandOutput[MAX_LENGTH_CLOUDINIT_VERSION];
    int forkExecResult;
@@ -1288,7 +1288,7 @@ UseCloudInitWorkflow(const char* dirPath, bool ignoreCloudInit)
          return USE_CLOUDINIT_OK;
       }
    } else {
-      if (IsCloudInitEnabled(cloudInitConfigFilePath)) {
+      if (IsCloudInitCustomizationEnabled()) {
          return USE_CLOUDINIT_OK;
       } else {
          return USE_CLOUDINIT_DISABLED;
@@ -1759,7 +1759,7 @@ ExtractZipPackage(const char* pkgName,
    Bool ret = TRUE;
 
    // strip the header from the file
-   snprintf(zipName, sizeof zipName, "%s/%x", destDir, (unsigned int)time(0));
+   snprintf(zipName, sizeof zipName, "%s/%llx", destDir, (long long)time(NULL));
    zipName[(sizeof zipName) - 1] = '\0';
    if ((pkgFd = open(pkgName, O_RDONLY)) < 0) {
       sLog(log_error, "Failed to open package file '%s' for read. (%s)",
