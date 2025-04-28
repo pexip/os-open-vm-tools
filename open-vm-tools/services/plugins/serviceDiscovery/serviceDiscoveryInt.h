@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2020-2021 VMware, Inc. All rights reserved.
+ * Copyright (C) 2020-2021,2023 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -61,6 +61,13 @@ Bool SendScriptOutput(ToolsAppCtx *ctx,
 
 Bool ExecuteScript(ToolsAppCtx *ctx,
                    const char *key,
-                   const char *script);
+                   const char *script,
+                   const char *workingDir);
+
+#if defined (_WIN32)
+
+char* ConstructPWSScriptCommand(const char *scriptFileName);
+
+#endif
 
 #endif /* _SERVICEDISCOVERYINT_H_ */

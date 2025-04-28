@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2008-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 2008-2024 Broadcom. All Rights Reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -45,17 +46,18 @@
 #include "vmware/tools/utils.h"
 #include "vmware/tools/vmbackup.h"
 
-#if defined(_WIN32) || \
-   (defined(__linux__) && !defined(USERWORLD))
+#if (defined(_WIN32) && !defined(_ARM64_)) || \
+    (defined(__linux__) && !defined(USERWORLD))
 #  include "vmware/tools/guestStore.h"
 #  include "globalConfig.h"
+
 #endif
 
 /*
  * guestStoreClient library is needed for both GuestStore-based tools upgrade
  * and also for GlobalConfig module.
  */
-#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+#if (defined(_WIN32) &&  !defined(_ARM64_)) || defined(GLOBALCONFIG_SUPPORTED)
 #  include "guestStoreClient.h"
 #endif
 
@@ -118,14 +120,15 @@ static gboolean gGlobalConfStarted = FALSE;
 static void
 ToolsCoreCleanup(ToolsServiceState *state)
 {
-#if defined(_WIN32) || \
-   (defined(__linux__) && !defined(USERWORLD))
+#if (defined(_WIN32) && !defined(_ARM64_)) || \
+    (defined(__linux__) && !defined(USERWORLD))
    if (state->mainService) {
       /*
        * Shut down guestStore plugin first to prevent worker threads from being
        * blocked in client lib synchronous recv() call.
        */
       ToolsPluginSvcGuestStore_Shutdown(&state->ctx);
+
    }
 #endif
 
@@ -137,7 +140,7 @@ ToolsCoreCleanup(ToolsServiceState *state)
    }
 #endif
 
-#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+#if (defined(_WIN32) && !defined(_ARM64_)) || defined(GLOBALCONFIG_SUPPORTED)
    /*
     * guestStoreClient library is needed for both GuestStore-based tools
     * upgrade and also for GlobalConfig module.
@@ -472,7 +475,7 @@ ToolsCoreRunLoop(ToolsServiceState *state)
    }
 #endif
 
-#if defined(_WIN32) || defined(GLOBALCONFIG_SUPPORTED)
+#if (defined(_WIN32) && !defined(_ARM64_)) || defined(GLOBALCONFIG_SUPPORTED)
    /*
     * guestStoreClient library is needed for both GuestStore-based tools
     * upgrade and also for GlobalConfig module.
@@ -1201,6 +1204,9 @@ ToolsCore_Setup(ToolsServiceState *state)
 #else
    state->ctx.mainLoop = g_main_loop_new(gctx, FALSE);
 #endif
+   /*
+    * TODO: Build vmcheck library
+    */
    state->ctx.isVMware = VmCheck_IsVirtualWorld();
    g_main_context_unref(gctx);
 

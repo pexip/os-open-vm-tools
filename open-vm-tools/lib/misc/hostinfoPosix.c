@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 1998-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 1998-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -19,12 +20,12 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <ctype.h>
 #include <sys/utsname.h>
 #include <netdb.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <limits.h>
 #include <errno.h>
 #include <sys/file.h>
@@ -51,6 +52,7 @@
 #include <assert.h>
 #include <TargetConditionals.h>
 #if !TARGET_OS_IPHONE
+#include <libproc.h>
 #include <CoreServices/CoreServices.h>
 #endif
 #include <mach-o/dyld.h>
@@ -91,8 +93,12 @@
 #include <paths.h>
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
+#endif
+
+#if defined(__linux__) || defined(__ANDROID__)
+#include <dirent.h>
 #endif
 
 #if !defined(_PATH_DEVNULL)
@@ -133,6 +139,7 @@
 #include "uwvmkAPI.h"
 #include "uwvmk.h"
 #include "vmkSyscall.h"
+#include "uwvmkprivate.h"
 #endif
 
 #define LGPFX "HOSTINFO:"
@@ -148,6 +155,8 @@
    MAX(sizeof SYSTEM_BITNESS_64_LINUX, \
    MAX(sizeof SYSTEM_BITNESS_64_ARM_LINUX, \
        sizeof SYSTEM_BITNESS_64_ARM_FREEBSD))))
+
+#define LSB_RELEASE "/usr/bin/lsb_release"
 
 struct hostinfoOSVersion {
    int   hostinfoOSVersion[4];
@@ -906,6 +915,101 @@ HostinfoArchString(void)
 /*
  *-----------------------------------------------------------------------------
  *
+ * HostinfoDefaultLinux --
+ *
+ *      Build and return generic data about the Linux disto. Only return what
+ *      has been required - short description (i.e. guestOS string), long
+ *      description (nice looking string).
+ *
+ * Return value:
+ *      None
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+HostinfoDefaultLinux(char *distro,            // OUT/OPT:
+                     size_t distroSize,       // IN:
+                     char *distroShort,       // OUT/OPT:
+                     size_t distroShortSize)  // IN:
+{
+   char generic[128];
+   const char *distroOut = NULL;
+   const char *distroShortOut = NULL;
+   int majorVersion = Hostinfo_OSVersion(0);
+   int minorVersion = Hostinfo_OSVersion(1);
+
+   switch (majorVersion) {
+   case 1:
+      distroOut = STR_OS_OTHER_FULL;
+      distroShortOut = STR_OS_OTHER;
+      break;
+
+   case 2:
+      if (minorVersion < 4) {
+         distroOut = STR_OS_OTHER_FULL;
+         distroShortOut = STR_OS_OTHER;
+      } else if (minorVersion < 6) {
+         distroOut = STR_OS_OTHER_24_FULL;
+         distroShortOut = STR_OS_OTHER_24;
+      } else {
+         distroOut = STR_OS_OTHER_26_FULL;
+         distroShortOut = STR_OS_OTHER_26;
+      }
+
+      break;
+
+   case 3:
+      distroOut = STR_OS_OTHER_3X_FULL;
+      distroShortOut = STR_OS_OTHER_3X;
+      break;
+
+   case 4:
+      distroOut = STR_OS_OTHER_4X_FULL;
+      distroShortOut = STR_OS_OTHER_4X;
+      break;
+
+   case 5:
+      distroOut = STR_OS_OTHER_5X_FULL;
+      distroShortOut = STR_OS_OTHER_5X;
+      break;
+
+   case 6:
+      distroOut = STR_OS_OTHER_6X_FULL;
+      distroShortOut = STR_OS_OTHER_6X;
+      break;
+
+   default:
+      /*
+       * Anything newer than this code explicitly handles returns the
+       * "highest" known short description and a dynamically created,
+       * appropriate long description.
+       */
+
+      Str_Sprintf(generic, sizeof generic, "Other Linux %d.%d kernel",
+                  majorVersion, minorVersion);
+      distroOut = generic;
+      distroShortOut = STR_OS_OTHER_5X;
+   }
+
+   if (distro != NULL) {
+      ASSERT(distroOut != NULL);
+      Str_Strcpy(distro, distroOut, distroSize);
+   }
+
+   if (distroShort != NULL) {
+      ASSERT(distroShortOut != NULL);
+      Str_Strcpy(distroShort, distroShortOut, distroShortSize);
+   }
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * HostinfoGenericSetShortName --
  *
  *      Set the short name using the short name entry in the specified table
@@ -976,7 +1080,7 @@ HostinfoSetAmazonShortName(const ShortNameSet *entry, // IN: Unused
  *
  * HostinfoSetAsianuxShortName --
  *
- *      Set short name for the Asianux distro.
+ *      Set short name for the Asianux (a.k.a. Miracle Linux) distro.
  *
  * Return value:
  *      TRUE    success
@@ -1000,6 +1104,35 @@ HostinfoSetAsianuxShortName(const ShortNameSet *entry, // IN: Unused
       Str_Sprintf(distroShort, distroShortSize, "%s%s%d",
                   HostinfoArchString(), STR_OS_ASIANUX, version);
    }
+
+   return TRUE;
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * HostinfoBCSetShortName --
+ *
+ *      Handle Big Cloud Enterprise Linux.
+ *
+ * Return value:
+ *      TRUE    success
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static Bool
+HostinfoBCSetShortName(const ShortNameSet *entry, // IN:
+                       int version,               // IN:
+                       const char *distroLower,   // IN:
+                       char *distroShort,         // OUT:
+                       int distroShortSize)       // IN:
+{
+   HostinfoDefaultLinux(NULL, 0, distroShort, distroShortSize);
 
    return TRUE;
 }
@@ -1271,6 +1404,8 @@ static const ShortNameSet shortNameArray[] = {
 { "arklinux",            STR_OS_ARKLINUX,           HostinfoGenericSetShortName },
 { "asianux",             NULL,                      HostinfoSetAsianuxShortName },
 { "aurox",               STR_OS_AUROX,              HostinfoGenericSetShortName },
+{ "bigcloud",            NULL,                      HostinfoBCSetShortName      },
+/* Big Cloud must come before Red Hat Entry */
 { "black cat",           STR_OS_BLACKCAT,           HostinfoGenericSetShortName },
 { "centos",              NULL,                      HostinfoSetCentosShortName  },
 { "cobalt",              STR_OS_COBALT,             HostinfoGenericSetShortName },
@@ -1280,16 +1415,22 @@ static const ShortNameSet shortNameArray[] = {
 /* Red Hat must come before the Enterprise Linux entry */
 { "enterprise linux",    NULL,                      HostinfoSetOracleShortName  },
 { "fedora",              STR_OS_FEDORA,             HostinfoGenericSetShortName },
+{ "flatcar",             STR_OS_FLATCAR,            HostinfoGenericSetShortName },
+{ "fusionos",            STR_OS_FUSION_OS,          HostinfoGenericSetShortName },
 { "gentoo",              STR_OS_GENTOO,             HostinfoGenericSetShortName },
 { "immunix",             STR_OS_IMMUNIX,            HostinfoGenericSetShortName },
+{ "kylin linux",         STR_OS_KYLIN_LINUX,        HostinfoGenericSetShortName },
 { "linux-from-scratch",  STR_OS_LINUX_FROM_SCRATCH, HostinfoGenericSetShortName },
 { "linux-ppc",           STR_OS_LINUX_PPC,          HostinfoGenericSetShortName },
 { "mandrake",            STR_OS_MANDRAKE,           HostinfoGenericSetShortName },
 { "mandriva",            STR_OS_MANDRIVA,           HostinfoGenericSetShortName },
+{ "miracle linux",       STR_OS_MIRACLE_LINUX,      HostinfoGenericSetShortName },
 { "mklinux",             STR_OS_MKLINUX,            HostinfoGenericSetShortName },
 { "opensuse",            STR_OS_OPENSUSE,           HostinfoGenericSetShortName },
 { "oracle",              NULL,                      HostinfoSetOracleShortName  },
+{ "pardus",              STR_OS_PARDUS,             HostinfoGenericSetShortName },
 { "pld",                 STR_OS_PLD,                HostinfoGenericSetShortName },
+{ "prolinux",            STR_OS_PROLINUX,           HostinfoGenericSetShortName },
 { "rocky linux",         STR_OS_ROCKY_LINUX,        HostinfoGenericSetShortName },
 { "slackware",           STR_OS_SLACKWARE,          HostinfoGenericSetShortName },
 { "sme server",          STR_OS_SMESERVER,          HostinfoGenericSetShortName },
@@ -1680,6 +1821,11 @@ HostinfoGetCmdOutput(const char *cmd)  // IN:
  *
  *      https://www.linux.org/docs/man5/os-release.html
  *
+ *      IF THIS ROUTINE IS MODIFIED IN ANY WAY - DIRECTLY OR INDIRECTLY - TO
+ *      USE FILES OTHER THAN THOSE OFFICIALLY SANCTIONED BY THE os-release
+ *      STANDARD, THE CODE IS NO LONGER IN COMPLIANCE WITH THE os-release
+ *      STANDARD AND VMware IS NOT RESPONSIBLE FOR THE BEHAVIOR THAT RESULTS.
+ *
  * Return value:
  *      -1     Failure. No data returned.
  *      0..n   Success. A "score", the number of interesting pieces of data
@@ -1793,10 +1939,20 @@ HostinfoLsb(char ***args)  // OUT:
    size_t fields = ARRAYSIZE(lsbFields) - 1;  // Exclude terminator
 
    /*
+    * In recent times, an increasing number of distros do not have the
+    * LSB support installed. Perform a quick check for it and bail if
+    * it's not accessible.
+    */
+
+   if (access(LSB_RELEASE, F_OK | X_OK) == -1) {
+      return -1;
+   }
+
+   /*
     * Try to get OS detailed information from the lsb_release command.
     */
 
-   lsbOutput = HostinfoGetCmdOutput("/usr/bin/lsb_release -sd 2>/dev/null");
+   lsbOutput = HostinfoGetCmdOutput(LSB_RELEASE " -sd 2>/dev/null");
 
    if (lsbOutput == NULL) {
       /*
@@ -1819,14 +1975,16 @@ HostinfoLsb(char ***args)  // OUT:
       free(lsbOutput);
 
       /* LSB Distributor */
-      lsbOutput = HostinfoGetCmdOutput("/usr/bin/lsb_release -si 2>/dev/null");
+      lsbOutput = HostinfoGetCmdOutput(LSB_RELEASE " -si 2>/dev/null");
+
       if (lsbOutput != NULL) {
          (*args)[0] = Util_SafeStrdup(HostinfoLsbRemoveQuotes(lsbOutput));
          free(lsbOutput);
       }
 
       /* LSB Release */
-      lsbOutput = HostinfoGetCmdOutput("/usr/bin/lsb_release -sr 2>/dev/null");
+      lsbOutput = HostinfoGetCmdOutput(LSB_RELEASE " -sr 2>/dev/null");
+
       if (lsbOutput != NULL) {
          (*args)[1] = Util_SafeStrdup(HostinfoLsbRemoveQuotes(lsbOutput));
          free(lsbOutput);
@@ -1850,101 +2008,6 @@ HostinfoLsb(char ***args)  // OUT:
 
 
    return score;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * HostinfoDefaultLinux --
- *
- *      Build and return generic data about the Linux disto. Only return what
- *      has been required - short description (i.e. guestOS string), long
- *      description (nice looking string).
- *
- * Return value:
- *      None
- *
- * Side effects:
- *      None
- *
- *-----------------------------------------------------------------------------
- */
-
-static void
-HostinfoDefaultLinux(char *distro,            // OUT/OPT:
-                     size_t distroSize,       // IN:
-                     char *distroShort,       // OUT/OPT:
-                     size_t distroShortSize)  // IN:
-{
-   char generic[128];
-   const char *distroOut = NULL;
-   const char *distroShortOut = NULL;
-   int majorVersion = Hostinfo_OSVersion(0);
-   int minorVersion = Hostinfo_OSVersion(1);
-
-   switch (majorVersion) {
-   case 1:
-      distroOut = STR_OS_OTHER_FULL;
-      distroShortOut = STR_OS_OTHER;
-      break;
-
-   case 2:
-      if (minorVersion < 4) {
-         distroOut = STR_OS_OTHER_FULL;
-         distroShortOut = STR_OS_OTHER;
-      } else if (minorVersion < 6) {
-         distroOut = STR_OS_OTHER_24_FULL;
-         distroShortOut = STR_OS_OTHER_24;
-      } else {
-         distroOut = STR_OS_OTHER_26_FULL;
-         distroShortOut = STR_OS_OTHER_26;
-      }
-
-      break;
-
-   case 3:
-      distroOut = STR_OS_OTHER_3X_FULL;
-      distroShortOut = STR_OS_OTHER_3X;
-      break;
-
-   case 4:
-      distroOut = STR_OS_OTHER_4X_FULL;
-      distroShortOut = STR_OS_OTHER_4X;
-      break;
-
-   case 5:
-      distroOut = STR_OS_OTHER_5X_FULL;
-      distroShortOut = STR_OS_OTHER_5X;
-      break;
-
-   case 6:
-      distroOut = STR_OS_OTHER_6X_FULL;
-      distroShortOut = STR_OS_OTHER_6X;
-      break;
-
-   default:
-      /*
-       * Anything newer than this code explicitly handles returns the
-       * "highest" known short description and a dynamically created,
-       * appropriate long description.
-       */
-
-      Str_Sprintf(generic, sizeof generic, "Other Linux %d.%d kernel",
-                  majorVersion, minorVersion);
-      distroOut = generic;
-      distroShortOut = STR_OS_OTHER_5X;
-   }
-
-   if (distro != NULL) {
-      ASSERT(distroOut != NULL);
-      Str_Strcpy(distro, distroOut, distroSize);
-   }
-
-   if (distroShort != NULL) {
-      ASSERT(distroShortOut != NULL);
-      Str_Strcpy(distroShort, distroShortOut, distroShortSize);
-   }
 }
 
 
@@ -4426,10 +4489,12 @@ Hostinfo_GetModulePath(uint32 priv)  // IN:
  *      address resides. Expected usage is that the caller will pass
  *      in the address of one of the caller's own functions.
  *
- *      Not implemented on MacOS.
+ *      Not implemented on iOS (iOS does not support dynamic loading).
+ *      Not implemented on FreeBSD (doesn't support fs /proc/self)
+ *      Not fully implemented on ESX (the path MAY OR MAY NOT BE ABSOLUTE).
  *
  * Results:
- *      The path (which MAY OR MAY NOT BE ABSOLUTE) or NULL on failure.
+ *      The absolute path or NULL on failure.
  *
  * Side effects:
  *      Memory is allocated.
@@ -4440,16 +4505,165 @@ Hostinfo_GetModulePath(uint32 priv)  // IN:
 char *
 Hostinfo_GetLibraryPath(void *addr)  // IN
 {
-#ifdef __linux__
+   char *path = NULL;
+
+   /*
+    * Try fast path first.
+    *
+    * Does NOT work for iOS and FreeBSD, as iOS does not support dynamic loading
+    * and FreeBSD (non-linux) doesn't support the file system /proc/self/ .
+    */
+#if !TARGET_OS_IPHONE && !defined(__FreeBSD__)
    Dl_info info;
 
    if (dladdr(addr, &info)) {
-      return Unicode_Alloc(info.dli_fname, STRING_ENCODING_DEFAULT);
+      if (vmx86_server ||
+          *info.dli_fname == DIRSEPC) { // We have an absolute path.
+         return Unicode_Alloc(info.dli_fname, STRING_ENCODING_DEFAULT);
+      }
    }
-   return NULL;
-#else
-   return NULL;
+#endif // !TARGET_OS_IPHONE && !defined(__FreeBSD__)
+
+   /*
+    * Slow path for ESX, Linux, Android and macOS.
+    */
+#if defined(VMX86_SERVER)
+   {
+      // Slow path not needed on ESX by any caller.
+   }
+#elif defined(__linux__) || defined(__ANDROID__)
+   {
+      DIR *dir;
+
+      /*
+       * /proc/pid/map_files/ (since Linux 3.3)
+       *         This subdirectory contains entries corresponding to
+       *         memory-mapped files (see mmap(2)).  Entries are named by
+       *         memory region start and end address pair (expressed as
+       *         hexadecimal numbers), and are symbolic links to the mapped
+       *         files themselves.
+       *
+       *             # ls -l /proc/self/map_files/
+       *             lr--------. 1 root root 64 Apr 16 21:31
+       *                         3252e00000-3252e20000 -> /usr/lib64/ld-2.15.so
+       */
+      dir = Posix_OpenDir("/proc/self/map_files");
+      if (dir == NULL) {
+         return NULL;
+      }
+
+      for (;;) {
+         struct dirent *entry;
+         char *sep;
+         char *end;
+         uintptr_t startAddr;
+         uintptr_t endAddr;
+
+         errno = 0;
+         entry = readdir(dir);
+         if (entry == NULL) {
+            ASSERT(errno == 0);
+            break;
+         }
+
+         if (entry->d_type != DT_LNK) { // procfs supports `d_type`.
+            continue;
+         }
+
+         sep = strchr(entry->d_name, '-');
+         if (sep == NULL) {
+            continue; // The file name does NOT in `1234abcd-abcd1234` format
+         }
+
+         errno = 0;
+         endAddr = (uintptr_t) strtoll(sep + 1, &end, 16);
+         if (*end != '\0' || errno != 0) {
+            continue; // The address is NOT hexadecimal numbers.
+         }
+
+         if (endAddr < (uintptr_t) addr) {
+            continue; // `addr` is NOT in range.
+         }
+
+         *sep = '\0'; // Terminate the start address part of the file name.
+         errno = 0;
+         startAddr = (uintptr_t) strtoll(entry->d_name, &end, 16);
+         if (*end != '\0' || errno != 0) {
+            continue; // The address is NOT hexadecimal numbers.
+         }
+         *sep = '-'; // Restore to the original file name.
+
+         ASSERT((uintptr_t) addr <= endAddr);
+         if (startAddr <= (uintptr_t) addr) {
+            char targetBuf[PAGE_SIZE];
+            ssize_t targetLen;
+
+            /*
+             * readlinkat() does not append a terminating null byte to buf.
+             * It will (silently) truncate the contents in case the buffer
+             * is too small to hold all the contents.
+             */
+            targetLen = readlinkat(dirfd(dir), entry->d_name,
+                                   targetBuf, sizeof targetBuf);
+            if (targetLen == -1 ||
+                targetLen == sizeof targetBuf) { // truncation may have occurred
+               break;
+            }
+
+            targetBuf[targetLen] = '\0';
+            ASSERT(targetBuf[0] == DIRSEPC); // Ensure we have absolute path.
+
+            path = Unicode_Alloc(targetBuf, STRING_ENCODING_DEFAULT);
+            break;
+         }
+      } // for each entry in "/proc/self/map_files"
+
+      closedir(dir);
+   }
+#elif defined(__APPLE__) && !TARGET_OS_IPHONE
+   {
+      char pathBuf[MAXPATHLEN];
+      int pathLen;
+      pid_t pid;
+
+      pid = getpid();
+      errno = 0;
+      /*
+       * I cannot find a document for proc_regionfilename().
+       * The only information I have is its source code:
+       *    https://opensource.apple.com/source/Libc/Libc-825.40.1/darwin/
+       *    libproc.c.auto.html
+       *
+       * Parameters and return value:
+       *    pid:          The process ID of the `address` belongs to.
+       *    address:      The address you want to search.
+       *    buffer:       A buffer to receive the file path.
+       *    buffersize:   The size of the `buffer`, at least `MAXPATHLEN`.
+       *    return value: The length of the path in `buffer`, or 0 on error.
+       *
+       * proc_regionfilename() does not append a terminating NUL byte to buffer.
+       * It will silently truncate the contents in case the buffer is too small
+       * to hold all the contents.
+       */
+      pathLen = proc_regionfilename(pid,
+                                    (uintptr_t) addr,
+                                    pathBuf,
+                                    sizeof pathBuf);
+      if (pathLen == 0 ||
+          pathLen == sizeof pathBuf) { // truncation may have occurred
+         goto out;
+      }
+
+      ASSERT(errno == 0);
+      pathBuf[pathLen] = '\0';
+
+      path = Unicode_Alloc(pathBuf, STRING_ENCODING_DEFAULT);
+   out:
+      ; // A noop is needed at here to make the compiler happy.
+   }
 #endif
+
+   return path;
 }
 
 
@@ -4550,6 +4764,62 @@ Hostinfo_QueryProcessExistence(int pid)  // IN:
    }
 
    return result;
+}
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Hostinfo_QueryProcessReaped --
+ *
+ *      Determine if the resources of a "dead" process have been reclaimed.
+ *      On Linux, this is equivalent to querying the process's existence.
+ *      On ESX, we can query the vmkernel.
+ *
+ * Results:
+ *      HOSTINFO_PROCESS_QUERY_ALIVE    Process is not yet reaped
+ *      HOSTINFO_PROCESS_QUERY_DEAD     Process has been reaped
+ *      HOSTINFO_PROCESS_QUERY_UNKNOWN  Don't know
+ *
+ * Side effects:
+ *      None
+ *
+ *----------------------------------------------------------------------
+ */
+
+HostinfoProcessQuery
+Hostinfo_QueryProcessReaped(int pid)  // IN:
+{
+#if defined(VMX86_SERVER) || defined(USERWORLD)  // ESXi
+   VMK_ReturnStatus status = VMKPrivate_WaitForWorldDeath(pid, 1);
+   HostinfoProcessQuery result;
+
+   switch (status) {
+   case VMK_TIMEOUT:
+      result = HOSTINFO_PROCESS_QUERY_ALIVE;
+      break;
+
+   /*
+    * VMK_BAD_PARAM indicates the pid is no longer associated with
+    * a userworld.
+    *
+    * VMK_OK indicates the pid has been reaped.
+    */
+   case VMK_BAD_PARAM:
+   case VMK_OK:
+      result = HOSTINFO_PROCESS_QUERY_DEAD;
+      break;
+
+   /* VMK_DEATH_PENDING (on caller), VMK_WAIT_INTERRUPTED */
+   default:
+      result = HOSTINFO_PROCESS_QUERY_UNKNOWN;
+      break;
+   }
+
+   return result;
+#else
+   return Hostinfo_QueryProcessExistence(pid);
+#endif
 }
 
 

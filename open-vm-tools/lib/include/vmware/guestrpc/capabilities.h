@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2008-2017,2020-2021 VMware, Inc. All rights reserved.
+ * Copyright (c) 2008-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -26,16 +27,26 @@
 #ifndef _GUEST_CAPS_H_
 #define _GUEST_CAPS_H_
 
+/* clang-format off */
 /*
  * Guest capabilities.
+ *
  * The guest uses this enum to communicate whether a certain
  * feature is supported by the tools.
+ *
  * The guest sends an RPC where it specifies which features
- * are turned off and on, for example
- * "tools.capability.features 0=1 2=1 3=0".
+ * are turned off and on, for example:
+ *
+ * "tools.capability.features 0=1 2=1 3=0"
+ *
  * In the above example, the guest is capable of showing the
  * start menu and setting the work area, but does not support
  * multiple monitors.
+ *
+ * For capabilities that can be managed by tools.conf settings, guest should
+ * send a separate RPC tools.capability.features for each capability change,
+ * even when multiple such capabilities are changed by tools.conf at the same
+ * time.
  *
  * NOTE: the order for these has to stay constant for backward compatibility
  * with older Tools versions. New capabilities must be added at the end.
@@ -79,6 +90,7 @@ typedef enum {
    CAP_GUESTSTORE_UPGRADE               = 34, // supports tools upgrade from GuestStore
    CAP_DEVICE_HELPER                    = 35, // supports tools device helper for Windows guests
    CAP_VMBACKUP_NVME                    = 36, // supports NVMe for vmbackup
+   CAP_HOST_VERIFIED_SAML_TOKEN         = 37, // supports host verification of SAML tokens
 } GuestCapabilities;
 
 typedef struct {
@@ -102,7 +114,6 @@ typedef struct {
  * If you change these strings, make sure you also change the
  *  vmdb schema, since these strings are used as vmdb keys.
  */
-// clang-format off
 static GuestCapElem guestCapTable[] = {
    { UNITY_CAP_START_MENU,                 UNITY_CAP_VMDB_PATH, "startmenu" },
    { UNITY_CAP_VIRTUAL_DESK,               UNITY_CAP_VMDB_PATH, "virtualdesk" },
@@ -145,6 +156,7 @@ static GuestCapElem guestCapTable[] = {
    { CAP_GUESTSTORE_UPGRADE,               NULL,                NULL },
    { CAP_DEVICE_HELPER,                    NULL,                NULL },
    { CAP_VMBACKUP_NVME,                    NULL,                NULL },
+   { CAP_HOST_VERIFIED_SAML_TOKEN,         NULL,                NULL },
 };
 // clang-format on
 

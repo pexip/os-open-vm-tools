@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2020-2021 VMware, Inc. All rights reserved.
+ * Copyright (C) 2020-2021,2023 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -80,6 +80,7 @@ ReadFromHandle(gint h,
  * @param[in] ctx             The application context
  * @param[in] key             Script name
  * @param[in] script          Script to be executed
+ * @param[in] workingDir      Script working dir
  *
  * @retval TRUE  Successfully executed script and sent output to gdp daemon.
  * @retval FALSE Otherwise.
@@ -90,7 +91,8 @@ ReadFromHandle(gint h,
 Bool
 ExecuteScript(ToolsAppCtx *ctx,
               const char *key,
-              const char *script)
+              const char *script,
+              const char *workingDir)
 {
    Bool status;
    gchar *command = g_strdup(script);
@@ -101,7 +103,7 @@ ExecuteScript(ToolsAppCtx *ctx,
    GError *p_error = NULL;
    DynBuf err;
 
-   status = g_spawn_async_with_pipes(NULL, // const gchar *working_directory
+   status = g_spawn_async_with_pipes(workingDir, // const gchar *working_directory
                                      cmd, // gchar **argv
                                      NULL, // gchar **envp
                                      G_SPAWN_DEFAULT, // GSpawnFlags flags

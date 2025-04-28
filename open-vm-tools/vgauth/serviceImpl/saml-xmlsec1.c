@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2016-2022 VMware, Inc. All rights reserved.
+ * Copyright (c) 2016-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -34,6 +35,22 @@
 #include <libxml/xmlIO.h>
 #include <libxml/uri.h>
 
+// PR 3416639, xmlFile* APIs were deprecated in libxml2 2.13.0
+// Ignore the deprecated warnings after updating libxml2 to 2.13.3
+// ToDo: Define the deprecated APIs locally and remove the
+// XML_IGNORE_DEPRECATION_WARNINGS
+#ifdef _WIN32
+#define XML_IGNORE_DEPRECATION_WARNINGS \
+    __pragma(warning(push)) \
+    __pragma(warning(disable : 4996))
+#define XML_POP_WARNINGS __pragma(warning(pop))
+#else
+#define XML_IGNORE_DEPRECATION_WARNINGS \
+    _Pragma("GCC diagnostic push") \
+    _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+#define XML_POP_WARNINGS _Pragma("GCC diagnostic pop")
+#endif
+
 #include <xmlsec/xmlsec.h>
 #include <xmlsec/xmltree.h>
 #include <xmlsec/xmldsig.h>
@@ -48,7 +65,35 @@
 #include "certverify.h"
 #include "vmxlog.h"
 
+/*
+ * XXX
+ *
+ * Optimization idea: stash a hash (SHA512) of a valid token, and bypass
+ * the full assertion process when we see that token again. The expiration
+ * date of the token must also be saved off (and beware the time skew issue).
+ *
+ * Note that there's some extra complexity here:
+ *
+ * 1 - AddAlias sets up a cert/user mapping
+ * 2 - a SAML token is used (and cached) using this cert/user combo
+ * 3 - RemoveAlias removes the combo
+ * 4 - the cached token still works
+ *
+ * So the cache should only bypass the token validation, not the certificate
+ * check in ServiceVerifyAndCheckTrustCertChainForSubject()
+ *
+ * Also TBD is how much this buys us in the real world.  With short
+ * token lifetimes, its less interesting.  Its also possible that
+ * it will have no measureable affect because the token verification
+ * will be lost in the noise of the API plumbing from VC->hostd->VMX->tools.
+ *
+ * The security folks have signed off on this, so long as we store only
+ * in memory.
+ *
+ */
+
 static int gClockSkewAdjustment = VGAUTH_PREF_DEFAULT_CLOCK_SKEW_SECS;
+static gboolean gAllowUnrelatedCerts = FALSE;
 static xmlSchemaPtr gParsedSchemas = NULL;
 static xmlSchemaValidCtxtPtr gSchemaValidateCtx = NULL;
 
@@ -91,7 +136,9 @@ UserXmlFileOpen(const char *filename)
    unescaped = xmlURIUnescapeString(filename, 0, NULL);
    if (unescaped != NULL) {
       g_debug("%s: Opening file \"%s\"\n", __FUNCTION__, unescaped);
+XML_IGNORE_DEPRECATION_WARNINGS
       retval = xmlFileOpen(unescaped);
+XML_POP_WARNINGS
       xmlFree(unescaped);
    }
 
@@ -266,7 +313,7 @@ LoadCatalogAndSchema(void)
     * xmlLoadCatalog() just adds to the default catalog, and won't return an
     * error if it doesn't exist so long as a default catalog is set.
     *
-    * So sanity check its existence.
+    * So confidence check its existence.
     */
    if (!g_file_test(catalogPath, G_FILE_TEST_EXISTS)) {
       g_warning("Error: catalog file not found at \"%s\"\n", catalogPath);
@@ -369,6 +416,10 @@ LoadPrefs(void)
                                       VGAUTH_PREF_DEFAULT_CLOCK_SKEW_SECS);
     Log("%s: Allowing %d of clock skew for SAML date validation\n",
         __FUNCTION__, gClockSkewAdjustment);
+    gAllowUnrelatedCerts = Pref_GetBool(gPrefs,
+                                        VGAUTH_PREF_ALLOW_UNRELATED_CERTS,
+                                        VGAUTH_PREF_GROUP_NAME_SERVICE,
+                                        FALSE);
 }
 
 
@@ -399,22 +450,16 @@ SAML_Init(void)
     */
    LIBXML_TEST_VERSION
 
-   /*
-    * Tell libxml to do ID/REF lookups
-    * Tell libxml to complete attributes with defaults from the DTDs
-    */
-   xmlLoadExtDtdDefaultValue = XML_DETECT_IDS | XML_COMPLETE_ATTRS;
-   xmlSubstituteEntitiesDefault(1);
-
-
    /* set up the xml2 error handler */
    xmlSetGenericErrorFunc(NULL, XmlErrorHandler);
 
    /*
     * Register user defined UserXmlFileOpen
     */
+XML_IGNORE_DEPRECATION_WARNINGS
    xmlRegisterInputCallbacks(xmlFileMatch, UserXmlFileOpen,
                              xmlFileRead, xmlFileClose);
+XML_POP_WARNINGS
 
    /*
     * Load schemas
@@ -566,6 +611,18 @@ FreeCertArray(int num,
       g_free(certs[i]);
    }
    g_free(certs);
+}
+
+
+/*
+ * Public API for use by the unit tests.
+ */
+
+void
+SAML_FreeCertArray(int num,
+                   gchar **certs)
+{
+   FreeCertArray(num, certs);
 }
 
 
@@ -1178,6 +1235,7 @@ BuildCertChain(xmlNodePtr x509Node,
       /*
        * Add cert to the keymanager.
        */
+      /* coverity[string_null] */
       ret = xmlSecCryptoAppKeysMngrCertLoadMemory(mgr,
                                                   pemCert,
                                                   (xmlSecSize) strlen(pemCert),
@@ -1230,10 +1288,11 @@ done:
  *
  * Verifies the signature on an XML document.
  *
- * @param[in]  doc       Parsed XML document.
- * @param[out] numCerts  Number of certs in the token.
- * @param[out] certChain Certs in the token. Caller should g_free() array and
- *                       contents.
+ * @param[in]  doc          Parsed XML document.
+ * @param[in]  hostVerified If set, signature verifcation can be skipped.
+ * @param[out] numCerts     Number of certs in the token.
+ * @param[out] certChain    Certs in the token. Caller should g_free() array and
+ *                          contents.
  *
  * @return TRUE on success.
  *
@@ -1242,6 +1301,7 @@ done:
 
 static gboolean
 VerifySignature(xmlDocPtr doc,
+                gboolean hostVerified,
                 int *numCerts,
                 gchar ***certChain)
 {
@@ -1302,9 +1362,9 @@ VerifySignature(xmlDocPtr doc,
    /*
     * Get the cert chain from the token.
     *
-    * Unlike xml-security-c, xmlsec1 wants to validate the cert
-    * chain in the token so it needs the full chain, not just
-    * the public key from the first cert.
+    * xmlsec1 wants to validate the cert chain in the token
+    * so it needs the full chain, not just the public key from
+    * the first cert.
     *
     * Also save it off for later use by the alias store check.
     */
@@ -1312,6 +1372,13 @@ VerifySignature(xmlDocPtr doc,
    if (FALSE == bRet) {
       g_warning("Failed to add cert to key manager\n");
       goto done;
+   }
+
+   if (hostVerified) {
+      // XXX add a check that the sig is replaced with the expected value
+      g_debug("%s: token is hostVerified, skipping signature check",
+              __FUNCTION__);
+      goto verified;
    }
 
    /*
@@ -1335,7 +1402,14 @@ VerifySignature(xmlDocPtr doc,
     */
    bRet = RegisterID(xmlDocGetRootElement(doc), "ID");
    if (bRet == FALSE) {
-      g_warning("failed to register ID\n");
+      g_warning("Failed to register ID\n");
+      goto done;
+   }
+
+   /* Use only X509 certs to validate the signature */
+   if (xmlSecPtrListAdd(&(dsigCtx->keyInfoReadCtx.enabledKeyData),
+                        BAD_CAST xmlSecKeyDataX509Id) < 0) {
+      g_warning("Failed to limit allowed key data\n");
       goto done;
    }
 
@@ -1350,8 +1424,8 @@ VerifySignature(xmlDocPtr doc,
    }
 
    /*
-    * The xml-security-c verifies the Reference explicitly; this
-    * isn't needed for xmlsec1 because the library does it.
+    * No need to verify the Reference explicitly because the
+    * xmlsec1 library takes care of it.
     */
 
    /*
@@ -1362,9 +1436,10 @@ VerifySignature(xmlDocPtr doc,
     * dsigCtx->status can be at the wrong offset.  So
     * dump the value of status, which should be either
     * 1 (xmlSecDSigStatusSucceeded) or 2 (xmlSecDSigStatusInvalid).
-    * If its something else, that's a sign there's a
-    * build issue and XMLSEC_NO_SIZE_T may be set at one layer but
-    * not the other.
+    * If its something else, that could be a sign that there's a build issue
+    * and that libxmlsec1 is using a different size type than its callers.
+    * Please see xmlSecSize changelog in
+    * https://www.aleksey.com/xmlsec/news.html
     *
     */
    if (dsigCtx->status != xmlSecDSigStatusSucceeded) {
@@ -1376,6 +1451,7 @@ VerifySignature(xmlDocPtr doc,
       goto done;
    }
 
+verified:
    retCode = TRUE;
    *numCerts = num;
    *certChain = certList;
@@ -1395,17 +1471,35 @@ done:
 
 
 /*
+ * Public API for use by the unit tests.
+ */
+
+gboolean
+SAML_VerifySignature(xmlDocPtr doc,
+                     gboolean hostVerified,
+                     int *numCerts,
+                     gchar ***certChain)
+{
+   return VerifySignature(doc,
+                          hostVerified,
+                          numCerts,
+                          certChain);
+}
+
+
+/*
  ******************************************************************************
  * VerifySAMLToken --                                                    */ /**
  *
  * Verifies a XML text as a SAML token.
  * Parses the XML, then verifies Subject, Conditions and Signature.
  *
- * @param[in]  token     Text of SAML token.
- * @param[out] subject   Subject of SAML token,  Caller must g_free().
- * @param[out] numCerts  Number of certs in the token.
- * @param[out] certChain Certs in the token. Caller should g_free() array and
- *                       contents.
+ * @param[in]  token         Text of SAML token.
+ * @param[in]  hostVerfied   If true, the signature check can be skipped.
+ * @param[out] subject       Subject of SAML token,  Caller must g_free().
+ * @param[out] numCerts      Number of certs in the token.
+ * @param[out] certChain     Certs in the token. Caller should g_free()
+ *                           array and contents.
  *
  * @return matching TRUE on success.
  *
@@ -1414,6 +1508,7 @@ done:
 
 static gboolean
 VerifySAMLToken(const gchar *token,
+                gboolean hostVerified,
                 gchar **subject,
                 int *numCerts,
                 gchar ***certChain)
@@ -1441,7 +1536,13 @@ VerifySAMLToken(const gchar *token,
                            strlen(token),
                            NULL, NULL, 0);
 #else
-   doc = xmlParseMemory(token, (int)strlen(token));
+   /*
+    * Tell libxml to substitute the entities (XML_PARSE_NOENT).
+    * Tell libxml to load the external DTD (XML_PARSE_DTDLOAD).
+    * Tell libxml to add default attributes from the DTD (XML_PARSE_DTDATTR).
+    */
+   doc = xmlReadMemory(token, (int)strlen(token), NULL, NULL,
+                       XML_PARSE_NOENT | XML_PARSE_DTDATTR | XML_PARSE_DTDLOAD);
 #endif
    if ((NULL == doc) || (xmlDocGetRootElement(doc) == NULL)) {
       g_warning("Failed to parse document\n");
@@ -1470,7 +1571,9 @@ VerifySAMLToken(const gchar *token,
    }
 #endif
 
-   bRet = VerifySignature(doc, numCerts, certChain);
+   bRet = VerifySignature(doc,
+                          hostVerified,
+                          numCerts, certChain);
    if (FALSE == bRet) {
       g_warning("Failed to verify Signature\n");
       // XXX Can we log the token at this point without risking security?
@@ -1493,6 +1596,60 @@ done:
    }
 
    return retCode;
+}
+
+
+// XXX remove this?  hostVerified can be tested just fine with the 'real'
+// API, the test-only shortcut may be overkill.  Though once this is
+// out of dev, we could add the extra param to SAML_VerifyBearerToken()
+// and fix all the test calls.
+
+/*
+ ******************************************************************************
+ * SAML_VerifyBearerTokenEx --                                           */ /**
+ *
+ * Determines whether the SAML bearer token can be used to authenticate.
+ * A token consists of a single SAML assertion.
+ *
+ * This is currently only used from the test code.
+ *
+ * @param[in]  xmlText      The text of the SAML assertion.
+ * @param[in]  userName     Optional username to authenticate as.
+ * @param[in]  hostVerified If set, then the signature verification will
+ *                          be skipped.
+ * @param[out] userNameOut  The user that the token has authenticated as.
+ * @param[out] subjNameOut  The subject in the token.  Caller must g_free().
+ * @param[out] verifyAi     The alias info associated with the entry
+ *                          in the alias store used to verify the
+ *                          SAML cert.
+ *
+ * @return VGAUTH_E_OK on success, VGAuthError on failure
+ *
+ ******************************************************************************
+ */
+
+VGAuthError
+SAML_VerifyBearerTokenEx(const char *xmlText,
+                         const char *userName,                // UNUSED
+                         gboolean hostVerified,
+                         char **userNameOut,                  // UNUSED
+                         char **subjNameOut,
+                         ServiceAliasInfo **verifyAi)         // UNUSED
+{
+   gboolean ret;
+   gchar **certChain = NULL;
+   int num = 0;
+
+   ret = VerifySAMLToken(xmlText,
+                         hostVerified,
+                         subjNameOut,
+                         &num,
+                         &certChain);
+
+   // clean up -- this code doesn't look at the chain
+   FreeCertArray(num, certChain);
+
+   return (ret == TRUE) ? VGAUTH_E_OK : VGAUTH_E_AUTHENTICATION_DENIED;
 }
 
 
@@ -1530,6 +1687,7 @@ SAML_VerifyBearerToken(const char *xmlText,
    int num = 0;
 
    ret = VerifySAMLToken(xmlText,
+                         FALSE,  // XXX keep original to minimze test changes
                          subjNameOut,
                          &num,
                          &certChain);
@@ -1550,13 +1708,14 @@ SAML_VerifyBearerToken(const char *xmlText,
  * The token must first be verified, then the certificate chain used
  * verify it must be checked against the appropriate certificate store.
  *
- * @param[in]  xmlText     The text of the SAML assertion.
- * @param[in]  userName    Optional username to authenticate as.
- * @param[out] userNameOut The user that the token has authenticated as.
- * @param[out] subjNameOut The subject in the token.  Caller must g_free().
- * @param[out] verifyAi    The alias info associated with the entry
- *                         in the alias store used to verify the
- *                         SAML cert.
+ * @param[in]  xmlText      The text of the SAML assertion.
+ * @param[in]  userName     Optional username to authenticate as.
+ * @param[in]  hostVerified If true, skip signature verification.
+ * @param[out] userNameOut  The user that the token has authenticated as.
+ * @param[out] subjNameOut  The subject in the token.  Caller must g_free().
+ * @param[out] verifyAi     The alias info associated with the entry
+ *                          in the alias store used to verify the
+ *                          SAML cert.
  *
  * @return VGAUTH_E_OK on success, VGAuthError on failure
  *
@@ -1566,6 +1725,7 @@ SAML_VerifyBearerToken(const char *xmlText,
 VGAuthError
 SAML_VerifyBearerTokenAndChain(const char *xmlText,
                                const char *userName,
+                               gboolean hostVerified,
                                char **userNameOut,
                                char **subjNameOut,
                                ServiceAliasInfo **verifyAi)
@@ -1581,12 +1741,23 @@ SAML_VerifyBearerTokenAndChain(const char *xmlText,
    *verifyAi = NULL;
 
    bRet = VerifySAMLToken(xmlText,
+                          hostVerified,
                           subjNameOut,
                           &num,
                           &certChain);
 
    if (FALSE == bRet) {
       return VGAUTH_E_AUTHENTICATION_DENIED;
+   }
+
+   if (!gAllowUnrelatedCerts) {
+      err = CertVerify_CheckForUnrelatedCerts(num, (const char **) certChain);
+      if (err != VGAUTH_E_OK) {
+         VMXLog_Log(VMXLOG_LEVEL_WARNING,
+                    "Unrelated certs found in SAML token, failing\n");
+         FreeCertArray(num, certChain);
+         return VGAUTH_E_AUTHENTICATION_DENIED;
+      }
    }
 
    subj.type = SUBJECT_TYPE_NAMED;

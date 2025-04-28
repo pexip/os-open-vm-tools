@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 2013,2018-2019 VMware, Inc. All rights reserved.
+ * Copyright (c) 2013-2024 Broadcom. All rights reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -612,7 +613,7 @@ HgfsDoRead(HgfsHandle handle,  // IN:  Handle for this file
             payload = ((HgfsReplyRead *)HGFS_REQ_PAYLOAD(req))->payload;
          }
 
-         /* Sanity check on read size. */
+         /* Confidence check on read size. */
          if (actualSize > count) {
             LOG(4, ("Server reply: read too big!\n"));
             result = -EPROTO;
@@ -1038,6 +1039,11 @@ retry:
          result = -EINVAL;
          goto out;
       }
+      /*
+       * The usage of the space allocated in req early in the function is kept
+       * in reqSize. If oldName length was 0 we're not causing an overrun.
+       */
+      /* coverity[overrun-local] */
       newNameP->length = result;
       reqSize += result;
       newNameP->flags = 0;
@@ -1060,6 +1066,11 @@ retry:
          result = -EINVAL;
          goto out;
       }
+      /*
+       * The usage of the space allocated in req early in the function is kept
+       * in reqSize. If oldName length was 0 we're not causing an overrun.
+       */
+      /* coverity[overrun-local] */
       newNameP->length = result;
       reqSize += result;
    }

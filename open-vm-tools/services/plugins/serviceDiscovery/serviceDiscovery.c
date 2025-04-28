@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2020-2021 VMware, Inc. All rights reserved.
+ * Copyright (c) 2020-2021,2023 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -24,6 +24,7 @@
  */
 
 #include <string.h>
+#include "str.h"
 
 #include "serviceDiscoveryInt.h"
 #include "vmware.h"
@@ -45,21 +46,24 @@
 VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 #endif
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
+
 #define NSDB_PRIV_GET_VALUES_CMD "namespace-priv-get-values"
 #define NSDB_PRIV_SET_KEYS_CMD "namespace-priv-set-keys"
 
 #if defined (_WIN32)
 
-#define SCRIPT_EXTN ".bat"
+#define SCRIPT_EXTN ".ps1"
 
 /*
  * Scripts used by plugin in Windows guests to capture information about
  * running services.
  */
-#define SERVICE_DISCOVERY_SCRIPT_PERFORMANCE_METRICS \
-        "get-performance-metrics" SCRIPT_EXTN
-#define SERVICE_DISCOVERY_WIN_SCRIPT_RELATIONSHIP "get-parent-child-rels" \
-        SCRIPT_EXTN
+#define SERVICE_DISCOVERY_SCRIPT_PERFORMANCE_METRICS "get-performance-metrics" SCRIPT_EXTN
+#define SERVICE_DISCOVERY_WIN_SCRIPT_RELATIONSHIP "get-parent-child-rels" SCRIPT_EXTN
 #define SERVICE_DISCOVERY_WIN_SCRIPT_NET "net-share" SCRIPT_EXTN
 #define SERVICE_DISCOVERY_WIN_SCRIPT_IIS_PORTS "get-iis-ports-info" SCRIPT_EXTN
 #define SERVICE_DISCOVERY_WIN_SCRIPT_SHAREPOINT_PORTS "get-sharepoint-ports-info" SCRIPT_EXTN
@@ -79,12 +83,13 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 
 #endif
 
+static gchar* scriptInstallDir = NULL;
+
 /*
  * Scripts used by plugin in both Windows and Linux guests to capture
  * information about running services.
  */
-#define SERVICE_DISCOVERY_SCRIPT_PROCESSES "get-listening-process-info" \
-        SCRIPT_EXTN
+#define SERVICE_DISCOVERY_SCRIPT_PROCESSES "get-listening-process-info" SCRIPT_EXTN
 #define SERVICE_DISCOVERY_SCRIPT_CONNECTIONS "get-connection-info" SCRIPT_EXTN
 #define SERVICE_DISCOVERY_SCRIPT_VERSIONS "get-versions" SCRIPT_EXTN
 
@@ -100,7 +105,7 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 #define SERVICE_DISCOVERY_POLL_INTERVAL 300000
 
 /*
- * Time shift for comparision of time read from the signal and
+ * Time shift for comparison of time read from the signal and
  * current system time in milliseconds.
  */
 #define SERVICE_DISCOVERY_WRITE_DELTA 60000
@@ -114,8 +119,16 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
  * Defines the configuration to cache data in gdp plugin
  */
 #define CONFNAME_SERVICEDISCOVERY_CACHEDATA "cache-data"
-
 #define SERVICE_DISCOVERY_CONF_DEFAULT_CACHEDATA TRUE
+
+/*
+ * Define the configuration to require at least one subscriber subscribed for
+ * the gdp message.
+ *
+ * TODO: SD maintainer to update default to TRUE when ready.
+ */
+#define CONFNAME_SERVICEDISCOVERY_REQUIRESUBS "require-subscribers"
+#define SERVICE_DISCOVERY_CONF_DEFAULT_REQUIRESUBS FALSE
 
 #define SERVICE_DISCOVERY_TOPIC_PREFIX "serviceDiscovery"
 
@@ -123,14 +136,14 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 /*
  * Defines the configuration to identify whether is in GDP debug mode
  *
- * Tools daemon restart is required to apply this setting's cahnge
+ * Tools daemon restart is required to apply this setting's change
  */
 #define CONFNAME_SERVICEDISCOVERY_GDP_DEBUG "gdp-debug"
 
 /*
  * Defines the configuration to customize polling interval for GDP debug
  *
- * Tools daemon restart is required to apply this setting's cahnge
+ * Tools daemon restart is required to apply this setting's change
  */
 #define CONFNAME_SERVICEDISCOVERY_GDP_POLL_INTERVAL "poll-interval"
 
@@ -154,8 +167,12 @@ static Bool isGDPDebug = FALSE;
 
 /*
  * GdpError message table.
+ * From GDP_ERR_ITEM tuple:
+ *   - GdpEnum name
+ *   - error-id string id
+ *   - Default error message string
  */
-#define GDP_ERR_ITEM(a, b) b,
+#define GDP_ERR_ITEM(a, b, c) c,
 static const char * const gdpErrMsgs[] = {
 GDP_ERR_LIST
 };
@@ -312,7 +329,7 @@ SendRpcMessage(ToolsAppCtx *ctx,
  * @param[in] createTime  Data create time
  * @param[in] topic       Data topic
  * @param[in] data        Service data
- * @param[in] len         Service data len
+ * @param[in] len         Service data length
  *
  * @retval TRUE  On success.
  * @retval FALSE Failed.
@@ -329,22 +346,30 @@ SendData(ToolsAppCtx *ctx,
 {
    GdpError gdpErr;
    Bool status = FALSE;
-   Bool cacheData = VMTools_ConfigGetBoolean(ctx->config,
-                                             CONFGROUPNAME_SERVICEDISCOVERY,
-                                             CONFNAME_SERVICEDISCOVERY_CACHEDATA,
-                                             SERVICE_DISCOVERY_CONF_DEFAULT_CACHEDATA);
+   Bool cacheData = VMTools_ConfigGetBoolean(
+                       ctx->config,
+                       CONFGROUPNAME_SERVICEDISCOVERY,
+                       CONFNAME_SERVICEDISCOVERY_CACHEDATA,
+                       SERVICE_DISCOVERY_CONF_DEFAULT_CACHEDATA);
+   Bool requireSubs = VMTools_ConfigGetBoolean(
+                         ctx->config,
+                         CONFGROUPNAME_SERVICEDISCOVERY,
+                         CONFNAME_SERVICEDISCOVERY_REQUIRESUBS,
+                         SERVICE_DISCOVERY_CONF_DEFAULT_REQUIRESUBS);
 
    gdpErr = ToolsPluginSvcGdp_Publish(ctx,
                                       createTime,
                                       topic,
-                                      NULL,
-                                      NULL,
+                                      NULL, /* token (optional) */
+                                      NULL, /* category (optional) */
                                       data,
                                       len,
-                                      cacheData);
+                                      cacheData,
+                                      requireSubs);
    if (gdpErr != GDP_ERROR_SUCCESS) {
       g_info("%s: ToolsPluginSvcGdp_Publish error: %s\n",
              __FUNCTION__, gdpErrMsgs[gdpErr]);
+      /* NOTE to SD maintainer: gdpErr == GDP_ERROR_NO_SUBSCRIBERS to be handled here when ready*/
       if (gdpErr == GDP_ERROR_STOP ||
           gdpErr == GDP_ERROR_UNREACH ||
           gdpErr == GDP_ERROR_TIMEOUT) {
@@ -363,7 +388,7 @@ SendData(ToolsAppCtx *ctx,
  *
  * A wrapper of C runtime library fread() with almost same signature except
  * the item size is always 1 byte. It ensures that when the returned number
- * of bytes is less than the input buffer size in bytes, an error has occured
+ * of bytes is less than the input buffer size in bytes, an error has occurred
  * or the end of the file is encountered.
  *
  * @param [out] buf     Pointer to a block of memory with a size of at least
@@ -917,9 +942,8 @@ ServiceDiscoveryTask(ToolsAppCtx *ctx,
    if (isNDBWriteReady) {
       gint64 previousWriteTime = gLastWriteTime;
 
-
       /*
-       * We are going to write to Namespace DB, update glastWriteTime
+       * We are going to write to Namespace DB, update gLastWriteTime
        */
       gLastWriteTime = GetGuestTimeInMillis();
 
@@ -947,7 +971,7 @@ ServiceDiscoveryTask(ToolsAppCtx *ctx,
    cycle++;
    for (i = 0; i < gFullPaths->len; i++) {
       KeyNameValue tmp = g_array_index(gFullPaths, KeyNameValue, i);
-      if (!ExecuteScript(ctx, tmp.keyName, tmp.val)) {
+      if (!ExecuteScript(ctx, tmp.keyName, tmp.val, scriptInstallDir)) {
          g_debug("%s: ExecuteScript failed for script %s\n",
                 __FUNCTION__, tmp.val);
          if (isGDPWriteReady && gSkipThisTask && !isNDBWriteReady) {
@@ -955,6 +979,7 @@ ServiceDiscoveryTask(ToolsAppCtx *ctx,
          }
       }
    }
+
    if (isGDPWriteReady && !gSkipThisTask) {
       gchar* readyData = g_strdup_printf("%"FMTSZ"u", readBytesPerCycle);
       g_debug("%s: Sending ready flag with number of read bytes :%s\n",
@@ -993,7 +1018,8 @@ ServiceDiscoveryTask(ToolsAppCtx *ctx,
  * has elapsed since the last write operation.
  *
  * @param[in] ctx           The application context.
- * @param[in] signalKey     Signal key to check the write redinness of Namespace DB or gdp.
+ * @param[in] signalKey     Signal key to check the write readiness of
+ *                          Namespace DB or gdp.
  *
  * @retval TRUE  Execute scripts and write service data to Namespace DB or gdp
  * @retval FALSE Omit this cycle wihtout any script running.
@@ -1214,6 +1240,9 @@ ServiceDiscoveryServerShutdown(gpointer src,
       gServiceDiscoveryTimeoutSource = NULL;
    }
 
+   g_free(scriptInstallDir);
+   scriptInstallDir = NULL;
+
    if (gFullPaths != NULL) {
       int i = 0;
       guint len = gFullPaths->len;
@@ -1224,7 +1253,6 @@ ServiceDiscoveryServerShutdown(gpointer src,
       g_array_free(gFullPaths, TRUE);
    }
 }
-
 
 /*
  *****************************************************************************
@@ -1239,7 +1267,6 @@ static void
 ConstructScriptPaths(void)
 {
    int i;
-   gchar *scriptInstallDir;
 #if !defined(OPEN_VM_TOOLS)
    gchar *toolsInstallDir;
 #endif
@@ -1250,30 +1277,26 @@ ConstructScriptPaths(void)
 
    gFullPaths = g_array_sized_new(FALSE, TRUE, sizeof(KeyNameValue),
                                   ARRAYSIZE(gKeyScripts));
-
+   if (scriptInstallDir == NULL) {
 #if defined(OPEN_VM_TOOLS)
-   scriptInstallDir = Util_SafeStrdup(VMTOOLS_SERVICE_DISCOVERY_SCRIPTS);
+      scriptInstallDir = Util_SafeStrdup(VMTOOLS_SERVICE_DISCOVERY_SCRIPTS);
 #else
-   toolsInstallDir = GuestApp_GetInstallPath();
-   scriptInstallDir = g_strdup_printf("%s%s%s%s%s", toolsInstallDir, DIRSEPS,
+      toolsInstallDir = GuestApp_GetInstallPath();
+      scriptInstallDir = g_strdup_printf("%s%s%s%s%s", toolsInstallDir, DIRSEPS,
                                       "serviceDiscovery", DIRSEPS, "scripts");
-   g_free(toolsInstallDir);
+      g_free(toolsInstallDir);
 #endif
-
+   }
    for (i = 0; i < ARRAYSIZE(gKeyScripts); ++i) {
       KeyNameValue tmp;
       tmp.keyName = g_strdup_printf("%s", gKeyScripts[i].keyName);
 #if defined(_WIN32)
-      tmp.val = g_strdup_printf("\"%s%s%s\"", scriptInstallDir,
-                                DIRSEPS, gKeyScripts[i].val);
+      tmp.val = ConstructPWSScriptCommand(gKeyScripts[i].val);
 #else
-      tmp.val = g_strdup_printf("%s%s%s", scriptInstallDir, DIRSEPS,
-                                gKeyScripts[i].val);
+      tmp.val = g_strdup_printf("%s%s%s", scriptInstallDir, DIRSEPS, gKeyScripts[i].val);
 #endif
       g_array_insert_val(gFullPaths, i, tmp);
    }
-
-   g_free(scriptInstallDir);
 }
 
 
@@ -1324,7 +1347,7 @@ ToolsOnLoad(ToolsAppCtx *ctx)
     */
    if (!TOOLS_IS_MAIN_SERVICE(ctx)) {
       g_info("%s: Not running in vmsvc daemon: container name='%s'.\n",
-         __FUNCTION__, ctx->name);
+             __FUNCTION__, ctx->name);
       return NULL;
    }
    if (ctx->rpc != NULL) {
@@ -1343,7 +1366,7 @@ ToolsOnLoad(ToolsAppCtx *ctx)
                                        sizeof *regs,
                                        ARRAYSIZE(regs));
       /*
-       * Append scripts absolute paths based on installation dirs.
+       * Append scripts execution command line
        */
       ConstructScriptPaths();
 

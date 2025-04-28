@@ -1,5 +1,6 @@
 /*********************************************************
- * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
+ * Copyright (c) 1998-2024 Broadcom. All Rights Reserved.
+ * The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -31,6 +32,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include "productState.h"
+#include "conf.h" // for tools install path regkey
 #include "winregistry.h"
 #include "windowsUtil.h"
 #endif
@@ -133,26 +135,27 @@ GuestApp_GetDefaultScript(const char *confName) // IN
 LPWSTR
 GuestApp_GetInstallPathW(void)
 {
-   static LPCWSTR TOOLS_KEY_NAME = L"Software\\VMware, Inc.\\VMware Tools";
-   static LPCWSTR INSTALLPATH_VALUE_NAME = L"InstallPath";
-
    HKEY   key    = NULL;
    LONG   rc;
    DWORD  cbData = 0;
    DWORD  temp   = 0;
    PWCHAR data   = NULL;
+   REGSAM samDesired = KEY_READ;
 
-   rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, TOOLS_KEY_NAME, 0, KEY_READ, &key);
+   rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, CONF_VMWARE_TOOLS_REGKEY_W, 0,
+                      samDesired, &key);
    if (ERROR_SUCCESS != rc) {
-      Debug("%s: Couldn't open key \"%S\".\n", __FUNCTION__, TOOLS_KEY_NAME);
+      Debug("%s: Couldn't open key \"%S\".\n", __FUNCTION__,
+            CONF_VMWARE_TOOLS_REGKEY_W);
       Debug("%s: RegOpenKeyExW error 0x%x.\n", __FUNCTION__, GetLastError());
       goto exit;
    }
 
-   rc = RegQueryValueExW(key, INSTALLPATH_VALUE_NAME, 0, NULL, NULL, &cbData);
+   rc = RegQueryValueExW(key, CONF_VMWARE_TOOLS_INSTPATH_KEY_W, 0, NULL, NULL,
+                         &cbData);
    if (ERROR_SUCCESS != rc) {
       Debug("%s: Couldn't get length of value \"%S\".\n", __FUNCTION__,
-            INSTALLPATH_VALUE_NAME);
+            CONF_VMWARE_TOOLS_INSTPATH_KEY_W);
       Debug("%s: RegQueryValueExW error 0x%x.\n", __FUNCTION__, GetLastError());
       goto exit;
    }
@@ -168,11 +171,11 @@ GuestApp_GetInstallPathW(void)
    }
 
    temp = cbData;
-   rc = RegQueryValueExW(key, INSTALLPATH_VALUE_NAME, 0, NULL, (LPBYTE) data,
+   rc = RegQueryValueExW(key, CONF_VMWARE_TOOLS_INSTPATH_KEY_W, 0, NULL, (LPBYTE) data,
                          &temp);
    if (ERROR_SUCCESS != rc) {
       Debug("%s: Couldn't get data for value \"%S\".\n", __FUNCTION__,
-            INSTALLPATH_VALUE_NAME);
+            CONF_VMWARE_TOOLS_INSTPATH_KEY_W);
       Debug("%s: RegQueryValueExW error 0x%x.\n", __FUNCTION__, GetLastError());
       goto exit;
    }
@@ -217,7 +220,7 @@ GuestApp_GetInstallPath(void)
 
    if (WinReg_GetSZ(HKEY_LOCAL_MACHINE,
                     CONF_VMWARE_TOOLS_REGKEY,
-                    "InstallPath",
+                    CONF_VMWARE_TOOLS_INSTPATH_KEY,
                     &pathUtf8) != ERROR_SUCCESS) {
       Warning("%s: Unable to retrieve install path: %s\n",
                __FUNCTION__, Msg_ErrString());
