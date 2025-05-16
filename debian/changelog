@@ -1,3 +1,20 @@
+open-vm-tools (2:12.2.0-1+deb12u3+pexip24u1) pexip; urgency=medium
+
+  * New upstream release with security fix
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Fri, 16 May 2025 11:33:52 +0100
+
+open-vm-tools (2:12.2.0-1+deb12u3) bookworm-security; urgency=medium
+
+  * [df2a118] Fixing an insecure file handling vulnerability.
+    It allowed a malicious actor with non-administrative privileges
+    on a guest VM to tamper the local files to trigger insecure file
+    operations within that VM.
+    VMSA-2025-0007
+    CVE-2025-22247 (Closes: #1105159)
+
+ -- Bernd Zeimetz <bzed@debian.org>  Mon, 12 May 2025 15:22:02 +0200
+
 open-vm-tools (2:12.2.0-1+deb12u2+pexip24u4) pexip-bookworm; urgency=medium
 
   * New versioning scheme
