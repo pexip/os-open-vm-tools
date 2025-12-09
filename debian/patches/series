@@ -1,5 +1,7 @@
 use-debian-pam
 debian/scsi-udev-rule
+CVE-2025-22247-1230-1250-VGAuth-updates.patch
+CVE-2025-41244-1200-1225-SDMP.patch
 # Pexip patches
 notimesync.patch
 freezeflag.patch

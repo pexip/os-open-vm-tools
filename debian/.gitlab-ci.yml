@@ -3,7 +3,7 @@ include:
  - https://salsa.debian.org/salsa-ci-team/pipeline/raw/master/pipeline-jobs.yml
 
 variables:
- RELEASE: 'unstable'
+ RELEASE: 'trixie'
  SALSA_CI_DISABLE_APTLY: 0
  SALSA_CI_DISABLE_AUTOPKGTEST: 0
  SALSA_CI_DISABLE_BLHC: 0
@@ -15,3 +15,50 @@ variables:
  SALSA_CI_DISABLE_CROSSBUILD_ARM64: 1
  SALSA_CI_REPROTEST_ENABLE_DIFFOSCOPE: 1
  SALSA_CI_DISABLE_BUILD_PACKAGE_ARM64: 0
+ SALSA_CI_DISABLE_DEBDIFF: 0
+
+
+debdiff:
+  stage: test
+  image: $SALSA_CI_IMAGES_GENERIC_TESTS
+  rules:
+    - if: $SALSA_CI_ENABLE_DEBDIFF =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_DEBDIFF !~ /^(1|yes|true)$/
+  script:
+    - "sed -i '/^Types:/s,:.*,: deb deb-src,' /etc/apt/sources.list.d/debian.sources"
+    # this is fugly, but the build container is totally not happy about apt
+    # downloading sources otherwise.
+    - echo 'APT::Sandbox::User "root";' | tee -a /etc/apt/apt.conf.d/10sandbox
+    - apt-get update && eatmydata apt-get install -y devscripts
+    - PKG_NAME=$(dpkg-parsechangelog -S Source)
+    - NEW_DSC=$(find ${WORKING_DIR} -maxdepth 1 -name "*.dsc" | head -n 1)
+    - |
+      if [ -z "${PKG_NAME}" ] || [ ! -f "${NEW_DSC}" ]; then
+        echo "Error: Could not determine package name or find .changes file."
+        exit 1
+      fi
+    - |
+      # Attempt to download the source package from the archive.
+      # If it fails, the package is likely new, and we create a note.
+      if apt-get -d source "${PKG_NAME}"; then
+        OLD_DSC=$(find . -maxdepth 1 -name "${PKG_NAME}_*.dsc" | head -n 1)
+        if [ -f "${OLD_DSC}" ]; then
+          debdiff "${OLD_DSC}" "${NEW_DSC}" > "${WORKING_DIR}/${PKG_NAME}.debdiff" || true
+        else
+          echo "Warning: apt-get source ran but no .dsc file was found." > "${WORKING_DIR}/${PKG_NAME}.debdiff"
+        fi
+      else
+        echo "Package not found in archive; assuming it is new." > "${WORKING_DIR}/${PKG_NAME}.debdiff"
+      fi
+  variables:
+    # We need the source checkout for dpkg-parsechangelog
+    GIT_STRATEGY: fetch
+  artifacts:
+    paths:
+      - ${WORKING_DIR}/*.debdiff
+    when: always
+  needs:
+    - job: build
+      artifacts: true
