@@ -6,7 +6,7 @@ CVE-2023-20900.patch
 CVE-2023-34059.patch
 CVE-2023-34058.patch
 CVE-2025-22247-1100-1225-VGAuth-updates.patch
-
+CVE-2025-41244-1200-1225-SDMP.patch
 # Pexip patches
 notimesync.patch
 freezeflag.patch

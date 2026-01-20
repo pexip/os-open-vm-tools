@@ -1,3 +1,18 @@
+open-vm-tools (2:12.2.0-1+deb12u4+pexip24u1) pexip; urgency=medium
+
+  * New upstream release with security fix
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Tue, 20 Jan 2026 15:55:55 +0000
+
+open-vm-tools (2:12.2.0-1+deb12u4) bookworm; urgency=high
+
+  * [e4ad4b0] Run debdiff in CI
+  * [039e4a0] Disable (default) the execution of the SDMP get-versions.sh script
+    (CVE-2025-41244)
+    Thanks to Salvatore Bonaccorso
+
+ -- Bernd Zeimetz <bzed@debian.org>  Tue, 30 Sep 2025 21:11:28 +0200
+
 open-vm-tools (2:12.2.0-1+deb12u3+pexip24u1) pexip; urgency=medium
 
   * New upstream release with security fix
