@@ -1,3 +1,5 @@
+Log cases where the VM host requires us to reboot or shutdown.
+
 diff --git a/open-vm-tools/lib/system/systemLinux.c b/open-vm-tools/lib/system/systemLinux.c
 index a688ab2..bb0a741 100644
 --- a/open-vm-tools/lib/system/systemLinux.c

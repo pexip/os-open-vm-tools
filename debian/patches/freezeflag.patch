@@ -1,3 +1,6 @@
+Modify open-vm-tools so that freeze operations create the pexip-specific freeze
+flag (used by other tooling to detect this case)
+
 diff --git a/open-vm-tools/lib/syncDriver/syncDriverLinux.c b/open-vm-tools/lib/syncDriver/syncDriverLinux.c
 index 6d9a356..9fecda3 100644
 --- a/open-vm-tools/lib/syncDriver/syncDriverLinux.c

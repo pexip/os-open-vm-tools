@@ -1,3 +1,5 @@
+Replace use of old APIs which are deprecated in OpenSSL 3
+
 diff --git a/open-vm-tools/vgauth/common/certverify.c b/open-vm-tools/vgauth/common/certverify.c
 index f742597..4661623 100644
 --- a/open-vm-tools/vgauth/common/certverify.c

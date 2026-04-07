@@ -1,3 +1,5 @@
+Disable the timeSync binary in open-vm-tools, we use NTP instead.
+
 --- a/open-vm-tools/configure.ac
 +++ b/open-vm-tools/configure.ac
 @@ -1896,7 +1896,6 @@
